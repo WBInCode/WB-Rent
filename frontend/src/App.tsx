@@ -1,5 +1,6 @@
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
+import { Categories } from '@/sections/Categories';
 
 function App() {
   return (
@@ -9,10 +10,8 @@ function App() {
       {/* Hero Section */}
       <Hero />
 
-      {/* Placeholder sections for testing navigation */}
-      <section id="kategorie" className="min-h-screen flex items-center justify-center bg-bg-secondary">
-        <h2 className="text-3xl font-bold text-text-primary">Kategorie</h2>
-      </section>
+      {/* Categories Section */}
+      <Categories />
 
       <section id="produkty" className="min-h-screen flex items-center justify-center">
         <h2 className="text-3xl font-bold text-text-primary">Produkty</h2>
