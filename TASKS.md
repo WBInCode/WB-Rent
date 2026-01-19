@@ -28,7 +28,7 @@
 
 ### 2. Layout sekcji (statyczne)
 - [x] Navbar (logo + linki + CTA)
-- [ ] Hero (headline + widget "Sprawdź koszty")
+- [x] Hero (headline + widget "Sprawdź koszty")
 - [ ] Sekcja Kategorie (Ozonatory, Sprzęt czyszczący + placeholdery)
 - [ ] Sekcja Produkty (grid placeholder)
 - [ ] Sekcja "Jak to działa" (4 kroki)
@@ -110,6 +110,7 @@
 | 2026-01-19 | Init projektu (task 0) | ✅ | Vite + React + TS, TailwindCSS v4, struktura folderów |
 | 2026-01-19 | Design System (task 1) | ✅ | Button, Card, Input, Select, Badge, Toggle, Textarea + motion tokens |
 | 2026-01-19 | Backend API (task 7) | ✅ | Express + TS, SQLite, Zod, Nodemailer, endpoints contact + reservations |
+| 2026-01-19 | Navbar + Hero | ✅ | Navbar z mobile menu, Hero z widget kalkulacji kosztów, dane demo produktów |
 
 ---
 

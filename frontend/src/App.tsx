@@ -1,17 +1,15 @@
 import { Navbar } from '@/components/Navbar';
+import { Hero } from '@/sections/Hero';
 
 function App() {
   return (
     <div className="min-h-screen bg-bg-primary">
       <Navbar />
       
-      {/* Placeholder sections for testing navigation */}
-      <section id="start" className="min-h-screen flex items-center justify-center">
-        <h1 className="text-4xl font-bold text-text-primary">
-          <span className="text-gold">WB-Rent</span> — Start
-        </h1>
-      </section>
+      {/* Hero Section */}
+      <Hero />
 
+      {/* Placeholder sections for testing navigation */}
       <section id="kategorie" className="min-h-screen flex items-center justify-center bg-bg-secondary">
         <h2 className="text-3xl font-bold text-text-primary">Kategorie</h2>
       </section>
