@@ -32,7 +32,12 @@ export function CostWidget() {
     }
 
     const days = calculateDays(start, end);
-    return calculateRentalCost(productId, days, delivery);
+    
+    // Check if it's a weekend rental (Fri-Mon)
+    const startDay = start.getDay();
+    const isWeekend = startDay === 5 && days <= 3; // Friday start, max 3 days
+    
+    return calculateRentalCost(productId, days, delivery, isWeekend);
   }, [productId, startDate, endDate, delivery]);
 
   // Reset product when category changes

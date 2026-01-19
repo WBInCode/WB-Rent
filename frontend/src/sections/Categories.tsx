@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Wind, Sparkles, ArrowRight } from 'lucide-react';
+import { Wind, Sparkles, ArrowRight, Cloud, Wrench } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { categories, getProductsByCategory } from '@/data/products';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
@@ -8,6 +8,8 @@ import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@
 const categoryIcons: Record<string, React.ElementType> = {
   wind: Wind,
   sparkles: Sparkles,
+  cloud: Cloud,
+  wrench: Wrench,
 };
 
 export function Categories() {
