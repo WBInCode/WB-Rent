@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Truck, ArrowRight, Calculator } from 'lucide-react';
+import { Calendar, MapPin, Truck, ArrowRight, Calculator, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Card, Select, Input, Toggle, Button } from '@/components/ui';
 import { categories, getProductsByCategory, calculateRentalCost, type Product } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
 import { revealVariants } from '@/lib/motion';
+import { useReservationContext } from '@/context/ReservationContext';
+import { checkAvailability } from '@/services/api';
 
 export function CostWidget() {
   const [categoryId, setCategoryId] = useState('');
@@ -13,12 +15,27 @@ export function CostWidget() {
   const [endDate, setEndDate] = useState('');
   const [city, setCity] = useState('');
   const [delivery, setDelivery] = useState(false);
+  
+  // Availability checking
+  const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
+  const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+
+  const { setPreFillData } = useReservationContext();
 
   // Get products for selected category
   const availableProducts = useMemo(() => {
     if (!categoryId) return [];
     return getProductsByCategory(categoryId).filter((p) => p.available);
   }, [categoryId]);
+
+  // Calculate rental days
+  const rentalDays = useMemo(() => {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
+    return calculateDays(start, end);
+  }, [startDate, endDate]);
 
   // Calculate cost
   const costSummary = useMemo(() => {
@@ -40,6 +57,36 @@ export function CostWidget() {
     return calculateRentalCost(productId, days, delivery, isWeekend);
   }, [productId, startDate, endDate, delivery]);
 
+  // Auto-check availability when product/dates change
+  useEffect(() => {
+    if (!productId || !startDate || !endDate || rentalDays === 0) {
+      setAvailabilityStatus('idle');
+      setAvailabilityMessage(null);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setAvailabilityStatus('checking');
+      
+      try {
+        const result = await checkAvailability(productId, startDate, endDate);
+        
+        if (result.success && result.data?.available) {
+          setAvailabilityStatus('available');
+          setAvailabilityMessage('Termin dostępny!');
+        } else {
+          setAvailabilityStatus('unavailable');
+          setAvailabilityMessage(result.data?.message || 'Termin niedostępny');
+        }
+      } catch {
+        setAvailabilityStatus('idle');
+        setAvailabilityMessage(null);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [productId, startDate, endDate, rentalDays]);
+
   // Reset product when category changes
   const handleCategoryChange = (value: string) => {
     setCategoryId(value);
@@ -47,6 +94,17 @@ export function CostWidget() {
   };
 
   const handleReservation = () => {
+    // Save data to context
+    setPreFillData({
+      categoryId,
+      productId,
+      startDate,
+      endDate,
+      city,
+      delivery,
+    });
+    
+    // Scroll to reservation form
     const element = document.getElementById('rezerwacja');
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
@@ -124,6 +182,22 @@ export function CostWidget() {
             />
             <Truck className="w-5 h-5 text-text-muted" />
           </div>
+
+          {/* Availability Status */}
+          {availabilityStatus !== 'idle' && (
+            <div className={`flex items-center gap-2 p-3 rounded-lg ${
+              availabilityStatus === 'checking' ? 'bg-blue-500/10 text-blue-400' :
+              availabilityStatus === 'available' ? 'bg-green-500/10 text-green-400' :
+              'bg-red-500/10 text-red-400'
+            }`}>
+              {availabilityStatus === 'checking' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {availabilityStatus === 'available' && <CheckCircle className="w-4 h-4" />}
+              {availabilityStatus === 'unavailable' && <AlertCircle className="w-4 h-4" />}
+              <span className="text-sm font-medium">
+                {availabilityStatus === 'checking' ? 'Sprawdzanie dostępności...' : availabilityMessage}
+              </span>
+            </div>
+          )}
 
           {/* Divider */}
           <div className="border-t border-border my-4" />

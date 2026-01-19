@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'gold';
+type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'gold' | 'info';
 type BadgeSize = 'sm' | 'md';
 
 interface BadgeProps {
@@ -17,6 +17,7 @@ const variantStyles: Record<BadgeVariant, string> = {
   warning: 'bg-warning/10 text-warning border-warning/20',
   error: 'bg-error/10 text-error border-error/20',
   gold: 'bg-gold-muted text-gold border-border-gold',
+  info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
 };
 
 const sizeStyles: Record<BadgeSize, string> = {

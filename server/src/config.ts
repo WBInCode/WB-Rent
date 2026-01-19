@@ -22,6 +22,8 @@ export const config = {
 
   // Admin
   adminEmail: process.env.ADMIN_EMAIL || 'admin@wb-rent.pl',
+  adminPassword: process.env.ADMIN_PASSWORD || 'wbrent2026',
+  adminToken: process.env.ADMIN_TOKEN || 'wb-rent-admin-secret-token-2026',
 
   // Rate limiting
   rateLimit: {

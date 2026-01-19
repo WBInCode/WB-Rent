@@ -30,9 +30,9 @@ const footerLinks = {
 };
 
 const contactInfo = [
-  { icon: Phone, text: '+48 123 456 789', href: 'tel:+48123456789' },
+  { icon: Phone, text: '570 038 828', href: 'tel:+48570038828' },
   { icon: Mail, text: 'kontakt@wb-rent.pl', href: 'mailto:kontakt@wb-rent.pl' },
-  { icon: MapPin, text: 'Warszawa i okolice', href: '#' },
+  { icon: MapPin, text: 'ul. Słowackiego 24/11, 35-060 Rzeszów', href: 'https://maps.google.com/?q=Juliusza+Słowackiego+24/11,+35-060+Rzeszów' },
   { icon: Clock, text: 'Pon-Pt: 8:00-20:00, Sob: 9:00-18:00', href: null },
 ];
 
@@ -176,6 +176,13 @@ export function Footer() {
 
         {/* Divider */}
         <div className="h-px bg-neutral-800 my-8" />
+
+        {/* Company info */}
+        <div className="text-center mb-6 text-xs text-neutral-500 space-y-1">
+          <p className="font-medium text-neutral-400">WB Partners Sp. z o.o.</p>
+          <p>NIP: 5170455185 | REGON: 540735769 | KRS: 0001151642</p>
+          <p>ul. Słowackiego 24/11, 35-060 Rzeszów</p>
+        </div>
 
         {/* Bottom bar */}
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-neutral-500">

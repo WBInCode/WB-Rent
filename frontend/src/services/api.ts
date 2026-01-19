@@ -112,10 +112,32 @@ export async function submitContact(
   });
 }
 
+// Availability check API
+export interface AvailabilityResponse {
+  available: boolean;
+  message: string;
+  conflicts?: Array<{
+    startDate: string;
+    endDate: string;
+    status: string;
+  }>;
+}
+
+export async function checkAvailability(
+  productId: string,
+  startDate: string,
+  endDate: string
+): Promise<ApiResponse<AvailabilityResponse>> {
+  return apiFetch<AvailabilityResponse>(
+    `/availability/${productId}?startDate=${startDate}&endDate=${endDate}`
+  );
+}
+
 // Export all API functions
 export const api = {
   submitReservation,
   submitContact,
+  checkAvailability,
 };
 
 export default api;

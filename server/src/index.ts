@@ -5,6 +5,8 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { initializeDatabase } from './db.js';
 import routes from './routes.js';
+import adminRoutes from './admin.js';
+import { initScheduler } from './scheduler.js';
 
 const app = express();
 
@@ -13,11 +15,24 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS
+// CORS - allow multiple origins for dev
 app.use(cors({
-  origin: config.corsOrigin,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type'],
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
+      config.corsOrigin,
+    ];
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all in dev
+    }
+  },
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // Body parser
@@ -39,6 +54,7 @@ app.use('/api', limiter);
 
 // === ROUTES ===
 app.use('/api', routes);
+app.use('/api/admin', adminRoutes);
 
 // === 404 HANDLER ===
 app.use((_req, res) => {
@@ -61,6 +77,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 const startServer = () => {
   // Initialize database
   initializeDatabase();
+  
+  // Initialize scheduler for automatic reminders
+  initScheduler();
 
   app.listen(config.port, () => {
     console.log(`
@@ -71,6 +90,7 @@ const startServer = () => {
 ║  📍 http://localhost:${config.port}                 ║
 ║  🌐 CORS origin: ${config.corsOrigin}    ║
 ║  🔧 Environment: ${config.nodeEnv}           ║
+║  ⏰ Reminders: daily at 9:00 AM          ║
 ╚═══════════════════════════════════════════╝
     `);
   });

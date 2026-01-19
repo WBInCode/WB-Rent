@@ -72,11 +72,9 @@ router.post('/contact', async (req: Request, res: Response) => {
       ipAddress: getClientIp(req),
     });
 
-    // Send emails (async, don't wait)
-    Promise.all([
-      sendContactConfirmation(data),
-      sendContactNotification(data),
-    ]).catch((err) => console.error('Email error:', err));
+    // Send confirmation email to customer only (admin sees in panel)
+    sendContactConfirmation(data)
+      .catch((err) => console.error('Email error:', err));
 
     res.status(201).json({
       success: true,
@@ -135,7 +133,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
       productId: data.productId,
       startDate: data.startDate,
       endDate: data.endDate,
-      city: data.city || null,
+      city: data.city || 'Nie podano',
       delivery: data.delivery ? 1 : 0,
       address: data.address || null,
       name: fullName,
@@ -162,6 +160,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
     };
 
     // Send emails (async, don't wait)
+    // Customer gets "waiting for confirmation", Admin gets notification
     Promise.all([
       sendReservationConfirmation(emailData),
       sendReservationNotification(emailData),
@@ -169,7 +168,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
 
     res.status(201).json({
       success: true,
-      message: 'Rezerwacja przyjęta! Skontaktujemy się w ciągu 24h.',
+      message: 'Rezerwacja złożona! Otrzymasz potwierdzenie na email w ciągu 24h.',
       id: result.lastInsertRowid,
       summary: {
         productName: product.name,
@@ -200,6 +199,87 @@ router.post('/reservations', async (req: Request, res: Response) => {
 // === GET /api/health ===
 router.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// === GET /api/availability/:productId ===
+// Check date availability for a product
+router.get('/availability/:productId', (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      res.status(400).json({
+        success: false,
+        message: 'Wymagane parametry: startDate, endDate',
+      });
+      return;
+    }
+
+    const queries = getQueries();
+    
+    // Check for conflicting reservations
+    // Two date ranges overlap if: startA < endB AND endA > startB
+    const conflicts = queries.checkDateAvailability.all({
+      productId,
+      startDate,
+      endDate,
+    }) as any[];
+
+    if (conflicts.length > 0) {
+      res.json({
+        success: true,
+        available: false,
+        message: 'Produkt jest już zarezerwowany w tym terminie',
+        conflicts: conflicts.map(c => ({
+          startDate: c.start_date,
+          endDate: c.end_date,
+          status: c.status,
+        })),
+      });
+    } else {
+      res.json({
+        success: true,
+        available: true,
+        message: 'Termin dostępny',
+      });
+    }
+  } catch (error) {
+    console.error('Availability check error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Błąd sprawdzania dostępności',
+    });
+  }
+});
+
+// === GET /api/reservations/:productId ===
+// Get all reservations for a product (for calendar view)
+router.get('/reservations/:productId', (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const queries = getQueries();
+    
+    const reservations = queries.getReservationsByProduct.all(productId) as any[];
+    
+    // Return only dates and status (no personal info)
+    const dates = reservations.map(r => ({
+      startDate: r.start_date,
+      endDate: r.end_date,
+      status: r.status,
+    }));
+
+    res.json({
+      success: true,
+      data: dates,
+    });
+  } catch (error) {
+    console.error('Get reservations error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Błąd pobierania rezerwacji',
+    });
+  }
 });
 
 export default router;

@@ -94,11 +94,50 @@
 - [x] Optymalizacja performance (lazy load, code split)
 - [x] SEO basics (meta tags, OG, title)
 - [x] Favicon + manifest
+- [x] Zdjęcia produktów (11 zdjęć)
 
-### 10. Dokumentacja
+### 10. Panel Admina
+- [x] Backend: endpointy /api/admin/* (login, reservations, contacts, stats)
+- [x] Frontend: strona /admin z logowaniem
+- [x] Fix: CORS dla różnych portów dev
+- [ ] Dashboard ze statystykami
+- [ ] Lista rezerwacji z filtrowaniem
+- [ ] Zmiana statusu rezerwacji (pending → confirmed → completed)
+- [ ] Lista wiadomości kontaktowych
+- [ ] Zmiana hasła admina
+
+### 11. System dostępności dat
+- [ ] API: GET /api/products/:id/availability (zwraca zajęte daty)
+- [ ] Frontend: blokada zajętych dat w date picker
+- [ ] Walidacja: sprawdzenie dostępności przed wysłaniem rezerwacji
+- [ ] Kalendarz zajętości w panelu admina
+
+### 12. Email notifications
+- [ ] Konfiguracja SMTP w .env
+- [ ] Email do admina: nowa rezerwacja
+- [ ] Email do admina: nowa wiadomość kontaktowa
+- [ ] Email do klienta: potwierdzenie rezerwacji
+- [ ] Email do klienta: zmiana statusu (confirmed/rejected)
+- [ ] Szablony HTML dla maili
+
+### 13. Strona produktu (opcjonalnie)
+- [ ] Osobna strona /produkt/:id z pełnymi szczegółami
+- [ ] Galeria zdjęć produktu
+- [ ] Szczegółowy cennik (dzień, weekend, tydzień)
+- [ ] Lista akcesoriów z cenami
+- [ ] Przycisk "Rezerwuj ten produkt"
+
+### 14. Regulamin i polityka prywatności
+- [ ] Strona /regulamin
+- [ ] Strona /polityka-prywatnosci
+- [ ] Linki w formularzu rezerwacji
+- [ ] Linki w footerze
+
+### 15. Dokumentacja
 - [ ] README.md z instrukcją uruchomienia
 - [ ] .env.example dla backendu
 - [ ] Opis endpointów API
+- [ ] Instrukcja deploy (produkcja)
 
 ---
 

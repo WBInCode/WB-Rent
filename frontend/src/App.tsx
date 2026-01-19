@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
+import { ReservationProvider } from '@/context/ReservationContext';
 
 // Lazy load sections below the fold
 const Categories = lazy(() => import('@/sections/Categories').then(m => ({ default: m.Categories })));
@@ -10,6 +12,9 @@ const Reservation = lazy(() => import('@/sections/Reservation').then(m => ({ def
 const FAQContact = lazy(() => import('@/sections/FAQContact').then(m => ({ default: m.FAQContact })));
 const Footer = lazy(() => import('@/sections/Footer').then(m => ({ default: m.Footer })));
 
+// Lazy load admin panel
+const AdminPanel = lazy(() => import('@/pages/AdminPanel').then(m => ({ default: m.AdminPanel })));
+
 // Loading fallback
 const SectionLoader = () => (
   <div className="py-20 flex justify-center">
@@ -17,18 +22,20 @@ const SectionLoader = () => (
   </div>
 );
 
-function App() {
+// Main website layout
+function MainSite() {
   return (
-    <div className="min-h-screen bg-bg-primary">
-      {/* Skip to main content link for keyboard users */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
-      >
-        Przejdź do treści głównej
-      </a>
+    <ReservationProvider>
+      <div className="min-h-screen bg-bg-primary">
+        {/* Skip to main content link for keyboard users */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
+        >
+          Przejdź do treści głównej
+        </a>
 
-      <Navbar />
+        <Navbar />
       
       <main id="main-content" role="main">
         {/* Hero Section - not lazy, above the fold */}
@@ -61,6 +68,20 @@ function App() {
         <Footer />
       </Suspense>
     </div>
+    </ReservationProvider>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<SectionLoader />}>
+        <Routes>
+          <Route path="/" element={<MainSite />} />
+          <Route path="/admin" element={<AdminPanel />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
   );
 }
 

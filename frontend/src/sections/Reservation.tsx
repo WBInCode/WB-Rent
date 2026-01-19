@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Calendar, 
@@ -24,7 +24,8 @@ import {
 import { formatPrice, calculateDays } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { useSubmitForm } from '@/hooks';
-import { submitReservation, type ReservationPayload } from '@/services/api';
+import { submitReservation, checkAvailability, type ReservationPayload } from '@/services/api';
+import { useReservationContext } from '@/context/ReservationContext';
 
 interface FormData {
   // Product selection
@@ -72,6 +73,28 @@ const initialFormData: FormData = {
 export function Reservation() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
+  const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+
+  // Get pre-fill data from CostWidget
+  const { preFillData, clearPreFillData } = useReservationContext();
+
+  // Apply pre-fill data when it changes
+  useEffect(() => {
+    if (preFillData) {
+      setFormData(prev => ({
+        ...prev,
+        categoryId: preFillData.categoryId,
+        productId: preFillData.productId,
+        startDate: preFillData.startDate,
+        endDate: preFillData.endDate,
+        city: preFillData.city,
+        delivery: preFillData.delivery,
+      }));
+      // Clear pre-fill data after applying
+      clearPreFillData();
+    }
+  }, [preFillData, clearPreFillData]);
 
   // API submission hook
   const {
@@ -130,6 +153,52 @@ export function Reservation() {
     );
   }, [formData.productId, rentalDays, formData.delivery, isWeekendRental, formData.weekendPickup]);
 
+  // Auto-check availability when product/dates change
+  useEffect(() => {
+    // Reset if missing required fields
+    if (!formData.productId || !formData.startDate || !formData.endDate || rentalDays === 0) {
+      setAvailabilityStatus('idle');
+      setAvailabilityMessage(null);
+      return;
+    }
+
+    // Debounce the check
+    const timeoutId = setTimeout(async () => {
+      setAvailabilityStatus('checking');
+      
+      try {
+        const result = await checkAvailability(
+          formData.productId,
+          formData.startDate,
+          formData.endDate
+        );
+
+        if (!result.success) {
+          setAvailabilityStatus('idle');
+          return;
+        }
+
+        if (result.data && !result.data.available) {
+          setAvailabilityStatus('unavailable');
+          const conflicts = result.data.conflicts || [];
+          if (conflicts.length > 0) {
+            const conflictDates = conflicts.map(c => `${c.startDate} - ${c.endDate}`).join(', ');
+            setAvailabilityMessage(`Urządzenie jest już zarezerwowane w terminie: ${conflictDates}. Wybierz inny termin.`);
+          } else {
+            setAvailabilityMessage('Urządzenie jest niedostępne w wybranym terminie.');
+          }
+        } else {
+          setAvailabilityStatus('available');
+          setAvailabilityMessage(null);
+        }
+      } catch {
+        setAvailabilityStatus('idle');
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.productId, formData.startDate, formData.endDate, rentalDays]);
+
   // Update form field
   const updateField = <K extends keyof FormData>(field: K, value: FormData[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -137,6 +206,12 @@ export function Reservation() {
     // Reset product when category changes
     if (field === 'categoryId') {
       setFormData((prev) => ({ ...prev, productId: '' }));
+    }
+    
+    // Reset availability status when product or dates change
+    if (field === 'productId' || field === 'startDate' || field === 'endDate') {
+      setAvailabilityStatus('idle');
+      setAvailabilityMessage(null);
     }
   };
 
@@ -163,6 +238,18 @@ export function Reservation() {
 
     if (!selectedProduct || !costSummary) {
       setValidationError('Wybierz produkt i uzupełnij daty');
+      return;
+    }
+
+    // Block if unavailable (already checked automatically)
+    if (availabilityStatus === 'unavailable') {
+      setValidationError('Wybrany termin jest niedostępny. Zmień daty.');
+      return;
+    }
+
+    // Block if still checking
+    if (availabilityStatus === 'checking') {
+      setValidationError('Poczekaj na sprawdzenie dostępności...');
       return;
     }
 
@@ -333,6 +420,31 @@ export function Reservation() {
                       Czas wynajmu: <span className="text-gold font-medium">{rentalDays} {rentalDays === 1 ? 'dzień' : 'dni'}</span>
                       {isWeekendRental && <span className="ml-2 text-success">(cena weekendowa)</span>}
                     </p>
+                  )}
+                  
+                  {/* Availability status indicator */}
+                  {availabilityStatus === 'checking' && (
+                    <div className="mt-3 p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 text-gold animate-spin" />
+                      <p className="text-sm text-gold">Sprawdzanie dostępności...</p>
+                    </div>
+                  )}
+                  
+                  {availabilityStatus === 'available' && formData.productId && rentalDays > 0 && (
+                    <div className="mt-3 p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-success" />
+                      <p className="text-sm text-success">Termin dostępny!</p>
+                    </div>
+                  )}
+                  
+                  {availabilityStatus === 'unavailable' && availabilityMessage && (
+                    <div className="mt-3 p-3 rounded-lg bg-error/10 border border-error/20 flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 text-error shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-error">Termin niedostępny</p>
+                        <p className="text-xs text-error/80 mt-1">{availabilityMessage}</p>
+                      </div>
+                    </div>
                   )}
                 </Card>
               </motion.div>
@@ -552,18 +664,29 @@ export function Reservation() {
                   </div>
                 )}
 
+                {/* Availability error */}
+                {availabilityStatus === 'unavailable' && availabilityMessage && (
+                  <div className="mt-4 p-4 rounded-lg bg-error/10 border border-error/30 flex items-start gap-3">
+                    <AlertCircle className="w-6 h-6 text-error shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-error mb-1">Termin niedostępny</p>
+                      <p className="text-sm text-error/80">{availabilityMessage}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Submit button */}
                 <Button
                   type="submit"
                   variant="primary"
                   size="lg"
                   className="w-full mt-6"
-                  disabled={status === 'loading'}
+                  disabled={status === 'loading' || availabilityStatus === 'checking'}
                 >
-                  {status === 'loading' ? (
+                  {status === 'loading' || availabilityStatus === 'checking' ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                      Wysyłanie...
+                      {availabilityStatus === 'checking' ? 'Sprawdzanie dostępności...' : 'Wysyłanie...'}
                     </>
                   ) : (
                     <>

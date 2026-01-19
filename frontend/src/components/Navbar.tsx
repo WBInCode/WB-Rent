@@ -139,7 +139,7 @@ export function Navbar() {
             <Button 
               variant="primary" 
               size="sm"
-              onClick={() => handleNavClick('#rezerwacja')}
+              onClick={() => handleNavClick('#kontakt')}
             >
               Skontaktuj się
             </Button>
@@ -201,7 +201,7 @@ export function Navbar() {
                 <Button 
                   variant="primary" 
                   size="lg"
-                  onClick={() => handleNavClick('#rezerwacja')}
+                  onClick={() => handleNavClick('#kontakt')}
                 >
                   Skontaktuj się
                 </Button>

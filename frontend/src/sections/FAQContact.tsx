@@ -59,8 +59,8 @@ const contactInfo = [
   {
     icon: Phone,
     label: 'Telefon',
-    value: '+48 123 456 789',
-    href: 'tel:+48123456789',
+    value: '570 038 828',
+    href: 'tel:+48570038828',
   },
   {
     icon: Mail,
@@ -71,8 +71,8 @@ const contactInfo = [
   {
     icon: MapPin,
     label: 'Adres',
-    value: 'ul. Przykładowa 123, Warszawa',
-    href: 'https://maps.google.com',
+    value: 'ul. Słowackiego 24/11, 35-060 Rzeszów',
+    href: 'https://maps.google.com/?q=Juliusza+Słowackiego+24/11,+35-060+Rzeszów',
   },
   {
     icon: Clock,
@@ -196,6 +196,12 @@ export function FAQContact() {
       return;
     }
 
+    // Message length validation
+    if (contactForm.message.length < 10) {
+      setValidationError(`Wiadomość musi mieć minimum 10 znaków (obecnie: ${contactForm.message.length})`);
+      return;
+    }
+
     // Prepare payload for API
     const payload: ContactPayload = {
       name: contactForm.name,
@@ -267,6 +273,7 @@ export function FAQContact() {
 
           {/* Contact Column */}
           <motion.div
+            id="kontakt"
             variants={staggerContainerVariants}
             initial="hidden"
             whileInView="visible"
@@ -370,6 +377,11 @@ export function FAQContact() {
                       rows={4}
                       required
                     />
+                    
+                    {/* Character counter */}
+                    <p className={`text-xs text-right -mt-2 ${contactForm.message.length < 10 ? 'text-error' : 'text-text-muted'}`}>
+                      {contactForm.message.length}/10 minimum znaków
+                    </p>
 
                     {/* Error message */}
                     {formStatus === 'error' && errorMessage && (
