@@ -85,7 +85,7 @@
 - [x] Hook useSubmitForm (generic)
 - [x] Obsługa błędów API na froncie
 - [x] Test flow: rezerwacja end-to-end
-- [ ] Test flow: kontakt end-to-end
+- [x] Test flow: kontakt end-to-end
 
 ### 9. Polish & QA
 - [ ] Responsywność (mobile-first audit)
