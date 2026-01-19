@@ -55,20 +55,20 @@
 
 ### 5. Formularz Rezerwacji (Frontend)
 - [x] Schema Zod dla rezerwacji
-- [ ] Select kategorii → Select urządzenia (zależny)
-- [ ] Date picker (data rozpoczęcia, zakończenia)
-- [ ] Input miasto + toggle dostawa + adres (warunkowo)
-- [ ] Dane kontaktowe (imię, nazwisko, email, telefon, firma)
-- [ ] Checkbox zgody (regulamin, RODO)
-- [ ] Podsumowanie kosztów (kalkulacja: dni × stawka + dostawa)
-- [ ] Stany: loading, success, error
-- [ ] Integracja z react-hook-form
+- [x] Select kategorii → Select urządzenia (zależny)
+- [x] Date picker (data rozpoczęcia, zakończenia)
+- [x] Input miasto + toggle dostawa + adres (warunkowo)
+- [x] Dane kontaktowe (imię, nazwisko, email, telefon, firma)
+- [x] Checkbox zgody (regulamin, RODO)
+- [x] Podsumowanie kosztów (kalkulacja: dni × stawka + dostawa)
+- [x] Stany: loading, success, error
+- [x] Integracja z react-hook-form
 
 ### 6. Formularz Kontaktowy (Frontend)
-- [ ] Schema Zod dla kontaktu
-- [ ] Pola: imię, email, temat (opcjonalnie), wiadomość
-- [ ] Honeypot anti-spam
-- [ ] Stany: loading, success, error
+- [x] Schema Zod dla kontaktu
+- [x] Pola: imię, email, temat (opcjonalnie), wiadomość
+- [x] Honeypot anti-spam
+- [x] Stany: loading, success, error
 
 ### 7. Backend API
 - [x] Setup Express + TypeScript
