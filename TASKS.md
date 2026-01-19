@@ -13,7 +13,7 @@
 - [x] Konfiguracja TailwindCSS
 - [x] Instalacja zależności (framer-motion, react-hook-form, zod, lucide-react)
 - [x] Struktura folderów (components, pages, services, hooks, lib, data)
-- [ ] Utworzenie backendu Node.js + Express (folder /server)
+- [x] Utworzenie backendu Node.js + Express (folder /server)
 
 ### 1. Design System
 - [x] Tokeny kolorów (dark grafit + złoty amber)
@@ -71,14 +71,14 @@
 - [ ] Stany: loading, success, error
 
 ### 7. Backend API
-- [ ] Setup Express + TypeScript
-- [ ] Middleware: CORS, JSON parser, rate limiting
-- [ ] POST /api/contact (walidacja + zapis)
-- [ ] POST /api/reservations (walidacja + zapis)
-- [ ] Konfiguracja SQLite (tabele: contacts, reservations)
-- [ ] Nodemailer setup (SMTP)
-- [ ] Wysyłka maila potwierdzającego (kontakt + rezerwacja)
-- [ ] Obsługa błędów + kody odpowiedzi
+- [x] Setup Express + TypeScript
+- [x] Middleware: CORS, JSON parser, rate limiting
+- [x] POST /api/contact (walidacja + zapis)
+- [x] POST /api/reservations (walidacja + zapis)
+- [x] Konfiguracja SQLite (tabele: contacts, reservations)
+- [x] Nodemailer setup (SMTP)
+- [x] Wysyłka maila potwierdzającego (kontakt + rezerwacja)
+- [x] Obsługa błędów + kody odpowiedzi
 
 ### 8. Integracja FE ↔ BE
 - [ ] Service layer (/services/api.ts)
@@ -109,6 +109,7 @@
 | 2026-01-19 | TASKS.md utworzony | ✅ | Checklist zgodna z planem |
 | 2026-01-19 | Init projektu (task 0) | ✅ | Vite + React + TS, TailwindCSS v4, struktura folderów |
 | 2026-01-19 | Design System (task 1) | ✅ | Button, Card, Input, Select, Badge, Toggle, Textarea + motion tokens |
+| 2026-01-19 | Backend API (task 7) | ✅ | Express + TS, SQLite, Zod, Nodemailer, endpoints contact + reservations |
 
 ---
 
