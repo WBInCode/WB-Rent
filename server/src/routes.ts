@@ -11,12 +11,21 @@ import {
 
 // Product data (should match frontend)
 const products: Record<string, { name: string; pricePerDay: number; categoryId: string }> = {
-  'ozonator-20g': { name: 'Ozonator profesjonalny 20g/h', pricePerDay: 120, categoryId: 'ozonatory' },
-  'ozonator-10g': { name: 'Ozonator kompaktowy 10g/h', pricePerDay: 80, categoryId: 'ozonatory' },
-  'myjka-200bar': { name: 'Myjka ciśnieniowa 200 bar', pricePerDay: 150, categoryId: 'sprzet-czyszczacy' },
-  'odkurzacz-przemyslowy': { name: 'Odkurzacz przemysłowy', pricePerDay: 100, categoryId: 'sprzet-czyszczacy' },
-  'odkurzacz-pioracy': { name: 'Odkurzacz piorący', pricePerDay: 120, categoryId: 'sprzet-czyszczacy' },
-  'polerka-ekstraktor': { name: 'Polerka / Ekstraktor', pricePerDay: 100, categoryId: 'sprzet-czyszczacy' },
+  // Odkurzacze piorące
+  'puzzi-10-1': { name: 'Odkurzacz Piorący Kärcher Puzzi 10/1', pricePerDay: 45, categoryId: 'odkurzacze-piorace' },
+  'puzzi-8-1': { name: 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary', pricePerDay: 40, categoryId: 'odkurzacze-piorace' },
+  // Odkurzacze przemysłowe
+  'nt-22-1': { name: 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L', pricePerDay: 60, categoryId: 'odkurzacze-przemyslowe' },
+  'nt-30-1': { name: 'Odkurzacz Przemysłowy Kärcher NT 30/1 Tact Te L', pricePerDay: 80, categoryId: 'odkurzacze-przemyslowe' },
+  'ad-4-premium': { name: 'Odkurzacz Kominkowy Kärcher AD 4 Premium', pricePerDay: 40, categoryId: 'odkurzacze-przemyslowe' },
+  // Ozonatory i oczyszczacze
+  'ozonmed-pro-10g': { name: 'Ozonator powietrza Ozonmed Pro 10G', pricePerDay: 25, categoryId: 'ozonatory' },
+  'af-100-h13': { name: 'Oczyszczacz Powietrza Kärcher AF 100 H13', pricePerDay: 60, categoryId: 'ozonatory' },
+  // Pozostały sprzęt
+  'dmuchawa-ab-20': { name: 'Dmuchawa Kärcher AB 20 Ec', pricePerDay: 30, categoryId: 'pozostale' },
+  'sg-4-4': { name: 'Parownica Kärcher SG 4/4', pricePerDay: 65, categoryId: 'pozostale' },
+  'es-1-7-bp': { name: 'System do dezynfekcji Kärcher ES 1/7 Bp Pack', pricePerDay: 25, categoryId: 'pozostale' },
+  'wvp-10-adv': { name: 'Myjka Do Okien Kärcher WVP 10 Adv', pricePerDay: 30, categoryId: 'pozostale' },
 };
 
 const DELIVERY_FEE = 50; // PLN
@@ -32,7 +41,7 @@ const getClientIp = (req: Request): string => {
 
 // Helper: format Zod errors
 const formatZodErrors = (error: ZodError) => {
-  return error.errors.map((err) => ({
+  return error.issues.map((err) => ({
     field: err.path.join('.'),
     message: err.message,
   }));
@@ -109,13 +118,15 @@ router.post('/reservations', async (req: Request, res: Response) => {
       return;
     }
 
-    // Calculate pricing
-    const startDate = new Date(data.startDate);
-    const endDate = new Date(data.endDate);
-    const days = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    // Calculate pricing from client-sent values (server validates)
+    const days = data.days;
     const basePrice = days * product.pricePerDay;
     const deliveryFee = data.delivery ? DELIVERY_FEE : 0;
-    const totalPrice = basePrice + deliveryFee;
+    const weekendPickupFee = data.weekendPickup ? 30 : 0;
+    const totalPrice = basePrice + deliveryFee + weekendPickupFee;
+
+    // Full name for database
+    const fullName = `${data.firstName} ${data.lastName}`;
 
     // Save to database
     const queries = getQueries();
@@ -124,10 +135,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
       productId: data.productId,
       startDate: data.startDate,
       endDate: data.endDate,
-      city: data.city,
+      city: data.city || null,
       delivery: data.delivery ? 1 : 0,
       address: data.address || null,
-      name: data.name,
+      name: fullName,
       email: data.email,
       phone: data.phone,
       company: data.company || null,
@@ -142,11 +153,12 @@ router.post('/reservations', async (req: Request, res: Response) => {
     // Prepare email data
     const emailData = {
       ...data,
+      name: fullName,
       days,
       basePrice,
       deliveryFee,
       totalPrice,
-      productName: product.name,
+      productName: data.productName,
     };
 
     // Send emails (async, don't wait)

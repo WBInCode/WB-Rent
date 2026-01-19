@@ -84,7 +84,7 @@
 - [x] Service layer (/services/api.ts)
 - [x] Hook useSubmitForm (generic)
 - [x] Obsługa błędów API na froncie
-- [ ] Test flow: rezerwacja end-to-end
+- [x] Test flow: rezerwacja end-to-end
 - [ ] Test flow: kontakt end-to-end
 
 ### 9. Polish & QA

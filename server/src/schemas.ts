@@ -29,6 +29,7 @@ export const reservationSchema = z.object({
   // Product
   categoryId: z.string().min(1, 'Wybierz kategorię'),
   productId: z.string().min(1, 'Wybierz urządzenie'),
+  productName: z.string().min(1, 'Nazwa produktu jest wymagana'),
 
   // Dates
   startDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
@@ -37,20 +38,23 @@ export const reservationSchema = z.object({
   endDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
     message: 'Nieprawidłowa data zakończenia',
   }),
+  days: z.number().int().positive('Liczba dni musi być większa od 0'),
 
-  // Location
-  city: z
-    .string()
-    .min(2, 'Miasto musi mieć minimum 2 znaki')
-    .max(100, 'Miasto może mieć maksymalnie 100 znaków'),
+  // Delivery
   delivery: z.boolean().default(false),
+  city: z.string().max(100, 'Miasto może mieć maksymalnie 100 znaków').optional(),
   address: z.string().max(500, 'Adres może mieć maksymalnie 500 znaków').optional(),
+  weekendPickup: z.boolean().default(false),
 
   // Customer
-  name: z
+  firstName: z
     .string()
-    .min(2, 'Imię i nazwisko musi mieć minimum 2 znaki')
-    .max(200, 'Imię i nazwisko może mieć maksymalnie 200 znaków'),
+    .min(2, 'Imię musi mieć minimum 2 znaki')
+    .max(100, 'Imię może mieć maksymalnie 100 znaków'),
+  lastName: z
+    .string()
+    .min(2, 'Nazwisko musi mieć minimum 2 znaki')
+    .max(100, 'Nazwisko może mieć maksymalnie 100 znaków'),
   email: z
     .string()
     .email('Nieprawidłowy adres email')
@@ -68,13 +72,8 @@ export const reservationSchema = z.object({
   // Additional
   notes: z.string().max(2000, 'Notatki mogą mieć maksymalnie 2000 znaków').optional(),
 
-  // Consents
-  acceptTerms: z.literal(true, {
-    errorMap: () => ({ message: 'Musisz zaakceptować regulamin' }),
-  }),
-  acceptPrivacy: z.literal(true, {
-    errorMap: () => ({ message: 'Musisz wyrazić zgodę na przetwarzanie danych' }),
-  }),
+  // Price
+  totalPrice: z.number().positive('Cena musi być większa od 0'),
 }).refine(
   (data) => {
     const start = new Date(data.startDate);
@@ -84,6 +83,17 @@ export const reservationSchema = z.object({
   {
     message: 'Data zakończenia musi być późniejsza lub równa dacie rozpoczęcia',
     path: ['endDate'],
+  }
+).refine(
+  (data) => {
+    if (data.delivery && (!data.city || data.city.trim().length < 2)) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: 'Podaj miasto dostawy',
+    path: ['city'],
   }
 ).refine(
   (data) => {
