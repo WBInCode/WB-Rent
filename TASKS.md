@@ -88,7 +88,7 @@
 - [x] Test flow: kontakt end-to-end
 
 ### 9. Polish & QA
-- [ ] Responsywność (mobile-first audit)
+- [x] Responsywność (mobile-first audit)
 - [ ] Dostępność (aria-labels, focus states, keyboard nav)
 - [ ] Testy manualne wszystkich formularzy
 - [ ] Optymalizacja performance (lazy load, code split)
