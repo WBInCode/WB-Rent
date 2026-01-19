@@ -92,7 +92,7 @@
 - [x] Dostępność (aria-labels, focus states, keyboard nav)
 - [x] Testy manualne wszystkich formularzy
 - [x] Optymalizacja performance (lazy load, code split)
-- [ ] SEO basics (meta tags, OG, title)
+- [x] SEO basics (meta tags, OG, title)
 - [ ] Favicon + manifest
 
 ### 10. Dokumentacja
