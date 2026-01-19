@@ -5,6 +5,7 @@ import { Products } from '@/sections/Products';
 import { HowItWorks } from '@/sections/HowItWorks';
 import { Reservation } from '@/sections/Reservation';
 import { FAQContact } from '@/sections/FAQContact';
+import { Footer } from '@/sections/Footer';
 
 function App() {
   return (
@@ -28,6 +29,9 @@ function App() {
 
       {/* FAQ & Contact Section */}
       <FAQContact />
+
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }

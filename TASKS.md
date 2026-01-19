@@ -34,7 +34,7 @@
 - [x] Sekcja "Jak to działa" (4 kroki)
 - [x] Sekcja Rezerwacja (placeholder formularza)
 - [x] Sekcja FAQ + Kontakt
-- [ ] Footer
+- [x] Footer
 
 ### 3. Motion System
 - [ ] Hook useScrollReveal (IntersectionObserver)

@@ -1,0 +1,200 @@
+import { motion } from 'framer-motion';
+import { 
+  Phone, 
+  Mail, 
+  MapPin, 
+  Clock, 
+  Facebook, 
+  Instagram, 
+  ChevronUp 
+} from 'lucide-react';
+
+const footerLinks = {
+  uslugi: [
+    { label: 'Wynajem odkurzaczy piorących', href: '#produkty' },
+    { label: 'Wynajem odkurzaczy przemysłowych', href: '#produkty' },
+    { label: 'Wynajem ozonatorów', href: '#produkty' },
+    { label: 'Transport sprzętu', href: '#jak-to-dziala' },
+  ],
+  informacje: [
+    { label: 'Jak to działa', href: '#jak-to-dziala' },
+    { label: 'Cennik', href: '#produkty' },
+    { label: 'FAQ', href: '#faq' },
+    { label: 'Kontakt', href: '#kontakt' },
+  ],
+  prawne: [
+    { label: 'Regulamin', href: '#' },
+    { label: 'Polityka prywatności', href: '#' },
+    { label: 'RODO', href: '#' },
+  ],
+};
+
+const contactInfo = [
+  { icon: Phone, text: '+48 123 456 789', href: 'tel:+48123456789' },
+  { icon: Mail, text: 'kontakt@wb-rent.pl', href: 'mailto:kontakt@wb-rent.pl' },
+  { icon: MapPin, text: 'Warszawa i okolice', href: '#' },
+  { icon: Clock, text: 'Pon-Pt: 8:00-20:00, Sob: 9:00-18:00', href: null },
+];
+
+export function Footer() {
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const currentYear = new Date().getFullYear();
+
+  return (
+    <footer className="bg-neutral-950 text-neutral-300 relative">
+      {/* Scroll to top button */}
+      <motion.button
+        onClick={scrollToTop}
+        className="absolute -top-6 left-1/2 -translate-x-1/2 w-12 h-12 bg-[var(--color-gold)] hover:bg-[var(--color-gold-light)] text-neutral-900 rounded-full flex items-center justify-center shadow-lg transition-colors"
+        whileHover={{ y: -4 }}
+        whileTap={{ scale: 0.95 }}
+        aria-label="Przewiń do góry"
+      >
+        <ChevronUp className="w-6 h-6" />
+      </motion.button>
+
+      <div className="container mx-auto px-4 pt-16 pb-8">
+        {/* Main footer grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
+          {/* Logo & Description */}
+          <div className="lg:col-span-2">
+            <a href="#" className="inline-block mb-4">
+              <img 
+                src="/logo.png" 
+                alt="WB-Rent" 
+                className="h-12 w-auto"
+              />
+            </a>
+            <p className="text-neutral-400 mb-6 max-w-sm">
+              Profesjonalny wynajem sprzętu czyszczącego dla domu i firmy. 
+              Odkurzacze piorące, przemysłowe, ozonatory i więcej. 
+              Szybka rezerwacja, dostawa pod drzwi.
+            </p>
+            
+            {/* Social media */}
+            <div className="flex gap-3">
+              <a 
+                href="#" 
+                className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
+                aria-label="Facebook"
+              >
+                <Facebook className="w-5 h-5 text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+              </a>
+              <a 
+                href="#" 
+                className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
+                aria-label="Instagram"
+              >
+                <Instagram className="w-5 h-5 text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+              </a>
+            </div>
+          </div>
+
+          {/* Usługi */}
+          <div>
+            <h3 className="text-white font-semibold mb-4">Usługi</h3>
+            <ul className="space-y-3">
+              {footerLinks.uslugi.map((link) => (
+                <li key={link.label}>
+                  <a 
+                    href={link.href} 
+                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Informacje */}
+          <div>
+            <h3 className="text-white font-semibold mb-4">Informacje</h3>
+            <ul className="space-y-3">
+              {footerLinks.informacje.map((link) => (
+                <li key={link.label}>
+                  <a 
+                    href={link.href} 
+                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            
+            {/* Prawne */}
+            <h3 className="text-white font-semibold mb-4 mt-8">Prawne</h3>
+            <ul className="space-y-3">
+              {footerLinks.prawne.map((link) => (
+                <li key={link.label}>
+                  <a 
+                    href={link.href} 
+                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Kontakt */}
+          <div>
+            <h3 className="text-white font-semibold mb-4">Kontakt</h3>
+            <ul className="space-y-4">
+              {contactInfo.map((item, index) => {
+                const Icon = item.icon;
+                const content = (
+                  <span className="flex items-start gap-3">
+                    <Icon className="w-5 h-5 text-[var(--color-gold)] flex-shrink-0 mt-0.5" />
+                    <span className="text-sm">{item.text}</span>
+                  </span>
+                );
+                
+                return (
+                  <li key={index}>
+                    {item.href ? (
+                      <a 
+                        href={item.href} 
+                        className="text-neutral-400 hover:text-white transition-colors"
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <span className="text-neutral-400">{content}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-neutral-800 my-8" />
+
+        {/* Bottom bar */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-neutral-500">
+          <p>© {currentYear} WB-Rent. Wszelkie prawa zastrzeżone.</p>
+          <p>
+            Stworzone z{' '}
+            <span className="text-[var(--color-gold)]">❤</span>
+            {' '}przez{' '}
+            <a 
+              href="https://github.com/WBInCode" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-[var(--color-gold)] hover:text-[var(--color-gold-light)] transition-colors"
+            >
+              WBInCode
+            </a>
+          </p>
+        </div>
+      </div>
+    </footer>
+  );
+}
