@@ -1,11 +1,21 @@
+import { lazy, Suspense } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
-import { Categories } from '@/sections/Categories';
-import { Products } from '@/sections/Products';
-import { HowItWorks } from '@/sections/HowItWorks';
-import { Reservation } from '@/sections/Reservation';
-import { FAQContact } from '@/sections/FAQContact';
-import { Footer } from '@/sections/Footer';
+
+// Lazy load sections below the fold
+const Categories = lazy(() => import('@/sections/Categories').then(m => ({ default: m.Categories })));
+const Products = lazy(() => import('@/sections/Products').then(m => ({ default: m.Products })));
+const HowItWorks = lazy(() => import('@/sections/HowItWorks').then(m => ({ default: m.HowItWorks })));
+const Reservation = lazy(() => import('@/sections/Reservation').then(m => ({ default: m.Reservation })));
+const FAQContact = lazy(() => import('@/sections/FAQContact').then(m => ({ default: m.FAQContact })));
+const Footer = lazy(() => import('@/sections/Footer').then(m => ({ default: m.Footer })));
+
+// Loading fallback
+const SectionLoader = () => (
+  <div className="py-20 flex justify-center">
+    <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 function App() {
   return (
@@ -21,27 +31,35 @@ function App() {
       <Navbar />
       
       <main id="main-content" role="main">
-        {/* Hero Section */}
+        {/* Hero Section - not lazy, above the fold */}
         <Hero />
 
-        {/* Categories Section */}
-        <Categories />
+        {/* Lazy loaded sections */}
+        <Suspense fallback={<SectionLoader />}>
+          <Categories />
+        </Suspense>
 
-        {/* Products Section */}
-        <Products />
+        <Suspense fallback={<SectionLoader />}>
+          <Products />
+        </Suspense>
 
-        {/* How It Works Section */}
-        <HowItWorks />
+        <Suspense fallback={<SectionLoader />}>
+          <HowItWorks />
+        </Suspense>
 
-        {/* Reservation Section */}
-        <Reservation />
+        <Suspense fallback={<SectionLoader />}>
+          <Reservation />
+        </Suspense>
 
-        {/* FAQ & Contact Section */}
-        <FAQContact />
+        <Suspense fallback={<SectionLoader />}>
+          <FAQContact />
+        </Suspense>
       </main>
 
       {/* Footer */}
-      <Footer />
+      <Suspense fallback={<SectionLoader />}>
+        <Footer />
+      </Suspense>
     </div>
   );
 }

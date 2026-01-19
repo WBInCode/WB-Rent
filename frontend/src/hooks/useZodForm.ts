@@ -1,9 +1,9 @@
 import { useForm, type UseFormProps, type FieldValues, type DefaultValues } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type ZodSchema } from 'zod';
+import type { ZodType } from 'zod';
 
 interface UseZodFormProps<T extends FieldValues> extends Omit<UseFormProps<T>, 'resolver'> {
-  schema: ZodSchema<T>;
+  schema: ZodType<T>;
 }
 
 export function useZodForm<T extends FieldValues>({ 
@@ -12,7 +12,8 @@ export function useZodForm<T extends FieldValues>({
   ...props 
 }: UseZodFormProps<T>) {
   return useForm<T>({
-    resolver: zodResolver(schema),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(schema as any),
     defaultValues: defaultValues as DefaultValues<T>,
     mode: 'onBlur',
     ...props,
