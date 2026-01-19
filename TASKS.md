@@ -33,7 +33,7 @@
 - [x] Sekcja Produkty (grid placeholder)
 - [x] Sekcja "Jak to działa" (4 kroki)
 - [x] Sekcja Rezerwacja (placeholder formularza)
-- [ ] Sekcja FAQ + Kontakt
+- [x] Sekcja FAQ + Kontakt
 - [ ] Footer
 
 ### 3. Motion System
@@ -115,6 +115,7 @@
 | 2026-01-19 | Sekcja Produkty | ✅ | ProductCard, grid z filtrami kategorii, wyszukiwarka, toggle widoku |
 | 2026-01-19 | Sekcja Jak to działa | ✅ | 4 kroki z ikonami, animacje stagger, CTA button |
 | 2026-01-19 | Sekcja Rezerwacja | ✅ | Pełny formularz rezerwacji, kalkulacja kosztów, walidacja, stany |
+| 2026-01-19 | Sekcja FAQ + Kontakt | ✅ | 8 pytań FAQ z akordeonem, formularz kontaktowy, dane kontaktowe |
 
 ---
 
