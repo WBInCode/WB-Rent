@@ -93,7 +93,7 @@
 - [x] Testy manualne wszystkich formularzy
 - [x] Optymalizacja performance (lazy load, code split)
 - [x] SEO basics (meta tags, OG, title)
-- [ ] Favicon + manifest
+- [x] Favicon + manifest
 
 ### 10. Dokumentacja
 - [ ] README.md z instrukcją uruchomienia

@@ -31,13 +31,22 @@ export function ProductCard({ product, onReserve }: ProductCardProps) {
         padding="none"
         className="h-full flex flex-col overflow-hidden group"
       >
-        {/* Image placeholder */}
+        {/* Product image */}
         <div className="relative h-48 bg-gradient-to-br from-bg-primary to-bg-card overflow-hidden">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-24 h-24 rounded-2xl bg-gold/10 flex items-center justify-center">
-              <span className="text-4xl text-gold/50">📦</span>
+          {product.image ? (
+            <img 
+              src={product.image} 
+              alt={product.name}
+              className="w-full h-full object-contain p-4 transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-24 h-24 rounded-2xl bg-gold/10 flex items-center justify-center">
+                <span className="text-4xl text-gold/50">📦</span>
+              </div>
             </div>
-          </div>
+          )}
           
           {/* Status badge */}
           <div className="absolute top-3 right-3">

@@ -4,6 +4,7 @@ export interface Product {
   name: string;
   description: string;
   categoryId: string;
+  image: string;
   pricePerDay: number;
   priceNextDay: number;
   priceWeekend: number;
@@ -57,6 +58,7 @@ export const products: Product[] = [
     name: 'Odkurzacz Piorący Kärcher Puzzi 10/1',
     description: 'Profesjonalny odkurzacz piorący do tapicerki, dywanów i wykładzin',
     categoryId: 'odkurzacze-piorace',
+    image: '/products/puzzi-10-1.jpg',
     pricePerDay: 45,
     priceNextDay: 45,
     priceWeekend: 150,
@@ -73,6 +75,7 @@ export const products: Product[] = [
     name: 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary',
     description: 'Kompaktowy odkurzacz piorący idealny do mniejszych powierzchni',
     categoryId: 'odkurzacze-piorace',
+    image: '/products/puzzi-8-1.jpg',
     pricePerDay: 40,
     priceNextDay: 40,
     priceWeekend: 130,
@@ -90,6 +93,7 @@ export const products: Product[] = [
     name: 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L',
     description: 'Mocny odkurzacz przemysłowy do pracy na sucho i mokro',
     categoryId: 'odkurzacze-przemyslowe',
+    image: '/products/nt-22-1.jpg',
     pricePerDay: 60,
     priceNextDay: 45,
     priceWeekend: 110,
@@ -106,6 +110,7 @@ export const products: Product[] = [
     name: 'Odkurzacz Przemysłowy Kärcher NT 30/1 Tact Te L',
     description: 'Profesjonalny odkurzacz z automatycznym czyszczeniem filtra',
     categoryId: 'odkurzacze-przemyslowe',
+    image: '/products/nt-30-1.jpg',
     pricePerDay: 80,
     priceNextDay: 60,
     priceWeekend: 140,
@@ -122,6 +127,7 @@ export const products: Product[] = [
     name: 'Odkurzacz Kominkowy Kärcher AD 4 Premium',
     description: 'Specjalistyczny odkurzacz do popiołu z kominków i grilli',
     categoryId: 'odkurzacze-przemyslowe',
+    image: '/products/ad-4-premium.jpg',
     pricePerDay: 40,
     priceNextDay: 40,
     priceWeekend: 90,
@@ -138,6 +144,7 @@ export const products: Product[] = [
     name: 'Ozonator powietrza Ozonmed Pro 10G',
     description: 'Profesjonalny generator ozonu do dezynfekcji i usuwania zapachów',
     categoryId: 'ozonatory',
+    image: '/products/ozonmed-pro-10g.jpg',
     pricePerDay: 25,
     priceNextDay: 25,
     priceWeekend: 60,
@@ -153,6 +160,7 @@ export const products: Product[] = [
     name: 'Oczyszczacz Powietrza Kärcher AF 100 H13',
     description: 'Zaawansowany oczyszczacz powietrza z filtrem HEPA H13',
     categoryId: 'ozonatory',
+    image: '/products/af-100-h13.jpg',
     pricePerDay: 60,
     priceNextDay: 60,
     priceWeekend: 130,
@@ -169,6 +177,7 @@ export const products: Product[] = [
     name: 'Dmuchawa Kärcher AB 20 Ec',
     description: 'Akumulatorowa dmuchawa do liści i zanieczyszczeń',
     categoryId: 'pozostale',
+    image: '/products/dmuchawa-ab-20.jpg',
     pricePerDay: 30,
     priceNextDay: 30,
     priceWeekend: 70,
@@ -184,6 +193,7 @@ export const products: Product[] = [
     name: 'Parownica Kärcher SG 4/4',
     description: 'Profesjonalna parownica do czyszczenia i dezynfekcji',
     categoryId: 'pozostale',
+    image: '/products/sg-4-4.jpg',
     pricePerDay: 65,
     priceNextDay: 65,
     priceWeekend: 140,
@@ -199,6 +209,7 @@ export const products: Product[] = [
     name: 'System do dezynfekcji Kärcher ES 1/7 Bp Pack',
     description: 'Przenośny system do dezynfekcji powierzchni',
     categoryId: 'pozostale',
+    image: '/products/es-1-7-bp.jpg',
     pricePerDay: 25,
     priceNextDay: 25,
     priceWeekend: 60,
@@ -215,6 +226,7 @@ export const products: Product[] = [
     name: 'Myjka Do Okien Kärcher WVP 10 Adv',
     description: 'Profesjonalna myjka do okien z funkcją spryskiwania',
     categoryId: 'pozostale',
+    image: '/products/wvp-10-adv.jpg',
     pricePerDay: 30,
     priceNextDay: 30,
     priceWeekend: 70,
