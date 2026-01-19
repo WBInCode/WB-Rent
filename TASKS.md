@@ -46,15 +46,15 @@
 - [x] Parallax tła (opcjonalnie, lekki)
 
 ### 4. Produkty
-- [ ] Dane demo (2 ozonatory + 4 sprzęty czyszczące)
-- [ ] Karta produktu (ProductCard)
-- [ ] Filtry kategorii (tabs z licznikami)
-- [ ] Wyszukiwarka produktów
-- [ ] Status dostępności (badge)
-- [ ] Przycisk "Zobacz ceny" / "Rezerwuj"
+- [x] Dane demo (2 ozonatory + 4 sprzęty czyszczące)
+- [x] Karta produktu (ProductCard)
+- [x] Filtry kategorii (tabs z licznikami)
+- [x] Wyszukiwarka produktów
+- [x] Status dostępności (badge)
+- [x] Przycisk "Zobacz ceny" / "Rezerwuj"
 
 ### 5. Formularz Rezerwacji (Frontend)
-- [ ] Schema Zod dla rezerwacji
+- [x] Schema Zod dla rezerwacji
 - [ ] Select kategorii → Select urządzenia (zależny)
 - [ ] Date picker (data rozpoczęcia, zakończenia)
 - [ ] Input miasto + toggle dostawa + adres (warunkowo)
