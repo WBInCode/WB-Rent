@@ -90,7 +90,7 @@
 ### 9. Polish & QA
 - [x] Responsywność (mobile-first audit)
 - [x] Dostępność (aria-labels, focus states, keyboard nav)
-- [ ] Testy manualne wszystkich formularzy
+- [x] Testy manualne wszystkich formularzy
 - [ ] Optymalizacja performance (lazy load, code split)
 - [ ] SEO basics (meta tags, OG, title)
 - [ ] Favicon + manifest
