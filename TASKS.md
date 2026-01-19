@@ -37,12 +37,12 @@
 - [x] Footer
 
 ### 3. Motion System
-- [ ] Hook useScrollReveal (IntersectionObserver)
-- [ ] Komponenty Reveal + Stagger (framer-motion)
-- [ ] HoverCard effect (lift + glow)
-- [ ] Navbar scroll effect (blur + shadow)
-- [ ] Animated tabs/pills (layoutId)
-- [ ] Prefers-reduced-motion support
+- [x] Hook useScrollReveal (IntersectionObserver)
+- [x] Komponenty Reveal + Stagger (framer-motion)
+- [x] HoverCard effect (lift + glow)
+- [x] Navbar scroll effect (blur + shadow)
+- [x] Animated tabs/pills (layoutId)
+- [x] Prefers-reduced-motion support
 - [ ] Parallax tła (opcjonalnie, lekki)
 
 ### 4. Produkty
