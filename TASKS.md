@@ -31,7 +31,7 @@
 - [x] Hero (headline + widget "Sprawdź koszty")
 - [x] Sekcja Kategorie (Ozonatory, Sprzęt czyszczący + placeholdery)
 - [x] Sekcja Produkty (grid placeholder)
-- [ ] Sekcja "Jak to działa" (4 kroki)
+- [x] Sekcja "Jak to działa" (4 kroki)
 - [ ] Sekcja Rezerwacja (placeholder formularza)
 - [ ] Sekcja FAQ + Kontakt
 - [ ] Footer
@@ -113,6 +113,7 @@
 | 2026-01-19 | Navbar + Hero | ✅ | Navbar z mobile menu, Hero z widget kalkulacji kosztów, dane demo produktów |
 | 2026-01-19 | Sekcja Kategorie | ✅ | Karty kategorii z ikonami, preview produktów, statystyki dostępności |
 | 2026-01-19 | Sekcja Produkty | ✅ | ProductCard, grid z filtrami kategorii, wyszukiwarka, toggle widoku |
+| 2026-01-19 | Sekcja Jak to działa | ✅ | 4 kroki z ikonami, animacje stagger, CTA button |
 
 ---
 

@@ -2,6 +2,7 @@ import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
 import { Categories } from '@/sections/Categories';
 import { Products } from '@/sections/Products';
+import { HowItWorks } from '@/sections/HowItWorks';
 
 function App() {
   return (
@@ -17,9 +18,8 @@ function App() {
       {/* Products Section */}
       <Products />
 
-      <section id="jak-to-dziala" className="min-h-screen flex items-center justify-center bg-bg-secondary">
-        <h2 className="text-3xl font-bold text-text-primary">Jak to działa</h2>
-      </section>
+      {/* How It Works Section */}
+      <HowItWorks />
 
       <section id="rezerwacja" className="min-h-screen flex items-center justify-center">
         <h2 className="text-3xl font-bold text-text-primary">Rezerwacja</h2>
