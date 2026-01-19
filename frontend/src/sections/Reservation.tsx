@@ -23,8 +23,8 @@ import {
 } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
-
-type FormStatus = 'idle' | 'loading' | 'success' | 'error';
+import { useSubmitForm } from '@/hooks';
+import { submitReservation, type ReservationPayload } from '@/services/api';
 
 interface FormData {
   // Product selection
@@ -71,8 +71,24 @@ const initialFormData: FormData = {
 
 export function Reservation() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
-  const [status, setStatus] = useState<FormStatus>('idle');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // API submission hook
+  const {
+    status,
+    error: apiError,
+    submit: submitToApi,
+  } = useSubmitForm(submitReservation, {
+    resetOnSuccess: true,
+    successTimeout: 5000,
+    onSuccess: () => {
+      setFormData(initialFormData);
+      setValidationError(null);
+    },
+  });
+
+  // Combined error message
+  const errorMessage = validationError || apiError;
 
   // Get products for selected category
   const availableProducts = useMemo(() => {
@@ -127,43 +143,52 @@ export function Reservation() {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError(null);
     
     // Basic validation
     if (!formData.productId || !formData.startDate || !formData.endDate) {
-      setErrorMessage('Wybierz produkt i daty wynajmu');
-      setStatus('error');
+      setValidationError('Wybierz produkt i daty wynajmu');
       return;
     }
 
     if (!formData.firstName || !formData.email || !formData.phone) {
-      setErrorMessage('Wypełnij wymagane dane kontaktowe');
-      setStatus('error');
+      setValidationError('Wypełnij wymagane dane kontaktowe');
       return;
     }
 
     if (!formData.acceptTerms || !formData.acceptRodo) {
-      setErrorMessage('Zaakceptuj regulamin i zgodę RODO');
-      setStatus('error');
+      setValidationError('Zaakceptuj regulamin i zgodę RODO');
       return;
     }
 
-    setStatus('loading');
-    setErrorMessage('');
-
-    try {
-      // TODO: Send to backend API
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate API call
-      
-      setStatus('success');
-      // Reset form after success
-      setTimeout(() => {
-        setFormData(initialFormData);
-        setStatus('idle');
-      }, 5000);
-    } catch {
-      setStatus('error');
-      setErrorMessage('Wystąpił błąd. Spróbuj ponownie później.');
+    if (!selectedProduct || !costSummary) {
+      setValidationError('Wybierz produkt i uzupełnij daty');
+      return;
     }
+
+    // Prepare payload for API
+    const payload: ReservationPayload = {
+      productId: formData.productId,
+      productName: selectedProduct.name,
+      categoryId: formData.categoryId,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      days: rentalDays,
+      delivery: formData.delivery,
+      city: formData.delivery ? formData.city : undefined,
+      address: formData.delivery ? formData.address : undefined,
+      weekendPickup: formData.weekendPickup,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      company: formData.company || undefined,
+      notes: formData.notes || undefined,
+      totalPrice: costSummary.total,
+    };
+
+    // Submit to API
+    await submitToApi(payload);
   };
 
   return (

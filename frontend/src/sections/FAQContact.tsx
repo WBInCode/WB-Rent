@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { Card, Input, Button, Textarea } from '@/components/ui';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
+import { useSubmitForm } from '@/hooks';
+import { submitContact, type ContactPayload } from '@/services/api';
 
 // FAQ Data
 const faqItems = [
@@ -80,8 +82,6 @@ const contactInfo = [
   },
 ];
 
-type FormStatus = 'idle' | 'loading' | 'success' | 'error';
-
 interface FAQItemProps {
   question: string;
   answer: string;
@@ -128,8 +128,7 @@ function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
 
 export function FAQContact() {
   const [openFAQ, setOpenFAQ] = useState<number | null>(0);
-  const [formStatus, setFormStatus] = useState<FormStatus>('idle');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
   
   // Contact form state
   const [contactForm, setContactForm] = useState({
@@ -139,6 +138,29 @@ export function FAQContact() {
     message: '',
     honeypot: '', // Anti-spam
   });
+
+  // API submission hook
+  const {
+    status: formStatus,
+    error: apiError,
+    submit: submitToApi,
+  } = useSubmitForm(submitContact, {
+    resetOnSuccess: true,
+    successTimeout: 5000,
+    onSuccess: () => {
+      setContactForm({
+        name: '',
+        email: '',
+        subject: '',
+        message: '',
+        honeypot: '',
+      });
+      setValidationError(null);
+    },
+  });
+
+  // Combined error message
+  const errorMessage = validationError || apiError;
 
   const handleFAQToggle = (index: number) => {
     setOpenFAQ(openFAQ === index ? null : index);
@@ -150,6 +172,7 @@ export function FAQContact() {
 
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError(null);
 
     // Honeypot check
     if (contactForm.honeypot) {
@@ -158,32 +181,20 @@ export function FAQContact() {
 
     // Basic validation
     if (!contactForm.name || !contactForm.email || !contactForm.message) {
-      setErrorMessage('Wypełnij wszystkie wymagane pola');
-      setFormStatus('error');
+      setValidationError('Wypełnij wszystkie wymagane pola');
       return;
     }
 
-    setFormStatus('loading');
-    setErrorMessage('');
+    // Prepare payload for API
+    const payload: ContactPayload = {
+      name: contactForm.name,
+      email: contactForm.email,
+      subject: contactForm.subject || undefined,
+      message: contactForm.message,
+    };
 
-    try {
-      // TODO: Send to backend API
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      setFormStatus('success');
-      setContactForm({
-        name: '',
-        email: '',
-        subject: '',
-        message: '',
-        honeypot: '',
-      });
-      
-      setTimeout(() => setFormStatus('idle'), 5000);
-    } catch {
-      setFormStatus('error');
-      setErrorMessage('Wystąpił błąd. Spróbuj ponownie później.');
-    }
+    // Submit to API
+    await submitToApi(payload);
   };
 
   return (
