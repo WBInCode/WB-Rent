@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Badge, Toggle } from '@/components/ui';
+import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent, Input, Select, Badge, Toggle, Textarea } from '@/components/ui';
 import { Search, ArrowRight, CheckCircle } from 'lucide-react';
 
 function App() {
@@ -147,6 +147,13 @@ function App() {
                 description="Opcja z transportem (+50 zł)"
                 checked={delivery}
                 onChange={(e) => setDelivery(e.target.checked)}
+              />
+            </div>
+            <div className="mt-6">
+              <Textarea
+                label="Wiadomość"
+                placeholder="Opisz czego potrzebujesz..."
+                hint="Minimum 10 znaków"
               />
             </div>
           </Card>
