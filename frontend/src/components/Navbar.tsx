@@ -105,14 +105,13 @@ export function Navbar() {
           <a 
             href="#start" 
             onClick={(e) => { e.preventDefault(); handleNavClick('#start'); }}
-            className="flex items-center gap-2 group"
+            className="flex items-center group"
           >
-            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-gold flex items-center justify-center">
-              <span className="text-bg-primary font-bold text-sm md:text-base">WB</span>
-            </div>
-            <span className="text-text-primary font-semibold text-lg md:text-xl group-hover:text-gold transition-colors">
-              WB-Rent
-            </span>
+            <img 
+              src="/logo.png" 
+              alt="WB-Rent" 
+              className="h-10 md:h-12 w-auto"
+            />
           </a>
 
           {/* Desktop Navigation */}
