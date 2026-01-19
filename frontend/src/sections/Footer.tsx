@@ -33,7 +33,7 @@ const contactInfo = [
   { icon: Phone, text: '570 038 828', href: 'tel:+48570038828' },
   { icon: Mail, text: 'kontakt@wb-rent.pl', href: 'mailto:kontakt@wb-rent.pl' },
   { icon: MapPin, text: 'ul. Słowackiego 24/11, 35-060 Rzeszów', href: 'https://maps.google.com/?q=Juliusza+Słowackiego+24/11,+35-060+Rzeszów' },
-  { icon: Clock, text: 'Pon-Pt: 8:00-20:00, Sob: 9:00-18:00', href: null },
+  { icon: Clock, text: 'Pon-Pt: 9:00-17:00, Sob: 9:00-15:00', href: null },
 ];
 
 export function Footer() {

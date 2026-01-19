@@ -77,7 +77,7 @@ const contactInfo = [
   {
     icon: Clock,
     label: 'Godziny',
-    value: 'Pon-Pt: 8-18, Sob: 9-14',
+    value: 'Pon-Pt: 9-17, Sob: 9-15, Nd: nieczynne',
     href: null,
   },
 ];
