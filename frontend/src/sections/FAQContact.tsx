@@ -87,14 +87,21 @@ interface FAQItemProps {
   answer: string;
   isOpen: boolean;
   onToggle: () => void;
+  index: number;
 }
 
-function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
+function FAQItem({ question, answer, isOpen, onToggle, index }: FAQItemProps) {
+  const answerId = `faq-answer-${index}`;
+  const questionId = `faq-question-${index}`;
+
   return (
     <div className="border-b border-border last:border-b-0">
       <button
+        id={questionId}
         onClick={onToggle}
-        className="w-full py-5 flex items-center justify-between text-left group"
+        aria-expanded={isOpen}
+        aria-controls={answerId}
+        className="w-full py-5 flex items-center justify-between text-left group focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 rounded-lg"
       >
         <span className="text-text-primary font-medium pr-4 group-hover:text-gold transition-colors">
           {question}
@@ -103,6 +110,7 @@ function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
           animate={{ rotate: isOpen ? 180 : 0 }}
           transition={{ duration: 0.2 }}
           className="shrink-0"
+          aria-hidden="true"
         >
           <ChevronDown className={`w-5 h-5 ${isOpen ? 'text-gold' : 'text-text-muted'}`} />
         </motion.div>
@@ -110,6 +118,9 @@ function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            id={answerId}
+            role="region"
+            aria-labelledby={questionId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -238,10 +249,11 @@ export function FAQContact() {
                 Często zadawane pytania
               </h3>
               <Card variant="glass" padding="none" className="overflow-hidden">
-                <div className="px-6">
+                <div className="px-6" role="region" aria-label="Często zadawane pytania">
                   {faqItems.map((item, index) => (
                     <FAQItem
                       key={index}
+                      index={index}
                       question={item.question}
                       answer={item.answer}
                       isOpen={openFAQ === index}

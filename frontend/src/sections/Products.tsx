@@ -63,10 +63,13 @@ export function Products() {
         >
           <div className="flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between">
             {/* Category Tabs */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filtry kategorii">
               <button
+                role="tab"
+                aria-selected={activeCategory === null}
+                aria-controls="products-grid"
                 onClick={() => setActiveCategory(null)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
                   activeCategory === null
                     ? 'bg-gold text-bg-primary'
                     : 'bg-bg-card text-text-secondary hover:text-text-primary border border-border hover:border-gold/30'
@@ -78,8 +81,11 @@ export function Products() {
               {categories.map((category) => (
                 <button
                   key={category.id}
+                  role="tab"
+                  aria-selected={activeCategory === category.id}
+                  aria-controls="products-grid"
                   onClick={() => setActiveCategory(category.id)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
                     activeCategory === category.id
                       ? 'bg-gold text-bg-primary'
                       : 'bg-bg-card text-text-secondary hover:text-text-primary border border-border hover:border-gold/30'
@@ -137,6 +143,9 @@ export function Products() {
         {/* Products Grid */}
         <AnimatePresence mode="wait">
           <motion.div
+            id="products-grid"
+            role="tabpanel"
+            aria-label="Lista produktów"
             key={`${activeCategory}-${searchQuery}`}
             variants={staggerContainerVariants}
             initial="hidden"

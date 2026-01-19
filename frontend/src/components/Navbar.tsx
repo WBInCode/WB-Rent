@@ -90,6 +90,7 @@ export function Navbar() {
   return (
     <>
       <motion.header
+        role="banner"
         variants={navbarVariants}
         initial="top"
         animate={isScrolled ? 'scrolled' : 'top'}
@@ -100,7 +101,7 @@ export function Navbar() {
           'transition-all duration-300'
         )}
       >
-        <nav className="max-w-7xl mx-auto h-16 md:h-20 flex items-center justify-between">
+        <nav aria-label="Główna nawigacja" className="max-w-7xl mx-auto h-16 md:h-20 flex items-center justify-between">
           {/* Logo */}
           <a 
             href="#start" 
@@ -170,7 +171,7 @@ export function Navbar() {
             transition={transitions.fast}
             className="fixed inset-0 z-40 bg-bg-primary/95 backdrop-blur-lg md:hidden"
           >
-            <nav className="flex flex-col items-center justify-center h-full gap-6 p-8">
+            <nav aria-label="Menu mobilne" className="flex flex-col items-center justify-center h-full gap-6 p-8">
               {navLinks.map((link, index) => (
                 <motion.a
                   key={link.href}
