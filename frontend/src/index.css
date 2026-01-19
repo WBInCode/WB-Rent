@@ -12,27 +12,27 @@
   --color-bg-card: #1a1a1a;
   --color-bg-card-hover: #222222;
   
-  /* Gold/Amber Accent - matching WB-Rent logo gradient */
-  --color-gold: #c9a227;
-  --color-gold-light: #dbb84d;
-  --color-gold-dark: #9a7b1a;
-  --color-gold-muted: rgba(201, 162, 39, 0.1);
-  --color-gold-glow: rgba(201, 162, 39, 0.3);
+  /* Gold/Bronze Accent - exact WB-Rent logo gradient */
+  --color-gold: #b8972a;
+  --color-gold-light: #d4a84b;
+  --color-gold-dark: #8b6914;
+  --color-gold-muted: rgba(184, 151, 42, 0.1);
+  --color-gold-glow: rgba(212, 168, 75, 0.25);
   
   /* Text */
   --color-text-primary: #ffffff;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
+  --color-text-secondary: #9a9a9a;
+  --color-text-muted: #5a5a5a;
   
   /* Borders */
   --color-border: rgba(255, 255, 255, 0.08);
   --color-border-hover: rgba(255, 255, 255, 0.15);
-  --color-border-gold: rgba(245, 158, 11, 0.3);
+  --color-border-gold: rgba(184, 151, 42, 0.3);
   
   /* Status */
   --color-success: #22c55e;
   --color-error: #ef4444;
-  --color-warning: #c9a227;
+  --color-warning: #b8972a;
   
   /* === TYPOGRAPHY === */
   --font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -48,7 +48,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
-  --shadow-gold: 0 0 30px rgba(201, 162, 39, 0.15);
+  --shadow-gold: 0 0 30px rgba(212, 168, 75, 0.2);
   --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
   
   /* === MOTION TOKENS === */
@@ -125,7 +125,7 @@ body {
 
 /* === UTILITY CLASSES === */
 .text-gradient-gold {
-  background: linear-gradient(135deg, #dbb84d 0%, #c9a227 50%, #9a7b1a 100%);
+  background: linear-gradient(135deg, #d4a84b 0%, #b8972a 40%, #8b6914 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -138,7 +138,7 @@ body {
 }
 
 .border-glow-gold {
-  box-shadow: 0 0 20px var(--color-gold-glow), inset 0 0 20px rgba(201, 162, 39, 0.05);
+  box-shadow: 0 0 20px var(--color-gold-glow), inset 0 0 20px rgba(184, 151, 42, 0.05);
 }
 
 .glow-gold {
