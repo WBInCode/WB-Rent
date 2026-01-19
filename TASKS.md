@@ -82,7 +82,7 @@
 
 ### 8. Integracja FE ↔ BE
 - [x] Service layer (/services/api.ts)
-- [ ] Hook useSubmitForm (generic)
+- [x] Hook useSubmitForm (generic)
 - [ ] Obsługa błędów API na froncie
 - [ ] Test flow: rezerwacja end-to-end
 - [ ] Test flow: kontakt end-to-end
