@@ -3,6 +3,7 @@ import { Hero } from '@/sections/Hero';
 import { Categories } from '@/sections/Categories';
 import { Products } from '@/sections/Products';
 import { HowItWorks } from '@/sections/HowItWorks';
+import { Reservation } from '@/sections/Reservation';
 
 function App() {
   return (
@@ -21,9 +22,8 @@ function App() {
       {/* How It Works Section */}
       <HowItWorks />
 
-      <section id="rezerwacja" className="min-h-screen flex items-center justify-center">
-        <h2 className="text-3xl font-bold text-text-primary">Rezerwacja</h2>
-      </section>
+      {/* Reservation Section */}
+      <Reservation />
 
       <section id="faq" className="min-h-screen flex items-center justify-center bg-bg-secondary">
         <h2 className="text-3xl font-bold text-text-primary">FAQ</h2>
