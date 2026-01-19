@@ -27,7 +27,7 @@
 - [x] Komponent Toggle/Switch
 
 ### 2. Layout sekcji (statyczne)
-- [ ] Navbar (logo + linki + CTA)
+- [x] Navbar (logo + linki + CTA)
 - [ ] Hero (headline + widget "Sprawdź koszty")
 - [ ] Sekcja Kategorie (Ozonatory, Sprzęt czyszczący + placeholdery)
 - [ ] Sekcja Produkty (grid placeholder)
