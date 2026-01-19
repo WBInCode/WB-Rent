@@ -81,7 +81,7 @@
 - [x] Obsługa błędów + kody odpowiedzi
 
 ### 8. Integracja FE ↔ BE
-- [ ] Service layer (/services/api.ts)
+- [x] Service layer (/services/api.ts)
 - [ ] Hook useSubmitForm (generic)
 - [ ] Obsługa błędów API na froncie
 - [ ] Test flow: rezerwacja end-to-end
