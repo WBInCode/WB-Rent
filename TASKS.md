@@ -43,7 +43,7 @@
 - [x] Navbar scroll effect (blur + shadow)
 - [x] Animated tabs/pills (layoutId)
 - [x] Prefers-reduced-motion support
-- [ ] Parallax tła (opcjonalnie, lekki)
+- [x] Parallax tła (opcjonalnie, lekki)
 
 ### 4. Produkty
 - [ ] Dane demo (2 ozonatory + 4 sprzęty czyszczące)
