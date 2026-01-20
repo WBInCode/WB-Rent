@@ -23,6 +23,8 @@ app.use(cors({
       'http://localhost:5174',
       'http://localhost:5175',
       'https://wb-rent.vercel.app',
+      'https://wb-rent.pl',
+      'https://www.wb-rent.pl',
       ...config.corsOrigins,
     ];
     // Allow requests with no origin (mobile apps, curl, etc.)

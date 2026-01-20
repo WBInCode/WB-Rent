@@ -17,7 +17,7 @@ W ustawieniach projektu dodaj:
 ```
 PORT=3001
 NODE_ENV=production
-CORS_ORIGIN=https://wb-rent.vercel.app
+CORS_ORIGIN=https://wb-rent.pl,https://www.wb-rent.pl
 ADMIN_PASSWORD=twoje-bezpieczne-haslo
 ADMIN_TOKEN=twoj-tajny-token
 ```
@@ -29,10 +29,11 @@ Railway automatycznie zbuduje i uruchomi serwer.
 Po wdrożeniu Railway poda URL np. `https://wb-rent-server.up.railway.app`
 
 ### 6. Ustaw zmienną w Vercel
-W projekcie Vercel (frontend) dodaj zmienną środowiskową:
+W projekcie Vercel/hostingu (frontend) dodaj zmienną środowiskową:
 ```
-VITE_API_URL=https://wb-rent-server.up.railway.app/api
+VITE_API_URL=https://api.wb-rent.pl/api
 ```
+lub URL z Railway.
 
 ## Lokalne uruchamianie
 
