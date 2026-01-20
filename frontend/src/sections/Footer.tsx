@@ -237,13 +237,13 @@ export function Footer() {
           <p>© {currentYear} WB-Rent. Wszelkie prawa zastrzeżone.</p>
           <p>
             Stworzone z{' '}
-            <span className="text-[var(--color-gold)]">❤</span>
+            <span className="text-green-500">❤</span>
             {' '}przez{' '}
             <a 
-              href="https://github.com/WBInCode" 
+              href="https://wb-incode.pl" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-[var(--color-gold)] hover:text-[var(--color-gold-light)] transition-colors"
+              className="text-green-500 hover:text-green-400 transition-colors"
             >
               WBInCode
             </a>
