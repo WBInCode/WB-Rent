@@ -128,7 +128,7 @@ export const sendReservationConfirmation = async (
         <p style="color: #a1a1aa; margin: 5px 0 0;">Wypożyczalnia sprzętu czyszczącego</p>
       </div>
       
-      <p>Cześć <strong style="color: #b8972a;">${data.name}</strong>,</p>
+      <p>Cześć <strong style="color: #b8972a;">${data.firstName}</strong>,</p>
       
       <div style="background: #422006; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
         <h3 style="color: #f59e0b; margin: 0 0 10px 0;">⏳ Twoja rezerwacja oczekuje na akceptację</h3>
@@ -222,7 +222,7 @@ export const sendReservationNotification = async (
       <table style="width: 100%; border-collapse: collapse;">
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #333; color: #a1a1aa;">Klient:</td>
-          <td style="padding: 8px; border-bottom: 1px solid #333;">${data.name}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #333;">${data.firstName} ${data.lastName}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #333; color: #a1a1aa;">Email:</td>

@@ -4,10 +4,10 @@ import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNot
 import { getQueries } from './db.js';
 import {
   sendContactConfirmation,
-  sendContactNotification,
+  // sendContactNotification - sent from admin panel
   sendReservationConfirmation,
   sendReservationNotification,
-  sendProductAvailabilityNotification,
+  // sendProductAvailabilityNotification - sent from admin panel
 } from './email.js';
 
 // Product data (should match frontend)
@@ -363,7 +363,7 @@ router.post('/newsletter/unsubscribe', async (req: Request, res: Response) => {
 
 // === GET /api/products/availability ===
 // Get today's availability for all products
-router.get('/products/availability', (req: Request, res: Response) => {
+router.get('/products/availability', (_req: Request, res: Response) => {
   try {
     const queries = getQueries();
     

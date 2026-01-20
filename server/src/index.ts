@@ -91,7 +91,7 @@ const startServer = () => {
 ╠═══════════════════════════════════════════╣
 ║  🚀 Server running on port ${config.port}           ║
 ║  📍 http://localhost:${config.port}                 ║
-║  🌐 CORS origin: ${config.corsOrigin}    ║
+║  🌐 CORS origins: ${config.corsOrigins.join(', ')}    ║
 ║  🔧 Environment: ${config.nodeEnv}           ║
 ║  ⏰ Reminders: daily at 9:00 AM          ║
 ╚═══════════════════════════════════════════╝

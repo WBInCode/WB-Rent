@@ -243,7 +243,7 @@ router.get('/reservations/:id', adminAuth, (req: Request, res: Response) => {
 });
 
 // Get all contacts
-router.get('/contacts', adminAuth, (req: Request, res: Response) => {
+router.get('/contacts', adminAuth, (_req: Request, res: Response) => {
   try {
     const queries = getQueries();
     const contacts = queries.getContacts.all();
@@ -284,7 +284,7 @@ router.patch('/contacts/:id', adminAuth, (req: Request, res: Response) => {
 });
 
 // Dashboard stats
-router.get('/stats', adminAuth, (req: Request, res: Response) => {
+router.get('/stats', adminAuth, (_req: Request, res: Response) => {
   try {
     const queries = getQueries();
     const reservations = queries.getReservations.all() as any[];
@@ -322,7 +322,7 @@ router.get('/stats', adminAuth, (req: Request, res: Response) => {
 });
 
 // Revenue details endpoint
-router.get('/revenue', adminAuth, (req: Request, res: Response) => {
+router.get('/revenue', adminAuth, (_req: Request, res: Response) => {
   try {
     const queries = getQueries();
     
@@ -484,7 +484,7 @@ router.post('/contacts/:id/reply', adminAuth, async (req: Request, res: Response
 });
 
 // Send reminders endpoint (can be called manually or via cron)
-router.post('/send-reminders', adminAuth, async (req: Request, res: Response) => {
+router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) => {
   try {
     const { sendPickupReminderEmail, sendReturnReminderEmail } = await import('./email.js');
     const queries = getQueries();
@@ -797,7 +797,7 @@ router.delete('/notifications/:id', adminAuth, (req: Request, res: Response) => 
 // Send notification manually for a product
 router.post('/notifications/send/:productId', adminAuth, async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params.productId as string;
     const queries = getQueries();
     
     const productName = productNames[productId];
