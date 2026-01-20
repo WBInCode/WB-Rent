@@ -7,8 +7,8 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isDev: process.env.NODE_ENV !== 'production',
 
-  // CORS
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  // CORS - allow multiple origins
+  corsOrigins: (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim()),
 
   // SMTP
   smtp: {

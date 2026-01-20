@@ -15,14 +15,15 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS - allow multiple origins for dev
+// CORS - allow multiple origins for dev and production
 app.use(cors({
   origin: (origin, callback) => {
     const allowedOrigins = [
       'http://localhost:5173',
       'http://localhost:5174',
       'http://localhost:5175',
-      config.corsOrigin,
+      'https://wb-rent.vercel.app',
+      ...config.corsOrigins,
     ];
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin || allowedOrigins.includes(origin)) {
