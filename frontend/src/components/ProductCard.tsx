@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Check, X, Eye, Bell, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Card, Badge, Button, Input } from '@/components/ui';
+import { Button, Input } from '@/components/ui';
 import { type Product } from '@/data/products';
 import { hoverLiftVariants, transitions } from '@/lib/motion';
 import { notifyWhenAvailable } from '@/services/api';
@@ -11,23 +11,15 @@ import { notifyWhenAvailable } from '@/services/api';
 interface ProductCardProps {
   product: Product;
   isAvailable?: boolean; // Real-time availability from API
-  onReserve?: (productId: string) => void;
 }
 
-export function ProductCard({ product, isAvailable, onReserve }: ProductCardProps) {
+export function ProductCard({ product, isAvailable }: ProductCardProps) {
   // Use API availability if provided, otherwise fallback to static product.available
   const available = isAvailable !== undefined ? isAvailable : product.available;
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notifyStatus, setNotifyStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [notifyMessage, setNotifyMessage] = useState('');
-
-  const handleReserve = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Navigate to product page and scroll to reservation
-    window.location.href = `/produkt/${product.id}#rezerwacja`;
-  };
 
   const handleNotifyClick = (e: React.MouseEvent) => {
     e.preventDefault();
