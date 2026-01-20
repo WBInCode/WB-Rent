@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Calendar, 
@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Send
+  Send,
+  Home
 } from 'lucide-react';
 import { Card, Input, Select, Toggle, Button, Textarea } from '@/components/ui';
 import { 
@@ -70,11 +71,34 @@ const initialFormData: FormData = {
   acceptRodo: false,
 };
 
+// Adres biura dla odbioru osobistego
+const OFFICE_ADDRESS = 'ul. Juliusza Słowackiego 24/11, 35-060 Rzeszów';
+
+// Współrzędne Rzeszowa do obliczania odległości
+const RZESZOW_COORDS = { lat: 50.0412, lng: 21.9991 };
+
+// Funkcja do obliczania odległości (haversine formula)
+const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371; // Promień Ziemi w km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
 export function Reservation() {
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+  
+  // Stan dla sprawdzania odległości dostawy
+  const [deliveryDistanceStatus, setDeliveryDistanceStatus] = useState<'idle' | 'checking' | 'ok' | 'too_far'>('idle');
+  const [deliveryDistanceMessage, setDeliveryDistanceMessage] = useState<string | null>(null);
 
   // Get pre-fill data from CostWidget
   const { preFillData, clearPreFillData } = useReservationContext();
@@ -213,7 +237,106 @@ export function Reservation() {
       setAvailabilityStatus('idle');
       setAvailabilityMessage(null);
     }
+
+    // Reset delivery distance when delivery is toggled off or address changes
+    if (field === 'delivery' && value === false) {
+      setDeliveryDistanceStatus('idle');
+      setDeliveryDistanceMessage(null);
+    }
   };
+
+  // Funkcja do sprawdzania odległości adresu od Rzeszowa (używa Nominatim/OpenStreetMap)
+  const checkDeliveryDistance = useCallback(async (address: string, city: string) => {
+    if (!address || !city) {
+      setDeliveryDistanceStatus('idle');
+      setDeliveryDistanceMessage(null);
+      return;
+    }
+
+    setDeliveryDistanceStatus('checking');
+    setDeliveryDistanceMessage(null);
+
+    try {
+      // Użyj Nominatim API do geocodowania adresu
+      const fullAddress = `${address}, ${city}, Polska`;
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
+        { headers: { 'Accept-Language': 'pl' } }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Geocoding failed');
+      }
+
+      const data = await response.json();
+      
+      if (data.length === 0) {
+        // Nie znaleziono adresu - spróbuj tylko z miastem
+        const cityResponse = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city + ', Polska')}&limit=1`,
+          { headers: { 'Accept-Language': 'pl' } }
+        );
+        const cityData = await cityResponse.json();
+        
+        if (cityData.length === 0) {
+          setDeliveryDistanceStatus('idle');
+          setDeliveryDistanceMessage('Nie udało się zweryfikować adresu. Skontaktuj się z nami telefonicznie.');
+          return;
+        }
+        
+        const distance = calculateDistance(
+          RZESZOW_COORDS.lat,
+          RZESZOW_COORDS.lng,
+          parseFloat(cityData[0].lat),
+          parseFloat(cityData[0].lon)
+        );
+        
+        if (distance > 30) {
+          setDeliveryDistanceStatus('too_far');
+          setDeliveryDistanceMessage(`Adres dostawy jest za daleko od Rzeszowa (ok. ${Math.round(distance)} km). Maksymalny zasięg dostawy to 30 km.`);
+        } else {
+          setDeliveryDistanceStatus('ok');
+          setDeliveryDistanceMessage(null);
+        }
+        return;
+      }
+
+      const { lat, lon } = data[0];
+      const distance = calculateDistance(
+        RZESZOW_COORDS.lat,
+        RZESZOW_COORDS.lng,
+        parseFloat(lat),
+        parseFloat(lon)
+      );
+
+      if (distance > 30) {
+        setDeliveryDistanceStatus('too_far');
+        setDeliveryDistanceMessage(`Adres dostawy jest za daleko od Rzeszowa (ok. ${Math.round(distance)} km). Maksymalny zasięg dostawy to 30 km.`);
+      } else {
+        setDeliveryDistanceStatus('ok');
+        setDeliveryDistanceMessage(`Adres w zasięgu dostawy (ok. ${Math.round(distance)} km od Rzeszowa)`);
+      }
+    } catch (error) {
+      console.error('Distance check error:', error);
+      setDeliveryDistanceStatus('idle');
+      setDeliveryDistanceMessage('Nie udało się zweryfikować odległości. Skontaktuj się z nami.');
+    }
+  }, []);
+
+  // Debounced sprawdzanie odległości dostawy
+  useEffect(() => {
+    if (!formData.delivery || !formData.city) {
+      setDeliveryDistanceStatus('idle');
+      setDeliveryDistanceMessage(null);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      checkDeliveryDistance(formData.address, formData.city);
+    }, 1000); // 1s debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.delivery, formData.city, formData.address, checkDeliveryDistance]);
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -250,6 +373,24 @@ export function Reservation() {
     // Block if still checking
     if (availabilityStatus === 'checking') {
       setValidationError('Poczekaj na sprawdzenie dostępności...');
+      return;
+    }
+
+    // Block if delivery address is too far
+    if (formData.delivery && deliveryDistanceStatus === 'too_far') {
+      setValidationError('Adres dostawy jest poza zasięgiem (max 30 km od Rzeszowa). Wybierz odbiór osobisty lub zmień adres.');
+      return;
+    }
+
+    // Block if delivery distance is still checking
+    if (formData.delivery && deliveryDistanceStatus === 'checking') {
+      setValidationError('Poczekaj na weryfikację adresu dostawy...');
+      return;
+    }
+
+    // Block if delivery address is missing
+    if (formData.delivery && (!formData.city || !formData.address)) {
+      setValidationError('Podaj pełny adres dostawy (miasto i adres).');
       return;
     }
 
@@ -454,39 +595,123 @@ export function Reservation() {
                 <Card variant="glass" padding="lg">
                   <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-gold text-bg-primary text-sm font-bold flex items-center justify-center">3</span>
-                    Dostawa
+                    Odbiór / Dostawa
                   </h3>
                   
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Toggle
-                        label="Zamów dostawę"
-                        description="Transport pod wskazany adres (+40 zł)"
-                        checked={formData.delivery}
-                        onChange={(e) => updateField('delivery', e.target.checked)}
-                      />
-                      <Truck className="w-5 h-5 text-text-muted" />
+                    {/* Odbiór osobisty - domyślnie */}
+                    <div className="p-4 rounded-lg bg-bg-primary/50 border border-border">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center shrink-0">
+                          <Home className="w-5 h-5 text-gold" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              id="pickup-personal"
+                              name="deliveryOption"
+                              checked={!formData.delivery}
+                              onChange={() => updateField('delivery', false)}
+                              className="w-4 h-4 text-gold accent-gold"
+                            />
+                            <label htmlFor="pickup-personal" className="font-medium text-text-primary cursor-pointer">
+                              Odbiór osobisty
+                            </label>
+                            <span className="text-xs text-success font-medium">Bezpłatnie</span>
+                          </div>
+                          <p className="text-sm text-text-muted mt-1 ml-6">
+                            <MapPin className="w-3 h-3 inline mr-1" />
+                            {OFFICE_ADDRESS}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
-                    {formData.delivery && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
-                        <Input
-                          label="Miasto"
-                          placeholder="Np. Warszawa"
-                          value={formData.city}
-                          onChange={(e) => updateField('city', e.target.value)}
-                          leftIcon={<MapPin className="w-4 h-4" />}
-                          required={formData.delivery}
-                        />
-                        <Input
-                          label="Adres"
-                          placeholder="Ulica, nr domu"
-                          value={formData.address}
-                          onChange={(e) => updateField('address', e.target.value)}
-                          required={formData.delivery}
-                        />
+                    {/* Dostawa pod adres */}
+                    <div className={`p-4 rounded-lg border transition-colors ${formData.delivery ? 'bg-gold/5 border-gold/30' : 'bg-bg-primary/50 border-border'}`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${formData.delivery ? 'bg-gold/20' : 'bg-bg-secondary'}`}>
+                          <Truck className={`w-5 h-5 ${formData.delivery ? 'text-gold' : 'text-text-muted'}`} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              id="pickup-delivery"
+                              name="deliveryOption"
+                              checked={formData.delivery}
+                              onChange={() => updateField('delivery', true)}
+                              className="w-4 h-4 text-gold accent-gold"
+                            />
+                            <label htmlFor="pickup-delivery" className="font-medium text-text-primary cursor-pointer">
+                              Dostawa pod adres
+                            </label>
+                            <span className="text-xs text-gold font-medium">+40 zł</span>
+                          </div>
+                          <p className="text-xs text-text-muted mt-1 ml-6">
+                            Maksymalny zasięg: 30 km od Rzeszowa
+                          </p>
+                        </div>
                       </div>
-                    )}
+
+                      {formData.delivery && (
+                        <div className="mt-4 ml-13 space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Input
+                              label="Miasto"
+                              placeholder="Np. Rzeszów, Łańcut, Krosno..."
+                              value={formData.city}
+                              onChange={(e) => updateField('city', e.target.value)}
+                              leftIcon={<MapPin className="w-4 h-4" />}
+                              required={formData.delivery}
+                            />
+                            <Input
+                              label="Adres"
+                              placeholder="Ulica, nr domu/mieszkania"
+                              value={formData.address}
+                              onChange={(e) => updateField('address', e.target.value)}
+                              required={formData.delivery}
+                            />
+                          </div>
+                          
+                          {/* Status sprawdzania odległości */}
+                          {deliveryDistanceStatus === 'checking' && (
+                            <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
+                              <Loader2 className="w-4 h-4 text-gold animate-spin" />
+                              <p className="text-sm text-gold">Sprawdzanie odległości...</p>
+                            </div>
+                          )}
+                          
+                          {deliveryDistanceStatus === 'ok' && deliveryDistanceMessage && (
+                            <div className="p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-success" />
+                              <p className="text-sm text-success">{deliveryDistanceMessage}</p>
+                            </div>
+                          )}
+                          
+                          {deliveryDistanceStatus === 'too_far' && deliveryDistanceMessage && (
+                            <div className="p-3 rounded-lg bg-error/10 border border-error/20 flex items-start gap-2">
+                              <AlertCircle className="w-5 h-5 text-error shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm font-semibold text-error">Adres poza zasięgiem dostawy</p>
+                                <p className="text-xs text-error/80 mt-1">{deliveryDistanceMessage}</p>
+                                <p className="text-xs text-text-muted mt-2">
+                                  Wybierz odbiór osobisty lub skontaktuj się z nami: <strong>570 038 828</strong>
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {deliveryDistanceStatus === 'idle' && deliveryDistanceMessage && (
+                            <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 flex items-center gap-2">
+                              <AlertCircle className="w-4 h-4 text-warning" />
+                              <p className="text-sm text-warning">{deliveryDistanceMessage}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     <div className="flex items-center justify-between pt-2">
                       <Toggle
