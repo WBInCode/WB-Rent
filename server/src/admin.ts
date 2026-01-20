@@ -1,7 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getQueries } from './db.js';
 import { config } from './config.js';
-import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail } from './email.js';
+import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendNewsletterEmail, sendProductAvailabilityNotification } from './email.js';
+import { newsletterPostSchema } from './schemas.js';
 
 // Product names mapping
 const productNames: Record<string, string> = {
@@ -154,6 +155,56 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         console.log(`📧 Returned email sent to ${reservation.email}`);
       } catch (emailError) {
         console.error('Email send error:', emailError);
+      }
+
+      // Auto-send availability notifications to waiting customers
+      try {
+        const waitingNotifications = queries.getWaitingNotificationsForProduct.all(reservation.product_id) as any[];
+        const productName = productNames[reservation.product_id] || reservation.product_id;
+        
+        for (const notification of waitingNotifications) {
+          try {
+            const result = await sendProductAvailabilityNotification(
+              notification.email,
+              productName,
+              reservation.product_id
+            );
+            if (result.success) {
+              queries.markNotificationAsSent.run(notification.id);
+              console.log(`📧 Availability notification sent to ${notification.email} for ${productName}`);
+            }
+          } catch (notifyError) {
+            console.error(`Failed to notify ${notification.email}:`, notifyError);
+          }
+        }
+      } catch (notifyError) {
+        console.error('Auto-notify error:', notifyError);
+      }
+    }
+
+    // Auto-send availability notifications when reservation is cancelled or rejected
+    if (status === 'cancelled' || status === 'rejected') {
+      try {
+        const waitingNotifications = queries.getWaitingNotificationsForProduct.all(reservation.product_id) as any[];
+        const productName = productNames[reservation.product_id] || reservation.product_id;
+        
+        for (const notification of waitingNotifications) {
+          try {
+            const result = await sendProductAvailabilityNotification(
+              notification.email,
+              productName,
+              reservation.product_id
+            );
+            if (result.success) {
+              queries.markNotificationAsSent.run(notification.id);
+              console.log(`📧 Availability notification sent to ${notification.email} for ${productName}`);
+            }
+          } catch (notifyError) {
+            console.error(`Failed to notify ${notification.email}:`, notifyError);
+          }
+        }
+      } catch (notifyError) {
+        console.error('Auto-notify error:', notifyError);
       }
     }
     
@@ -489,6 +540,310 @@ router.post('/send-reminders', adminAuth, async (req: Request, res: Response) =>
     });
   } catch (error) {
     console.error('Send reminders error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// === NEWSLETTER ENDPOINTS ===
+
+// Get all subscribers
+router.get('/newsletter/subscribers', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const subscribers = queries.getAllSubscribers.all();
+    const activeCount = (queries.getActiveSubscribersCount.get() as any)?.count || 0;
+
+    res.json({
+      success: true,
+      data: subscribers,
+      stats: { activeCount }
+    });
+  } catch (error) {
+    console.error('Get subscribers error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Delete subscriber
+router.delete('/newsletter/subscribers/:id', adminAuth, (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const queries = getQueries();
+    queries.deleteSubscriber.run(Number(id));
+
+    res.json({ success: true, message: 'Subskrybent usunięty' });
+  } catch (error) {
+    console.error('Delete subscriber error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Get all newsletter posts
+router.get('/newsletter/posts', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const posts = queries.getPosts.all();
+
+    res.json({ success: true, data: posts });
+  } catch (error) {
+    console.error('Get posts error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Create newsletter post
+router.post('/newsletter/posts', adminAuth, (req: Request, res: Response) => {
+  try {
+    const data = newsletterPostSchema.parse(req.body);
+    const queries = getQueries();
+
+    const result = queries.insertPost.run({
+      title: data.title,
+      content: data.content,
+      status: 'draft',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Post utworzony',
+      id: result.lastInsertRowid,
+    });
+  } catch (error) {
+    console.error('Create post error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Update newsletter post
+router.patch('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const data = newsletterPostSchema.parse(req.body);
+    const queries = getQueries();
+
+    queries.updatePost.run({
+      id: Number(id),
+      title: data.title,
+      content: data.content,
+      status: data.status,
+    });
+
+    res.json({ success: true, message: 'Post zaktualizowany' });
+  } catch (error) {
+    console.error('Update post error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Delete newsletter post
+router.delete('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const queries = getQueries();
+    queries.deletePost.run(Number(id));
+
+    res.json({ success: true, message: 'Post usunięty' });
+  } catch (error) {
+    console.error('Delete post error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Send newsletter post to all active subscribers
+router.post('/newsletter/posts/:id/send', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const queries = getQueries();
+
+    // Get the post
+    const post = queries.getPostById.get(Number(id)) as any;
+    if (!post) {
+      res.status(404).json({ success: false, message: 'Post nie znaleziony' });
+      return;
+    }
+
+    // Get all active subscribers
+    const subscribers = queries.getSubscribers.all() as any[];
+    
+    if (subscribers.length === 0) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Brak aktywnych subskrybentów do wysłania newslettera' 
+      });
+      return;
+    }
+
+    // Send emails to all subscribers
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const subscriber of subscribers) {
+      try {
+        await sendNewsletterEmail({
+          email: subscriber.email,
+          name: subscriber.name,
+          title: post.title,
+          content: post.content,
+        });
+        sentCount++;
+        console.log(`📧 Newsletter sent to ${subscriber.email}`);
+      } catch (err) {
+        failedCount++;
+        console.error(`Failed to send newsletter to ${subscriber.email}:`, err);
+      }
+    }
+
+    // Mark post as sent
+    queries.markPostAsSent.run({
+      id: Number(id),
+      sentCount,
+    });
+
+    res.json({
+      success: true,
+      message: `Newsletter wysłany do ${sentCount} subskrybentów${failedCount > 0 ? ` (${failedCount} błędów)` : ''}`,
+      data: {
+        sentCount,
+        failedCount,
+      }
+    });
+  } catch (error) {
+    console.error('Send newsletter error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Get newsletter stats
+router.get('/newsletter/stats', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const subscribers = queries.getAllSubscribers.all() as any[];
+    const posts = queries.getPosts.all() as any[];
+    const activeCount = (queries.getActiveSubscribersCount.get() as any)?.count || 0;
+    const sentPosts = posts.filter(p => p.status === 'sent').length;
+
+    res.json({
+      success: true,
+      data: {
+        totalSubscribers: subscribers.length,
+        activeSubscribers: activeCount,
+        totalPosts: posts.length,
+        sentPosts,
+      }
+    });
+  } catch (error) {
+    console.error('Get newsletter stats error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// =============================================
+// PRODUCT AVAILABILITY NOTIFICATIONS
+// =============================================
+
+// Get all product notifications
+router.get('/notifications', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const notifications = queries.getProductNotifications.all() as any[];
+    
+    // Add product names to notifications
+    const enrichedNotifications = notifications.map(n => ({
+      ...n,
+      productName: productNames[n.product_id] || n.product_id,
+    }));
+
+    res.json({ success: true, data: enrichedNotifications });
+  } catch (error) {
+    console.error('Get notifications error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Get notification stats
+router.get('/notifications/stats', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const stats = queries.getNotificationStats.get() as any;
+
+    res.json({
+      success: true,
+      data: {
+        total: stats?.total || 0,
+        waiting: stats?.waiting || 0,
+        sent: stats?.sent || 0,
+      }
+    });
+  } catch (error) {
+    console.error('Get notification stats error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Delete notification
+router.delete('/notifications/:id', adminAuth, (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const queries = getQueries();
+    queries.deleteProductNotification.run(id);
+
+    res.json({ success: true, message: 'Powiadomienie usunięte' });
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Send notification manually for a product
+router.post('/notifications/send/:productId', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const queries = getQueries();
+    
+    const productName = productNames[productId];
+    if (!productName) {
+      res.status(400).json({ success: false, message: 'Produkt nie istnieje' });
+      return;
+    }
+
+    // Get all waiting notifications for this product
+    const notifications = queries.getWaitingNotificationsForProduct.all(productId) as any[];
+
+    if (notifications.length === 0) {
+      res.json({ success: true, message: 'Brak osób oczekujących na ten produkt' });
+      return;
+    }
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const notification of notifications) {
+      try {
+        const result = await sendProductAvailabilityNotification(
+          notification.email,
+          productName,
+          productId
+        );
+        
+        if (result.success) {
+          queries.markNotificationAsSent.run(notification.id);
+          sentCount++;
+        } else {
+          failedCount++;
+        }
+      } catch (error) {
+        console.error(`Failed to send notification to ${notification.email}:`, error);
+        failedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Wysłano ${sentCount} powiadomień${failedCount > 0 ? ` (${failedCount} błędów)` : ''}`,
+      data: { sentCount, failedCount }
+    });
+  } catch (error) {
+    console.error('Send notifications error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
   }
 });

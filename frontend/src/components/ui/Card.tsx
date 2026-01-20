@@ -52,7 +52,6 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         whileHover={hoverable ? 'hover' : undefined}
         transition={transitions.spring}
         className={cn(
-          'rounded-[--radius-lg]',
           'shadow-card',
           hoverable && 'cursor-pointer',
           variantStyles[variant],

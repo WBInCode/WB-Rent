@@ -13,16 +13,16 @@ interface BadgeProps {
 
 const variantStyles: Record<BadgeVariant, string> = {
   default: 'bg-white/10 text-text-secondary border-border',
-  success: 'bg-success/10 text-success border-success/20',
-  warning: 'bg-warning/10 text-warning border-warning/20',
-  error: 'bg-error/10 text-error border-error/20',
-  gold: 'bg-gold-muted text-gold border-border-gold',
-  info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  success: 'bg-green-500/20 text-green-400 border-green-500/40 shadow-[0_0_10px_rgba(34,197,94,0.3)]',
+  warning: 'bg-warning/20 text-warning border-warning/40',
+  error: 'bg-red-500/20 text-red-400 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.3)]',
+  gold: 'bg-gold/20 text-gold border-gold/40',
+  info: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
 };
 
 const sizeStyles: Record<BadgeSize, string> = {
-  sm: 'px-2 py-0.5 text-xs',
-  md: 'px-3 py-1 text-sm',
+  sm: 'px-3 py-1 text-xs font-semibold',
+  md: 'px-4 py-1.5 text-sm font-semibold',
 };
 
 export function Badge({

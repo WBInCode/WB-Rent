@@ -69,6 +69,21 @@ export const reservationSchema = z.object({
     .max(200, 'Nazwa firmy może mieć maksymalnie 200 znaków')
     .optional(),
 
+  // Invoice
+  wantsInvoice: z.boolean().default(false),
+  invoiceNip: z
+    .string()
+    .max(20, 'NIP może mieć maksymalnie 20 znaków')
+    .optional(),
+  invoiceCompany: z
+    .string()
+    .max(200, 'Nazwa firmy może mieć maksymalnie 200 znaków')
+    .optional(),
+  invoiceAddress: z
+    .string()
+    .max(500, 'Adres firmy może mieć maksymalnie 500 znaków')
+    .optional(),
+
   // Additional
   notes: z.string().max(2000, 'Notatki mogą mieć maksymalnie 2000 znaków').optional(),
 
@@ -109,3 +124,43 @@ export const reservationSchema = z.object({
 );
 
 export type ReservationInput = z.infer<typeof reservationSchema>;
+
+// === NEWSLETTER SUBSCRIBER SCHEMA ===
+export const newsletterSubscribeSchema = z.object({
+  email: z
+    .string()
+    .email('Nieprawidłowy adres email')
+    .max(255, 'Email może mieć maksymalnie 255 znaków'),
+  name: z
+    .string()
+    .max(100, 'Imię może mieć maksymalnie 100 znaków')
+    .optional(),
+});
+
+export type NewsletterSubscribeInput = z.infer<typeof newsletterSubscribeSchema>;
+
+// === NEWSLETTER POST SCHEMA ===
+export const newsletterPostSchema = z.object({
+  title: z
+    .string()
+    .min(3, 'Tytuł musi mieć minimum 3 znaki')
+    .max(200, 'Tytuł może mieć maksymalnie 200 znaków'),
+  content: z
+    .string()
+    .min(10, 'Treść musi mieć minimum 10 znaków')
+    .max(10000, 'Treść może mieć maksymalnie 10000 znaków'),
+  status: z.enum(['draft', 'sent']).default('draft'),
+});
+
+export type NewsletterPostInput = z.infer<typeof newsletterPostSchema>;
+
+// === PRODUCT NOTIFICATION SCHEMA ===
+export const productNotificationSchema = z.object({
+  productId: z.string().min(1, 'ID produktu jest wymagane'),
+  email: z
+    .string()
+    .email('Nieprawidłowy adres email')
+    .max(255, 'Email może mieć maksymalnie 255 znaków'),
+});
+
+export type ProductNotificationInput = z.infer<typeof productNotificationSchema>;

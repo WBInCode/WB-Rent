@@ -6,3 +6,4 @@ export { Select, type SelectProps, type SelectOption } from './Select';
 export { Badge, type BadgeProps, type BadgeVariant } from './Badge';
 export { Toggle, type ToggleProps } from './Toggle';
 export { Textarea, type TextareaProps } from './Textarea';
+export { DatePicker } from './DatePicker';

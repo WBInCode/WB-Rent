@@ -1,17 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Grid3X3, LayoutList } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Input, Button } from '@/components/ui';
 import { ProductCard } from '@/components/ProductCard';
 import { products, categories, getProductsByCategory } from '@/data/products';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
-
-type ViewMode = 'grid' | 'list';
+import { getProductsAvailability } from '@/services/api';
 
 export function Products() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [availability, setAvailability] = useState<Record<string, boolean>>({});
+
+  // Fetch real-time availability
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      try {
+        const response = await getProductsAvailability();
+        if (response.success && response.data) {
+          setAvailability(response.data.availability);
+        }
+      } catch (error) {
+        console.error('Failed to fetch availability:', error);
+      }
+    };
+
+    fetchAvailability();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchAvailability, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Filter products
   const filteredProducts = products.filter((product) => {
@@ -97,45 +115,16 @@ export function Products() {
               ))}
             </div>
 
-            {/* Search & View Toggle */}
-            <div className="flex gap-3">
-              {/* Search */}
-              <div className="relative flex-1 lg:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-                <Input
-                  type="text"
-                  placeholder="Szukaj produktu..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-
-              {/* View Toggle */}
-              <div className="flex bg-bg-card rounded-lg border border-border p-1">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-md transition-colors ${
-                    viewMode === 'grid' 
-                      ? 'bg-gold/20 text-gold' 
-                      : 'text-text-muted hover:text-text-primary'
-                  }`}
-                  aria-label="Widok siatki"
-                >
-                  <Grid3X3 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-md transition-colors ${
-                    viewMode === 'list' 
-                      ? 'bg-gold/20 text-gold' 
-                      : 'text-text-muted hover:text-text-primary'
-                  }`}
-                  aria-label="Widok listy"
-                >
-                  <LayoutList className="w-4 h-4" />
-                </button>
-              </div>
+            {/* Search */}
+            <div className="relative flex-1 lg:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <Input
+                type="text"
+                placeholder="Szukaj produktu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
             </div>
           </div>
         </motion.div>
@@ -151,18 +140,21 @@ export function Products() {
             initial="hidden"
             animate="visible"
             exit="hidden"
-            className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6'
-                : 'flex flex-col gap-4'
-            }
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
           >
             {filteredProducts.length > 0 ? (
-              filteredProducts.map((product) => (
-                <motion.div key={product.id} variants={staggerItemVariants}>
-                  <ProductCard product={product} />
-                </motion.div>
-              ))
+              filteredProducts.map((product) => {
+                // Use API availability if loaded, otherwise fallback to static
+                const isProductAvailable = availability[product.id] !== undefined 
+                  ? availability[product.id] 
+                  : product.available;
+                
+                return (
+                  <motion.div key={product.id} variants={staggerItemVariants}>
+                    <ProductCard product={product} isAvailable={isProductAvailable} />
+                  </motion.div>
+                );
+              })
             ) : (
               <motion.div 
                 variants={staggerItemVariants}

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Phone, 
   Mail, 
@@ -8,24 +9,26 @@ import {
   Instagram, 
   ChevronUp 
 } from 'lucide-react';
+import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 
 const footerLinks = {
   uslugi: [
-    { label: 'Wynajem odkurzaczy piorących', href: '#produkty' },
-    { label: 'Wynajem odkurzaczy przemysłowych', href: '#produkty' },
-    { label: 'Wynajem ozonatorów', href: '#produkty' },
-    { label: 'Transport sprzętu', href: '#jak-to-dziala' },
+    { label: 'Wynajem odkurzaczy piorących', href: '/#produkty' },
+    { label: 'Wynajem odkurzaczy przemysłowych', href: '/#produkty' },
+    { label: 'Wynajem ozonatorów', href: '/#produkty' },
+    { label: 'Transport sprzętu', href: '/#jak-to-dziala' },
   ],
   informacje: [
-    { label: 'Jak to działa', href: '#jak-to-dziala' },
-    { label: 'Cennik', href: '#produkty' },
-    { label: 'FAQ', href: '#faq' },
-    { label: 'Kontakt', href: '#kontakt' },
+    { label: 'Jak to działa', href: '/#jak-to-dziala' },
+    { label: 'Cennik', href: '/#produkty' },
+    { label: 'FAQ', href: '/#faq' },
+    { label: 'Kontakt', href: '/#kontakt' },
+    { label: 'Wkrótce', href: '/wkrotce' },
   ],
   prawne: [
-    { label: 'Regulamin', href: '#' },
-    { label: 'Polityka prywatności', href: '#' },
-    { label: 'RODO', href: '#' },
+    { label: 'Regulamin', href: '/regulamin' },
+    { label: 'Polityka prywatności', href: '/polityka-prywatnosci' },
+    { label: 'RODO', href: '/rodo' },
   ],
 };
 
@@ -37,8 +40,42 @@ const contactInfo = [
 ];
 
 export function Footer() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Handle navigation - if link starts with /#, navigate to home and scroll to section
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    // If it's a hash link to home page section
+    if (href.startsWith('/#')) {
+      e.preventDefault();
+      const sectionId = href.substring(2); // Remove '/#'
+      
+      if (location.pathname === '/') {
+        // Already on home, just scroll
+        const element = document.getElementById(sectionId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth' });
+        }
+      } else {
+        // Navigate to home, then scroll
+        navigate('/');
+        setTimeout(() => {
+          const element = document.getElementById(sectionId);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 100);
+      }
+    } else if (href.startsWith('/') && !href.startsWith('/#')) {
+      // For internal pages like /wkrotce, use navigate
+      e.preventDefault();
+      navigate(href);
+    }
+    // For external links, let default behavior happen
   };
 
   const currentYear = new Date().getFullYear();
@@ -61,13 +98,13 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
           {/* Logo & Description */}
           <div className="lg:col-span-2">
-            <a href="#" className="inline-block mb-4">
+            <Link to="/" className="inline-block mb-4">
               <img 
                 src="/logo.png" 
                 alt="WB-Rent" 
                 className="h-12 w-auto"
               />
-            </a>
+            </Link>
             <p className="text-neutral-400 mb-6 max-w-sm">
               Profesjonalny wynajem sprzętu czyszczącego dla domu i firmy. 
               Odkurzacze piorące, przemysłowe, ozonatory i więcej. 
@@ -77,14 +114,18 @@ export function Footer() {
             {/* Social media */}
             <div className="flex gap-3">
               <a 
-                href="#" 
+                href="https://www.facebook.com/fbwbpartners" 
+                target="_blank"
+                rel="noopener noreferrer"
                 className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
                 aria-label="Facebook"
               >
                 <Facebook className="w-5 h-5 text-neutral-400 group-hover:text-neutral-900 transition-colors" />
               </a>
               <a 
-                href="#" 
+                href="https://www.instagram.com/wbrent.pl/" 
+                target="_blank"
+                rel="noopener noreferrer"
                 className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
                 aria-label="Instagram"
               >
@@ -100,7 +141,8 @@ export function Footer() {
               {footerLinks.uslugi.map((link) => (
                 <li key={link.label}>
                   <a 
-                    href={link.href} 
+                    href={link.href}
+                    onClick={(e) => handleLinkClick(e, link.href)}
                     className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
                   >
                     {link.label}
@@ -117,7 +159,8 @@ export function Footer() {
               {footerLinks.informacje.map((link) => (
                 <li key={link.label}>
                   <a 
-                    href={link.href} 
+                    href={link.href}
+                    onClick={(e) => handleLinkClick(e, link.href)}
                     className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
                   >
                     {link.label}
@@ -131,12 +174,12 @@ export function Footer() {
             <ul className="space-y-3">
               {footerLinks.prawne.map((link) => (
                 <li key={link.label}>
-                  <a 
-                    href={link.href} 
+                  <Link 
+                    to={link.href} 
                     className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
                   >
                     {link.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -171,6 +214,11 @@ export function Footer() {
                 );
               })}
             </ul>
+
+            {/* Newsletter */}
+            <div className="mt-6">
+              <NewsletterSubscribe variant="inline" />
+            </div>
           </div>
         </div>
 

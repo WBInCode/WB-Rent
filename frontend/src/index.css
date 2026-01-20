@@ -73,11 +73,15 @@ html {
 body {
   margin: 0;
   font-family: var(--font-family-sans);
-  background-color: var(--color-bg-primary);
+  background-color: transparent;
   color: var(--color-text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  background-color: #0a0a0c;
 }
 
 /* === SCROLLBAR STYLING === */
@@ -143,4 +147,32 @@ body {
 
 .glow-gold {
   box-shadow: var(--shadow-gold);
+}
+
+/* === INPUT AUTOFILL FIX === */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus,
+select:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-bg-card) inset !important;
+  -webkit-text-fill-color: var(--color-text-primary) !important;
+  background-color: var(--color-bg-card) !important;
+  border-color: var(--color-gold) !important;
+  caret-color: var(--color-text-primary) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Input focus state - no white background */
+input:focus,
+textarea:focus,
+select:focus {
+  background-color: var(--color-bg-card) !important;
 }

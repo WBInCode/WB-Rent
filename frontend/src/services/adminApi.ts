@@ -134,3 +134,114 @@ export async function sendReminders() {
   });
   return res.json();
 }
+
+// === NEWSLETTER API ===
+
+// Get newsletter subscribers
+export async function getNewsletterSubscribers() {
+  const res = await fetch(`${API_BASE}/newsletter/subscribers`, {
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Delete newsletter subscriber
+export async function deleteNewsletterSubscriber(id: number) {
+  const res = await fetch(`${API_BASE}/newsletter/subscribers/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Get newsletter posts
+export async function getNewsletterPosts() {
+  const res = await fetch(`${API_BASE}/newsletter/posts`, {
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Create newsletter post
+export async function createNewsletterPost(title: string, content: string) {
+  const res = await fetch(`${API_BASE}/newsletter/posts`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ title, content }),
+  });
+  return res.json();
+}
+
+// Update newsletter post
+export async function updateNewsletterPost(id: number, title: string, content: string, status: string) {
+  const res = await fetch(`${API_BASE}/newsletter/posts/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ title, content, status }),
+  });
+  return res.json();
+}
+
+// Delete newsletter post
+export async function deleteNewsletterPost(id: number) {
+  const res = await fetch(`${API_BASE}/newsletter/posts/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Send newsletter post to all subscribers
+export async function sendNewsletterPost(id: number) {
+  const res = await fetch(`${API_BASE}/newsletter/posts/${id}/send`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Get newsletter stats
+export async function getNewsletterStats() {
+  const res = await fetch(`${API_BASE}/newsletter/stats`, {
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// =============================================
+// PRODUCT AVAILABILITY NOTIFICATIONS
+// =============================================
+
+// Get all product notifications
+export async function getProductNotifications() {
+  const res = await fetch(`${API_BASE}/notifications`, {
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Get notification stats
+export async function getNotificationStats() {
+  const res = await fetch(`${API_BASE}/notifications/stats`, {
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Delete notification
+export async function deleteNotification(id: number) {
+  const res = await fetch(`${API_BASE}/notifications/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  return res.json();
+}
+
+// Send notifications for a product (manual trigger)
+export async function sendProductNotifications(productId: string) {
+  const res = await fetch(`${API_BASE}/notifications/send/${productId}`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  return res.json();
+}

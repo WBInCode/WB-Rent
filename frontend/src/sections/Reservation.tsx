@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Calendar, 
+  Calendar,
   MapPin, 
   Truck, 
   User, 
@@ -12,9 +12,11 @@ import {
   AlertCircle,
   Loader2,
   Send,
-  Home
+  Home,
+  FileText,
+  ChevronDown
 } from 'lucide-react';
-import { Card, Input, Select, Toggle, Button, Textarea } from '@/components/ui';
+import { Card, Input, Select, Button, Textarea, DatePicker } from '@/components/ui';
 import { 
   categories, 
   getProductsByCategory, 
@@ -23,6 +25,15 @@ import {
   type Product 
 } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
+
+// Helper to get today's date in local timezone as YYYY-MM-DD
+const getTodayLocalDate = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { useSubmitForm } from '@/hooks';
 import { submitReservation, checkAvailability, type ReservationPayload } from '@/services/api';
@@ -46,6 +57,11 @@ interface FormData {
   email: string;
   phone: string;
   company: string;
+  // Invoice
+  wantsInvoice: boolean;
+  invoiceNip: string;
+  invoiceCompany: string;
+  invoiceAddress: string;
   // Additional
   notes: string;
   acceptTerms: boolean;
@@ -66,6 +82,10 @@ const initialFormData: FormData = {
   email: '',
   phone: '',
   company: '',
+  wantsInvoice: false,
+  invoiceNip: '',
+  invoiceCompany: '',
+  invoiceAddress: '',
   notes: '',
   acceptTerms: false,
   acceptRodo: false,
@@ -131,6 +151,11 @@ export function Reservation() {
     onSuccess: () => {
       setFormData(initialFormData);
       setValidationError(null);
+      // Scroll to the success message (top of reservation section)
+      const reservationSection = document.getElementById('rezerwacja');
+      if (reservationSection) {
+        reservationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     },
   });
 
@@ -165,6 +190,14 @@ export function Reservation() {
     return start.getDay() === 5 && rentalDays <= 3;
   }, [formData.startDate, rentalDays]);
 
+  // Check if pickup is on weekend (Saturday=6 or Sunday=0)
+  const isWeekendPickup = useMemo(() => {
+    if (!formData.startDate) return false;
+    const start = new Date(formData.startDate);
+    const day = start.getDay();
+    return day === 0 || day === 6; // Sunday or Saturday
+  }, [formData.startDate]);
+
   // Calculate cost
   const costSummary = useMemo(() => {
     if (!formData.productId || rentalDays === 0) return null;
@@ -173,9 +206,9 @@ export function Reservation() {
       rentalDays, 
       formData.delivery, 
       isWeekendRental,
-      formData.weekendPickup
+      isWeekendPickup // automatycznie na podstawie daty
     );
-  }, [formData.productId, rentalDays, formData.delivery, isWeekendRental, formData.weekendPickup]);
+  }, [formData.productId, rentalDays, formData.delivery, isWeekendRental, isWeekendPickup]);
 
   // Auto-check availability when product/dates change
   useEffect(() => {
@@ -247,7 +280,8 @@ export function Reservation() {
 
   // Funkcja do sprawdzania odległości adresu od Rzeszowa (używa Nominatim/OpenStreetMap)
   const checkDeliveryDistance = useCallback(async (address: string, city: string) => {
-    if (!address || !city) {
+    // Wymaga przynajmniej miasta
+    if (!city) {
       setDeliveryDistanceStatus('idle');
       setDeliveryDistanceMessage(null);
       return;
@@ -257,10 +291,10 @@ export function Reservation() {
     setDeliveryDistanceMessage(null);
 
     try {
-      // Użyj Nominatim API do geocodowania adresu
-      const fullAddress = `${address}, ${city}, Polska`;
+      // Jeśli jest adres, szukaj pełnego adresu, w przeciwnym razie szukaj tylko miasta
+      const searchQuery = address ? `${address}, ${city}, Polska` : `${city}, Polska`;
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`,
         { headers: { 'Accept-Language': 'pl' } }
       );
       
@@ -271,33 +305,39 @@ export function Reservation() {
       const data = await response.json();
       
       if (data.length === 0) {
-        // Nie znaleziono adresu - spróbuj tylko z miastem
-        const cityResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city + ', Polska')}&limit=1`,
-          { headers: { 'Accept-Language': 'pl' } }
-        );
-        const cityData = await cityResponse.json();
-        
-        if (cityData.length === 0) {
-          setDeliveryDistanceStatus('idle');
-          setDeliveryDistanceMessage('Nie udało się zweryfikować adresu. Skontaktuj się z nami telefonicznie.');
+        // Nie znaleziono adresu - spróbuj tylko z miastem jeśli szukaliśmy pełnego adresu
+        if (address) {
+          const cityResponse = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city + ', Polska')}&limit=1`,
+            { headers: { 'Accept-Language': 'pl' } }
+          );
+          const cityData = await cityResponse.json();
+          
+          if (cityData.length === 0) {
+            setDeliveryDistanceStatus('idle');
+            setDeliveryDistanceMessage('Nie udało się zweryfikować adresu. Skontaktuj się z nami telefonicznie.');
+            return;
+          }
+          
+          const distance = calculateDistance(
+            RZESZOW_COORDS.lat,
+            RZESZOW_COORDS.lng,
+            parseFloat(cityData[0].lat),
+            parseFloat(cityData[0].lon)
+          );
+          
+          if (distance > 30) {
+            setDeliveryDistanceStatus('too_far');
+            setDeliveryDistanceMessage(`Za daleko (${Math.round(distance)} km). Max 30 km od Rzeszowa.`);
+          } else {
+            setDeliveryDistanceStatus('ok');
+            setDeliveryDistanceMessage(`OK - ${Math.round(distance)} km od Rzeszowa`);
+          }
           return;
         }
         
-        const distance = calculateDistance(
-          RZESZOW_COORDS.lat,
-          RZESZOW_COORDS.lng,
-          parseFloat(cityData[0].lat),
-          parseFloat(cityData[0].lon)
-        );
-        
-        if (distance > 30) {
-          setDeliveryDistanceStatus('too_far');
-          setDeliveryDistanceMessage(`Adres dostawy jest za daleko od Rzeszowa (ok. ${Math.round(distance)} km). Maksymalny zasięg dostawy to 30 km.`);
-        } else {
-          setDeliveryDistanceStatus('ok');
-          setDeliveryDistanceMessage(null);
-        }
+        setDeliveryDistanceStatus('idle');
+        setDeliveryDistanceMessage('Nie znaleziono miasta. Sprawdź pisownię.');
         return;
       }
 
@@ -311,19 +351,19 @@ export function Reservation() {
 
       if (distance > 30) {
         setDeliveryDistanceStatus('too_far');
-        setDeliveryDistanceMessage(`Adres dostawy jest za daleko od Rzeszowa (ok. ${Math.round(distance)} km). Maksymalny zasięg dostawy to 30 km.`);
+        setDeliveryDistanceMessage(`Za daleko (${Math.round(distance)} km). Max 30 km od Rzeszowa.`);
       } else {
         setDeliveryDistanceStatus('ok');
-        setDeliveryDistanceMessage(`Adres w zasięgu dostawy (ok. ${Math.round(distance)} km od Rzeszowa)`);
+        setDeliveryDistanceMessage(`OK - ${Math.round(distance)} km od Rzeszowa`);
       }
     } catch (error) {
       console.error('Distance check error:', error);
       setDeliveryDistanceStatus('idle');
-      setDeliveryDistanceMessage('Nie udało się zweryfikować odległości. Skontaktuj się z nami.');
+      setDeliveryDistanceMessage('Błąd sprawdzania. Spróbuj ponownie.');
     }
   }, []);
 
-  // Debounced sprawdzanie odległości dostawy
+  // Sprawdzanie odległości dostawy - z debounce żeby nie spamować API
   useEffect(() => {
     if (!formData.delivery || !formData.city) {
       setDeliveryDistanceStatus('idle');
@@ -331,9 +371,20 @@ export function Reservation() {
       return;
     }
 
+    // Minimum 3 znaki żeby szukać
+    if (formData.city.length < 3) {
+      setDeliveryDistanceStatus('idle');
+      setDeliveryDistanceMessage(null);
+      return;
+    }
+
+    // Pokaż "sprawdzam" od razu
+    setDeliveryDistanceStatus('checking');
+
+    // Debounce 600ms - czekaj aż użytkownik skończy pisać
     const timeoutId = setTimeout(() => {
       checkDeliveryDistance(formData.address, formData.city);
-    }, 1000); // 1s debounce
+    }, 600);
 
     return () => clearTimeout(timeoutId);
   }, [formData.delivery, formData.city, formData.address, checkDeliveryDistance]);
@@ -405,12 +456,16 @@ export function Reservation() {
       delivery: formData.delivery,
       city: formData.delivery ? formData.city : undefined,
       address: formData.delivery ? formData.address : undefined,
-      weekendPickup: formData.weekendPickup,
+      weekendPickup: isWeekendPickup,
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
       phone: formData.phone,
       company: formData.company || undefined,
+      wantsInvoice: formData.wantsInvoice,
+      invoiceNip: formData.wantsInvoice ? formData.invoiceNip : undefined,
+      invoiceCompany: formData.wantsInvoice ? formData.invoiceCompany : undefined,
+      invoiceAddress: formData.wantsInvoice ? formData.invoiceAddress : undefined,
       notes: formData.notes || undefined,
       totalPrice: costSummary.total,
     };
@@ -533,26 +588,24 @@ export function Reservation() {
 
               {/* Dates */}
               <motion.div variants={staggerItemVariants}>
-                <Card variant="glass" padding="lg">
+                <Card variant="glass" padding="lg" className="overflow-visible">
                   <h3 className="text-lg font-semibold text-text-primary mb-4 flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-gold text-bg-primary text-sm font-bold flex items-center justify-center">2</span>
                     Termin wynajmu
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Input
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                    <DatePicker
                       label="Data rozpoczęcia"
-                      type="date"
                       value={formData.startDate}
-                      onChange={(e) => updateField('startDate', e.target.value)}
-                      leftIcon={<Calendar className="w-4 h-4" />}
+                      onChange={(value) => updateField('startDate', value)}
+                      minDate={getTodayLocalDate()}
                       required
                     />
-                    <Input
+                    <DatePicker
                       label="Data zakończenia"
-                      type="date"
                       value={formData.endDate}
-                      onChange={(e) => updateField('endDate', e.target.value)}
-                      leftIcon={<Calendar className="w-4 h-4" />}
+                      onChange={(value) => updateField('endDate', value)}
+                      minDate={formData.startDate || getTodayLocalDate()}
                       required
                     />
                   </div>
@@ -713,14 +766,14 @@ export function Reservation() {
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between pt-2">
-                      <Toggle
-                        label="Odbiór w weekend"
-                        description="Sobota lub niedziela (+30 zł)"
-                        checked={formData.weekendPickup}
-                        onChange={(e) => updateField('weekendPickup', e.target.checked)}
-                      />
-                    </div>
+                    {isWeekendPickup && (
+                      <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-gold" />
+                        <p className="text-sm text-gold">
+                          Odbiór w weekend - doliczono opłatę +30 zł
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </Card>
               </motion.div>
@@ -767,15 +820,60 @@ export function Reservation() {
                       leftIcon={<Phone className="w-4 h-4" />}
                       required
                     />
-                    <div className="sm:col-span-2">
-                      <Input
-                        label="Firma (opcjonalnie)"
-                        placeholder="Nazwa firmy"
-                        value={formData.company}
-                        onChange={(e) => updateField('company', e.target.value)}
-                        leftIcon={<Building2 className="w-4 h-4" />}
-                      />
-                    </div>
+                  </div>
+
+                  {/* Invoice Section */}
+                  <div className="mt-4 border border-border rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => updateField('wantsInvoice', !formData.wantsInvoice)}
+                      className="w-full flex items-center justify-between p-4 bg-bg-card/50 hover:bg-bg-card transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                          formData.wantsInvoice 
+                            ? 'bg-gold border-gold' 
+                            : 'border-border'
+                        }`}>
+                          {formData.wantsInvoice && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-bg-primary" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-gold" />
+                          <span className="font-medium text-text-primary">Chcę fakturę VAT</span>
+                        </div>
+                      </div>
+                      <ChevronDown className={`w-5 h-5 text-text-muted transition-transform ${
+                        formData.wantsInvoice ? 'rotate-180' : ''
+                      }`} />
+                    </button>
+                    
+                    {formData.wantsInvoice && (
+                      <div className="p-4 border-t border-border bg-bg-primary/30 space-y-4">
+                        <Input
+                          label="NIP"
+                          placeholder="1234567890"
+                          value={formData.invoiceNip}
+                          onChange={(e) => updateField('invoiceNip', e.target.value)}
+                          leftIcon={<FileText className="w-4 h-4" />}
+                        />
+                        <Input
+                          label="Nazwa firmy"
+                          placeholder="Nazwa firmy do faktury"
+                          value={formData.invoiceCompany}
+                          onChange={(e) => updateField('invoiceCompany', e.target.value)}
+                          leftIcon={<Building2 className="w-4 h-4" />}
+                        />
+                        <Input
+                          label="Adres firmy"
+                          placeholder="ul. Przykładowa 1, 00-000 Miasto"
+                          value={formData.invoiceAddress}
+                          onChange={(e) => updateField('invoiceAddress', e.target.value)}
+                          leftIcon={<MapPin className="w-4 h-4" />}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4">
@@ -808,7 +906,7 @@ export function Reservation() {
                         required
                       />
                       <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors">
-                        Akceptuję <a href="#" className="text-gold hover:underline">regulamin</a> wypożyczalni WB-Rent *
+                        Akceptuję <a href="/regulamin" target="_blank" className="text-gold hover:underline">regulamin</a> wypożyczalni WB-Rent *
                       </span>
                     </label>
                     
@@ -821,7 +919,7 @@ export function Reservation() {
                         required
                       />
                       <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors">
-                        Wyrażam zgodę na przetwarzanie moich danych osobowych zgodnie z <a href="#" className="text-gold hover:underline">polityką prywatności</a> *
+                        Wyrażam zgodę na przetwarzanie moich danych osobowych zgodnie z <a href="/polityka-prywatnosci" target="_blank" className="text-gold hover:underline">polityką prywatności</a> *
                       </span>
                     </label>
                   </div>

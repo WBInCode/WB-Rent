@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -11,18 +12,21 @@ interface NavLink {
 }
 
 const navLinks: NavLink[] = [
-  { label: 'Start', href: '#start' },
-  { label: 'Kategorie', href: '#kategorie' },
-  { label: 'Produkty', href: '#produkty' },
-  { label: 'Jak to działa', href: '#jak-to-dziala' },
-  { label: 'Rezerwacja', href: '#rezerwacja' },
-  { label: 'FAQ', href: '#faq' },
+  { label: 'Start', href: '/#start' },
+  { label: 'Kategorie', href: '/#kategorie' },
+  { label: 'Produkty', href: '/#produkty' },
+  { label: 'Jak to działa', href: '/#jak-to-dziala' },
+  { label: 'Rezerwacja', href: '/#rezerwacja' },
+  { label: 'FAQ', href: '/#faq' },
+  { label: 'Wkrótce', href: '/wkrotce' },
 ];
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('start');
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Handle scroll effect
   useEffect(() => {
@@ -81,9 +85,33 @@ export function Navbar() {
 
   const handleNavClick = (href: string) => {
     setIsMobileMenuOpen(false);
-    const element = document.querySelector(href);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
+    
+    // If it's an internal page link (like /wkrotce)
+    if (href.startsWith('/') && !href.startsWith('/#')) {
+      navigate(href);
+      return;
+    }
+    
+    // If it's a hash link to home page section
+    if (href.startsWith('/#')) {
+      const sectionId = href.substring(2); // Remove '/#'
+      
+      if (location.pathname === '/') {
+        // Already on home, just scroll
+        const element = document.getElementById(sectionId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth' });
+        }
+      } else {
+        // Navigate to home, then scroll
+        navigate('/');
+        setTimeout(() => {
+          const element = document.getElementById(sectionId);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 100);
+      }
     }
   };
 
@@ -103,9 +131,13 @@ export function Navbar() {
       >
         <nav aria-label="Główna nawigacja" className="max-w-7xl mx-auto h-16 md:h-20 flex items-center justify-between">
           {/* Logo */}
-          <a 
-            href="#start" 
-            onClick={(e) => { e.preventDefault(); handleNavClick('#start'); }}
+          <Link 
+            to="/" 
+            onClick={() => { 
+              if (location.pathname === '/') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
             className="flex items-center group"
           >
             <img 
@@ -113,7 +145,7 @@ export function Navbar() {
               alt="WB-Rent" 
               className="h-10 md:h-12 w-auto"
             />
-          </a>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
@@ -124,7 +156,7 @@ export function Navbar() {
                 onClick={(e) => { e.preventDefault(); handleNavClick(link.href); }}
                 className={cn(
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                  activeSection === link.href.replace('#', '')
+                  location.pathname === '/' && activeSection === link.href.replace('/#', '')
                     ? 'text-gold'
                     : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
                 )}
@@ -139,7 +171,7 @@ export function Navbar() {
             <Button 
               variant="primary" 
               size="sm"
-              onClick={() => handleNavClick('#kontakt')}
+              onClick={() => handleNavClick('/#kontakt')}
             >
               Skontaktuj się
             </Button>
@@ -183,7 +215,7 @@ export function Navbar() {
                   transition={{ ...transitions.normal, delay: index * 0.05 }}
                   className={cn(
                     'text-2xl font-medium transition-colors',
-                    activeSection === link.href.replace('#', '')
+                    location.pathname === '/' && activeSection === link.href.replace('/#', '')
                       ? 'text-gold'
                       : 'text-text-secondary hover:text-text-primary'
                   )}
@@ -201,7 +233,7 @@ export function Navbar() {
                 <Button 
                   variant="primary" 
                   size="lg"
-                  onClick={() => handleNavClick('#kontakt')}
+                  onClick={() => handleNavClick('/#kontakt')}
                 >
                   Skontaktuj się
                 </Button>

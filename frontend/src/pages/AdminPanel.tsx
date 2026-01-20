@@ -12,7 +12,16 @@ import {
   deleteContact,
   deleteContacts,
   getRevenue,
-  sendReminders
+  sendReminders,
+  getNewsletterSubscribers,
+  getNewsletterPosts,
+  createNewsletterPost,
+  deleteNewsletterPost,
+  sendNewsletterPost,
+  deleteNewsletterSubscriber,
+  getProductNotifications,
+  deleteNotification,
+  sendProductNotifications
 } from '@/services/adminApi';
 import { Button, Card, Badge, Input } from '@/components/ui';
 import {
@@ -23,7 +32,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
   AreaChart,
   Area,
 } from 'recharts';
@@ -39,7 +47,6 @@ import {
   AlertCircle,
   Eye,
   Phone,
-  MapPin,
   Package,
   Send,
   X,
@@ -47,7 +54,11 @@ import {
   Trash2,
   CheckSquare,
   Square,
-  TrendingUp
+  TrendingUp,
+  Bell,
+  Users,
+  FileText,
+  Plus
 } from 'lucide-react';
 
 interface Reservation {
@@ -68,6 +79,11 @@ interface Reservation {
   total_price: number;
   status: string;
   notes?: string;
+  // Invoice data
+  wants_invoice: number;
+  invoice_nip?: string;
+  invoice_company?: string;
+  invoice_address?: string;
   created_at: string;
 }
 
@@ -111,6 +127,35 @@ interface RevenueData {
   byMonth: { month: string; revenue: number; count: number }[];
 }
 
+interface NewsletterSubscriber {
+  id: number;
+  email: string;
+  name: string | null;
+  status: string;
+  created_at: string;
+  unsubscribed_at: string | null;
+}
+
+interface NewsletterPost {
+  id: number;
+  title: string;
+  content: string;
+  status: string;
+  sent_count: number;
+  created_at: string;
+  sent_at: string | null;
+}
+
+interface ProductNotification {
+  id: number;
+  product_id: string;
+  productName: string;
+  email: string;
+  status: string;
+  created_at: string;
+  notified_at: string | null;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Oczekuje',
   confirmed: 'Potwierdzona',
@@ -145,7 +190,7 @@ export function AdminPanel() {
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'reservations' | 'contacts' | 'revenue' | 'reminders'>('reservations');
+  const [activeTab, setActiveTab] = useState<'reservations' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications'>('reservations');
   const [stats, setStats] = useState<Stats | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -164,6 +209,37 @@ export function AdminPanel() {
 
   // Revenue state
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null);
+
+  // Newsletter state
+  const [newsletterSubscribers, setNewsletterSubscribers] = useState<NewsletterSubscriber[]>([]);
+  const [newsletterPosts, setNewsletterPosts] = useState<NewsletterPost[]>([]);
+  const [showCreatePost, setShowCreatePost] = useState(false);
+
+  // Product notifications state
+  const [productNotifications, setProductNotifications] = useState<ProductNotification[]>([]);
+  const [sendingNotification, setSendingNotification] = useState<string | null>(null);
+
+  // Custom toast/alert state
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  
+  // Custom confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmModal({ message, onConfirm });
+  };
+
+  const [newPostTitle, setNewPostTitle] = useState('');
+  const [newPostContent, setNewPostContent] = useState('');
+  const [sendingNewsletter, setSendingNewsletter] = useState(false);
   const [sendingReminders, setSendingReminders] = useState(false);
 
   // Load data on login
@@ -176,17 +252,23 @@ export function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statsRes, reservationsRes, contactsRes, revenueRes] = await Promise.all([
+      const [statsRes, reservationsRes, contactsRes, revenueRes, subscribersRes, postsRes, notificationsRes] = await Promise.all([
         getStats(),
         getReservations(statusFilter !== 'all' ? statusFilter : undefined),
         getContacts(),
         getRevenue(),
+        getNewsletterSubscribers(),
+        getNewsletterPosts(),
+        getProductNotifications(),
       ]);
       
       if (statsRes.success) setStats(statsRes.data);
       if (reservationsRes.success) setReservations(reservationsRes.data);
       if (contactsRes.success) setContacts(contactsRes.data);
       if (revenueRes.success) setRevenueData(revenueRes.data);
+      if (subscribersRes.success) setNewsletterSubscribers(subscribersRes.data);
+      if (postsRes.success) setNewsletterPosts(postsRes.data);
+      if (notificationsRes.success) setProductNotifications(notificationsRes.data);
     } catch (error) {
       console.error('Failed to load data:', error);
     }
@@ -238,39 +320,41 @@ export function AdminPanel() {
       ? 'Czy na pewno chcesz usunąć tę wiadomość?' 
       : `Czy na pewno chcesz usunąć ${selectedContacts.length} wiadomości?`;
     
-    if (!confirm(confirmMsg)) return;
-    
-    setDeleting(true);
-    try {
-      const result = await deleteContacts(selectedContacts);
-      if (result.success) {
-        setContacts(prev => prev.filter(c => !selectedContacts.includes(c.id)));
-        setSelectedContacts([]);
-        loadData(); // Refresh stats
-      } else {
-        alert(result.message || 'Błąd usuwania');
+    showConfirm(confirmMsg, async () => {
+      setDeleting(true);
+      try {
+        const result = await deleteContacts(selectedContacts);
+        if (result.success) {
+          setContacts(prev => prev.filter(c => !selectedContacts.includes(c.id)));
+          setSelectedContacts([]);
+          showToast('success', 'Wiadomości usunięte');
+          loadData();
+        } else {
+          showToast('error', result.message || 'Błąd usuwania');
+        }
+      } catch (error) {
+        showToast('error', 'Błąd usuwania wiadomości');
       }
-    } catch (error) {
-      alert('Błąd usuwania wiadomości');
-    }
-    setDeleting(false);
+      setDeleting(false);
+    });
   };
 
   // Delete single contact
   const handleDeleteContact = async (id: number) => {
-    if (!confirm('Czy na pewno chcesz usunąć tę wiadomość?')) return;
-    
-    try {
-      const result = await deleteContact(id);
-      if (result.success) {
-        setContacts(prev => prev.filter(c => c.id !== id));
-        loadData(); // Refresh stats
-      } else {
-        alert(result.message || 'Błąd usuwania');
+    showConfirm('Czy na pewno chcesz usunąć tę wiadomość?', async () => {
+      try {
+        const result = await deleteContact(id);
+        if (result.success) {
+          setContacts(prev => prev.filter(c => c.id !== id));
+          showToast('success', 'Wiadomość usunięta');
+          loadData();
+        } else {
+          showToast('error', result.message || 'Błąd usuwania');
+        }
+      } catch (error) {
+        showToast('error', 'Błąd usuwania wiadomości');
       }
-    } catch (error) {
-      alert('Błąd usuwania wiadomości');
-    }
+    });
   };
 
   const handleReplySubmit = async () => {
@@ -293,11 +377,11 @@ export function AdminPanel() {
           loadData(); // Refresh all data
         }, 1500);
       } else {
-        alert(result.message || 'Błąd wysyłania odpowiedzi');
+        showToast('error', result.message || 'Błąd wysyłania odpowiedzi');
       }
     } catch (error) {
       console.error('Reply error:', error);
-      alert('Błąd wysyłania odpowiedzi');
+      showToast('error', 'Błąd wysyłania odpowiedzi');
     }
     setReplySending(false);
   };
@@ -470,6 +554,20 @@ export function AdminPanel() {
           >
             <Clock className="w-4 h-4 mr-2" />
             Przypomnienia
+          </Button>
+          <Button
+            variant={activeTab === 'newsletter' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('newsletter')}
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Nowości ({newsletterSubscribers.filter(s => s.status === 'active').length})
+          </Button>
+          <Button
+            variant={activeTab === 'notifications' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('notifications')}
+          >
+            <Bell className="w-4 h-4 mr-2" />
+            Powiadomienia ({productNotifications.filter(n => n.status === 'waiting').length})
           </Button>
         </div>
 
@@ -664,6 +762,34 @@ export function AdminPanel() {
                         <div className="md:col-span-2">
                           <p className="text-text-muted mb-1">Notatki:</p>
                           <p className="text-text-primary">{reservation.notes}</p>
+                        </div>
+                      )}
+                      {reservation.wants_invoice === 1 && (
+                        <div className="md:col-span-2 mt-4 p-4 bg-gold/10 border border-gold/30 rounded-lg">
+                          <p className="text-gold font-semibold mb-3 flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            Dane do faktury
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                            {reservation.invoice_nip && (
+                              <div>
+                                <p className="text-text-muted">NIP:</p>
+                                <p className="text-text-primary font-medium">{reservation.invoice_nip}</p>
+                              </div>
+                            )}
+                            {reservation.invoice_company && (
+                              <div>
+                                <p className="text-text-muted">Firma:</p>
+                                <p className="text-text-primary font-medium">{reservation.invoice_company}</p>
+                              </div>
+                            )}
+                            {reservation.invoice_address && (
+                              <div>
+                                <p className="text-text-muted">Adres:</p>
+                                <p className="text-text-primary font-medium">{reservation.invoice_address}</p>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -922,9 +1048,9 @@ export function AdminPanel() {
                           }}
                           itemStyle={{ color: '#fff' }}
                           labelStyle={{ color: '#9ca3af', marginBottom: '8px', fontWeight: 500 }}
-                          formatter={(value: number, name: string) => [
+                          formatter={(value, name) => [
                             <span key="value" style={{ color: '#10b981', fontWeight: 600, fontSize: '16px' }}>
-                              {name === 'przychód' ? `${value} zł` : value}
+                              {name === 'przychód' ? `${value ?? 0} zł` : (value ?? 0)}
                             </span>,
                             <span key="name" style={{ color: '#9ca3af' }}>
                               {name === 'przychód' ? 'Przychód' : 'Rezerwacje'}
@@ -1014,9 +1140,9 @@ export function AdminPanel() {
                           }}
                           itemStyle={{ color: '#fff' }}
                           labelStyle={{ color: '#9ca3af', marginBottom: '8px', fontWeight: 500 }}
-                          formatter={(value: number, name: string) => [
+                          formatter={(value, name) => [
                             <span key="value" style={{ color: '#f59e0b', fontWeight: 600, fontSize: '16px' }}>
-                              {value}
+                              {value ?? 0}
                             </span>,
                             <span key="name" style={{ color: '#9ca3af' }}>
                               {name === 'rezerwacje' ? 'Rezerwacje' : 'Przychód'}
@@ -1116,12 +1242,12 @@ export function AdminPanel() {
                   try {
                     const result = await sendReminders();
                     if (result.success) {
-                      alert(result.message);
+                      showToast('success', result.message);
                     } else {
-                      alert('Błąd: ' + result.message);
+                      showToast('error', result.message);
                     }
                   } catch (e) {
-                    alert('Błąd wysyłania');
+                    showToast('error', 'Błąd wysyłania');
                   }
                   setSendingReminders(false);
                 }}
@@ -1158,6 +1284,487 @@ export function AdminPanel() {
                 </div>
               </div>
             </Card>
+          </div>
+        )}
+
+        {/* Newsletter Tab */}
+        {activeTab === 'newsletter' && (
+          <div className="space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-green-500/10">
+                    <Users className="w-5 h-5 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-text-primary">
+                      {newsletterSubscribers.filter(s => s.status === 'active').length}
+                    </p>
+                    <p className="text-sm text-text-muted">Aktywnych subskrybentów</p>
+                  </div>
+                </div>
+              </Card>
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/10">
+                    <FileText className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-text-primary">{newsletterPosts.length}</p>
+                    <p className="text-sm text-text-muted">Wszystkich postów</p>
+                  </div>
+                </div>
+              </Card>
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-gold/10">
+                    <Send className="w-5 h-5 text-gold" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-text-primary">
+                      {newsletterPosts.filter(p => p.status === 'sent').length}
+                    </p>
+                    <p className="text-sm text-text-muted">Wysłanych newsletterów</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Create new post */}
+            <Card variant="glass" className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gold">Nowy post / newsletter</h3>
+                <Button
+                  variant={showCreatePost ? 'secondary' : 'primary'}
+                  size="sm"
+                  onClick={() => setShowCreatePost(!showCreatePost)}
+                >
+                  {showCreatePost ? (
+                    <>
+                      <X className="w-4 h-4 mr-2" />
+                      Anuluj
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Utwórz nowy
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {showCreatePost && (
+                <div className="space-y-4">
+                  <Input
+                    label="Tytuł"
+                    value={newPostTitle}
+                    onChange={(e) => setNewPostTitle(e.target.value)}
+                    placeholder="np. Nowy sprzęt w ofercie!"
+                  />
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-2">
+                      Treść
+                    </label>
+                    <textarea
+                      value={newPostContent}
+                      onChange={(e) => setNewPostContent(e.target.value)}
+                      placeholder="Treść newslettera..."
+                      rows={6}
+                      className="w-full px-4 py-3 bg-bg-primary border border-border rounded-lg 
+                               text-text-primary placeholder:text-text-muted
+                               focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold
+                               resize-none"
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      if (!newPostTitle.trim() || !newPostContent.trim()) {
+                        showToast('error', 'Wypełnij tytuł i treść');
+                        return;
+                      }
+                      try {
+                        const result = await createNewsletterPost(newPostTitle.trim(), newPostContent.trim());
+                        if (result.success) {
+                          setNewPostTitle('');
+                          setNewPostContent('');
+                          setShowCreatePost(false);
+                          showToast('success', 'Post utworzony');
+                          loadData();
+                        } else {
+                          showToast('error', result.message);
+                        }
+                      } catch (e) {
+                        showToast('error', 'Błąd tworzenia postu');
+                      }
+                    }}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Utwórz post
+                  </Button>
+                </div>
+              )}
+            </Card>
+
+            {/* Posts list */}
+            <Card variant="glass" className="p-6">
+              <h3 className="text-lg font-semibold text-gold mb-4">Posty / Newslettery</h3>
+              {newsletterPosts.length === 0 ? (
+                <p className="text-text-muted text-center py-8">Brak postów. Utwórz pierwszy!</p>
+              ) : (
+                <div className="space-y-4">
+                  {newsletterPosts.map((post) => (
+                    <div key={post.id} className="bg-bg-primary border border-border rounded-lg p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-semibold text-text-primary">{post.title}</h4>
+                            <Badge variant={post.status === 'sent' ? 'success' : 'default'}>
+                              {post.status === 'sent' ? 'Wysłany' : 'Szkic'}
+                            </Badge>
+                          </div>
+                          <p className="text-text-secondary text-sm line-clamp-2 mb-2">
+                            {post.content}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-text-muted">
+                            <span>Utworzono: {new Date(post.created_at).toLocaleDateString('pl-PL')}</span>
+                            {post.sent_at && (
+                              <span>Wysłano: {new Date(post.sent_at).toLocaleDateString('pl-PL')}</span>
+                            )}
+                            {post.sent_count > 0 && (
+                              <span className="text-green-400">✓ Wysłano do {post.sent_count} osób</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {post.status !== 'sent' && (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={async () => {
+                                const activeCount = newsletterSubscribers.filter(s => s.status === 'active').length;
+                                if (activeCount === 0) {
+                                  showToast('error', 'Brak aktywnych subskrybentów');
+                                  return;
+                                }
+                                showConfirm(`Czy na pewno chcesz wysłać ten newsletter do ${activeCount} subskrybentów?`, async () => {
+                                  setSendingNewsletter(true);
+                                  try {
+                                    const result = await sendNewsletterPost(post.id);
+                                    if (result.success) {
+                                      showToast('success', result.message);
+                                      loadData();
+                                    } else {
+                                      showToast('error', result.message);
+                                    }
+                                  } catch (e) {
+                                    showToast('error', 'Błąd wysyłania');
+                                  }
+                                  setSendingNewsletter(false);
+                                });
+                              }}
+                              disabled={sendingNewsletter}
+                            >
+                              {sendingNewsletter ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Send className="w-4 h-4 mr-1" />
+                                  Wyślij
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              showConfirm('Czy na pewno chcesz usunąć ten post?', async () => {
+                                try {
+                                  const result = await deleteNewsletterPost(post.id);
+                                  if (result.success) {
+                                    showToast('success', 'Post usunięty');
+                                    loadData();
+                                  } else {
+                                    showToast('error', result.message);
+                                  }
+                                } catch (e) {
+                                  showToast('error', 'Błąd usuwania');
+                                }
+                              });
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Subscribers list */}
+            <Card variant="glass" className="p-6">
+              <h3 className="text-lg font-semibold text-gold mb-4">
+                Subskrybenci ({newsletterSubscribers.filter(s => s.status === 'active').length})
+              </h3>
+              {newsletterSubscribers.filter(s => s.status === 'active').length === 0 ? (
+                <p className="text-text-muted text-center py-8">
+                  Brak aktywnych subskrybentów. Dodaj formularz zapisu na stronie!
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Email</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Imię</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Data zapisu</th>
+                        <th className="text-right py-3 px-2 text-text-muted font-medium">Akcje</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {newsletterSubscribers.filter(s => s.status === 'active').map((subscriber) => (
+                        <tr key={subscriber.id} className="border-b border-border/50 hover:bg-bg-card/50">
+                          <td className="py-3 px-2 text-text-primary">{subscriber.email}</td>
+                          <td className="py-3 px-2 text-text-secondary">{subscriber.name || '-'}</td>
+                          <td className="py-3 px-2 text-text-muted">
+                            {new Date(subscriber.created_at).toLocaleDateString('pl-PL')}
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                showConfirm('Czy na pewno chcesz usunąć tego subskrybenta?', async () => {
+                                  try {
+                                    const result = await deleteNewsletterSubscriber(subscriber.id);
+                                    if (result.success) {
+                                      showToast('success', 'Subskrybent usunięty');
+                                      loadData();
+                                    }
+                                  } catch (e) {
+                                    showToast('error', 'Błąd usuwania');
+                                  }
+                                });
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4 text-red-400" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {/* Notifications Tab */}
+        {activeTab === 'notifications' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gold">Powiadomienia o dostępności</h2>
+              <Button variant="ghost" size="sm" onClick={loadData}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Odśwież
+              </Button>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                    <Bell className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gold">
+                      {productNotifications.filter(n => n.status === 'waiting').length}
+                    </p>
+                    <p className="text-sm text-text-muted">Oczekujących</p>
+                  </div>
+                </div>
+              </Card>
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gold">
+                      {productNotifications.filter(n => n.status === 'sent').length}
+                    </p>
+                    <p className="text-sm text-text-muted">Wysłanych</p>
+                  </div>
+                </div>
+              </Card>
+              <Card variant="glass" className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <Package className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gold">
+                      {new Set(productNotifications.map(n => n.product_id)).size}
+                    </p>
+                    <p className="text-sm text-text-muted">Produktów</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Notifications Table */}
+            <Card variant="glass" className="p-6">
+              <h3 className="text-lg font-semibold text-gold mb-4">Lista powiadomień</h3>
+              
+              {productNotifications.length === 0 ? (
+                <div className="text-center py-8 text-text-muted">
+                  <Bell className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>Brak zapisanych powiadomień</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Produkt</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Email</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Status</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Data zapisu</th>
+                        <th className="text-left py-3 px-2 text-text-muted font-medium">Data wysłania</th>
+                        <th className="text-right py-3 px-2 text-text-muted font-medium">Akcje</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productNotifications.map((notification) => (
+                        <tr key={notification.id} className="border-b border-border/50 hover:bg-bg-card/50">
+                          <td className="py-3 px-2 text-text-primary">{notification.productName}</td>
+                          <td className="py-3 px-2 text-text-secondary">{notification.email}</td>
+                          <td className="py-3 px-2">
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              notification.status === 'waiting' 
+                                ? 'bg-yellow-500/20 text-yellow-400' 
+                                : 'bg-green-500/20 text-green-400'
+                            }`}>
+                              {notification.status === 'waiting' ? 'Oczekuje' : 'Wysłano'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-text-muted">
+                            {new Date(notification.created_at).toLocaleDateString('pl-PL')}
+                          </td>
+                          <td className="py-3 px-2 text-text-muted">
+                            {notification.notified_at 
+                              ? new Date(notification.notified_at).toLocaleDateString('pl-PL')
+                              : '-'
+                            }
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {notification.status === 'waiting' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={sendingNotification === notification.product_id}
+                                  onClick={async () => {
+                                    try {
+                                      setSendingNotification(notification.product_id);
+                                      await sendProductNotifications(notification.product_id);
+                                      showToast('success', 'Powiadomienia wysłane');
+                                      loadData();
+                                    } catch (e) {
+                                      showToast('error', 'Błąd wysyłania powiadomień');
+                                    } finally {
+                                      setSendingNotification(null);
+                                    }
+                                  }}
+                                  title="Wyślij powiadomienia dla tego produktu"
+                                >
+                                  <Send className="w-4 h-4 text-blue-400" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  showConfirm('Czy na pewno chcesz usunąć to powiadomienie?', async () => {
+                                    try {
+                                      await deleteNotification(notification.id);
+                                      showToast('success', 'Powiadomienie usunięte');
+                                      loadData();
+                                    } catch (e) {
+                                      showToast('error', 'Błąd usuwania');
+                                    }
+                                  });
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-400" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+
+            {/* Products with waiting notifications - grouped */}
+            {productNotifications.filter(n => n.status === 'waiting').length > 0 && (
+              <Card variant="glass" className="p-6">
+                <h3 className="text-lg font-semibold text-gold mb-4">Produkty z oczekującymi powiadomieniami</h3>
+                <div className="space-y-3">
+                  {Array.from(new Set(productNotifications.filter(n => n.status === 'waiting').map(n => n.product_id)))
+                    .map(productId => {
+                      const notifications = productNotifications.filter(n => n.product_id === productId && n.status === 'waiting');
+                      const productName = notifications[0]?.productName || 'Nieznany produkt';
+                      return (
+                        <div key={productId} className="flex items-center justify-between p-3 bg-bg-dark/50 rounded-lg">
+                          <div>
+                            <p className="text-text-primary font-medium">{productName}</p>
+                            <p className="text-sm text-text-muted">{notifications.length} oczekujących powiadomień</p>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={sendingNotification === productId}
+                            onClick={async () => {
+                              try {
+                                setSendingNotification(productId);
+                                await sendProductNotifications(productId);
+                                showToast('success', 'Powiadomienia wysłane');
+                                loadData();
+                              } catch (e) {
+                                showToast('error', 'Błąd wysyłania powiadomień');
+                              } finally {
+                                setSendingNotification(null);
+                              }
+                            }}
+                          >
+                            {sendingNotification === productId ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                Wysyłanie...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-4 h-4 mr-2" />
+                                Wyślij wszystkie
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      );
+                    })
+                  }
+                </div>
+              </Card>
+            )}
           </div>
         )}
       </main>
@@ -1254,6 +1861,66 @@ export function AdminPanel() {
                   </div>
                 </>
               )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Custom Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className={`px-5 py-3 rounded-xl shadow-xl border flex items-center gap-3 ${
+            toast.type === 'success' 
+              ? 'bg-green-500/20 border-green-500/50 text-green-400' 
+              : toast.type === 'error' 
+                ? 'bg-red-500/20 border-red-500/50 text-red-400'
+                : 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+          }`}>
+            {toast.type === 'success' && <CheckCircle className="w-5 h-5" />}
+            {toast.type === 'error' && <XCircle className="w-5 h-5" />}
+            {toast.type === 'info' && <Bell className="w-5 h-5" />}
+            <span className="font-medium">{toast.message}</span>
+            <button 
+              onClick={() => setToast(null)}
+              className="ml-2 hover:opacity-70"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirm Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card variant="glass" className="w-full max-w-md">
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 rounded-full bg-gold/20 flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle className="w-7 h-7 text-gold" />
+                </div>
+                <h3 className="text-lg font-bold text-text-primary mb-2">Potwierdzenie</h3>
+                <p className="text-text-muted">{confirmModal.message}</p>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => setConfirmModal(null)}
+                >
+                  Anuluj
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1"
+                  onClick={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal(null);
+                  }}
+                >
+                  Potwierdź
+                </Button>
+              </div>
             </div>
           </Card>
         </div>

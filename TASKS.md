@@ -100,11 +100,11 @@
 - [x] Backend: endpointy /api/admin/* (login, reservations, contacts, stats)
 - [x] Frontend: strona /admin z logowaniem
 - [x] Fix: CORS dla różnych portów dev
-- [ ] Dashboard ze statystykami
-- [ ] Lista rezerwacji z filtrowaniem
-- [ ] Zmiana statusu rezerwacji (pending → confirmed → completed)
-- [ ] Lista wiadomości kontaktowych
-- [ ] Zmiana hasła admina
+- [x] Dashboard ze statystykami
+- [x] Lista rezerwacji z filtrowaniem
+- [x] Zmiana statusu rezerwacji (pending → confirmed → completed)
+- [x] Lista wiadomości kontaktowych
+- [x] Zmiana hasła admina
 
 ### 11. System dostępności dat
 - [ ] API: GET /api/products/:id/availability (zwraca zajęte daty)
@@ -113,25 +113,25 @@
 - [ ] Kalendarz zajętości w panelu admina
 
 ### 12. Email notifications
-- [ ] Konfiguracja SMTP w .env
-- [ ] Email do admina: nowa rezerwacja
-- [ ] Email do admina: nowa wiadomość kontaktowa
-- [ ] Email do klienta: potwierdzenie rezerwacji
-- [ ] Email do klienta: zmiana statusu (confirmed/rejected)
-- [ ] Szablony HTML dla maili
+- [x] Konfiguracja SMTP w .env
+- [x] Email do admina: nowa rezerwacja
+- [x] Email do admina: nowa wiadomość kontaktowa
+- [x] Email do klienta: potwierdzenie rezerwacji
+- [x] Email do klienta: zmiana statusu (confirmed/rejected)
+- [x] Szablony HTML dla maili
 
 ### 13. Strona produktu (opcjonalnie)
-- [ ] Osobna strona /produkt/:id z pełnymi szczegółami
-- [ ] Galeria zdjęć produktu
-- [ ] Szczegółowy cennik (dzień, weekend, tydzień)
-- [ ] Lista akcesoriów z cenami
-- [ ] Przycisk "Rezerwuj ten produkt"
+- [x] Osobna strona /produkt/:id z pełnymi szczegółami
+- [x] Galeria zdjęć produktu
+- [x] Szczegółowy cennik (dzień, weekend, tydzień)
+- [x] Lista akcesoriów z cenami
+- [x] Przycisk "Rezerwuj ten produkt"
 
 ### 14. Regulamin i polityka prywatności
-- [ ] Strona /regulamin
-- [ ] Strona /polityka-prywatnosci
-- [ ] Linki w formularzu rezerwacji
-- [ ] Linki w footerze
+- [x] Strona /regulamin
+- [x] Strona /polityka-prywatnosci
+- [x] Linki w formularzu rezerwacji
+- [x] Linki w footerze
 
 ### 15. Dokumentacja
 - [ ] README.md z instrukcją uruchomienia

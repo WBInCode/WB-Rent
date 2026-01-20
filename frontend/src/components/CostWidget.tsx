@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Truck, ArrowRight, Calculator, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { MapPin, Truck, ArrowRight, Calculator, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Card, Select, Input, Toggle, Button } from '@/components/ui';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { categories, getProductsByCategory, calculateRentalCost, type Product } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
 import { revealVariants } from '@/lib/motion';
@@ -212,7 +213,7 @@ export function CostWidget() {
       initial="hidden"
       animate="visible"
     >
-      <Card variant="glow" className="p-6 md:p-8">
+      <Card variant="glow" className="p-6 md:p-8 overflow-visible">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold text-text-primary">Sprawdź koszty</h3>
@@ -220,7 +221,7 @@ export function CostWidget() {
         </div>
 
         {/* Form */}
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-visible">
           {/* Category & Product Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
@@ -241,20 +242,18 @@ export function CostWidget() {
           </div>
 
           {/* Dates Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+            <DatePicker
               label="Data rozpoczęcia"
-              type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              leftIcon={<Calendar className="w-4 h-4" />}
+              onChange={setStartDate}
+              minDate={new Date().toISOString().split('T')[0]}
             />
-            <Input
+            <DatePicker
               label="Data zakończenia"
-              type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              leftIcon={<Calendar className="w-4 h-4" />}
+              onChange={setEndDate}
+              minDate={startDate || new Date().toISOString().split('T')[0]}
             />
           </div>
 

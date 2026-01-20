@@ -1,12 +1,13 @@
 import { Router, type Request, type Response } from 'express';
 import { ZodError } from 'zod';
-import { contactSchema, reservationSchema } from './schemas.js';
+import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema } from './schemas.js';
 import { getQueries } from './db.js';
 import {
   sendContactConfirmation,
   sendContactNotification,
   sendReservationConfirmation,
   sendReservationNotification,
+  sendProductAvailabilityNotification,
 } from './email.js';
 
 // Product data (should match frontend)
@@ -116,6 +117,26 @@ router.post('/reservations', async (req: Request, res: Response) => {
       return;
     }
 
+    const queries = getQueries();
+
+    // === SERVER-SIDE AVAILABILITY CHECK ===
+    // Check for conflicting reservations before creating new one
+    const conflicts = queries.checkDateAvailability.all({
+      productId: data.productId,
+      startDate: data.startDate,
+      endDate: data.endDate,
+    }) as any[];
+
+    if (conflicts.length > 0) {
+      const conflictInfo = conflicts.map(c => `${c.start_date} - ${c.end_date}`).join(', ');
+      res.status(409).json({
+        success: false,
+        message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
+        errors: [{ field: 'dates', message: 'Termin niedostępny' }],
+      });
+      return;
+    }
+
     // Calculate pricing from client-sent values (server validates)
     const days = data.days;
     const basePrice = days * product.pricePerDay;
@@ -127,7 +148,6 @@ router.post('/reservations', async (req: Request, res: Response) => {
     const fullName = `${data.firstName} ${data.lastName}`;
 
     // Save to database
-    const queries = getQueries();
     const result = queries.insertReservation.run({
       categoryId: data.categoryId,
       productId: data.productId,
@@ -141,6 +161,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
       phone: data.phone,
       company: data.company || null,
       notes: data.notes || null,
+      wantsInvoice: data.wantsInvoice ? 1 : 0,
+      invoiceNip: data.invoiceNip || null,
+      invoiceCompany: data.invoiceCompany || null,
+      invoiceAddress: data.invoiceAddress || null,
       days,
       basePrice,
       deliveryFee,
@@ -199,6 +223,181 @@ router.post('/reservations', async (req: Request, res: Response) => {
 // === GET /api/health ===
 router.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// === POST /api/notify-availability ===
+// Customer wants to be notified when product becomes available
+router.post('/notify-availability', async (req: Request, res: Response) => {
+  try {
+    const data = productNotificationSchema.parse(req.body);
+    const queries = getQueries();
+
+    // Check if product exists
+    if (!products[data.productId]) {
+      res.status(400).json({
+        success: false,
+        message: 'Produkt nie istnieje',
+      });
+      return;
+    }
+
+    // Save notification request
+    queries.insertProductNotification.run({
+      productId: data.productId,
+      email: data.email,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Zapisano! Powiadomimy Cię gdy produkt będzie dostępny.',
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        success: false,
+        message: 'Nieprawidłowe dane',
+        errors: error.issues.map(e => ({ field: e.path.join('.'), message: e.message })),
+      });
+      return;
+    }
+    console.error('Notification signup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Wystąpił błąd serwera',
+    });
+  }
+});
+
+// === POST /api/newsletter/subscribe ===
+router.post('/newsletter/subscribe', async (req: Request, res: Response) => {
+  try {
+    const data = newsletterSubscribeSchema.parse(req.body);
+    const queries = getQueries();
+
+    // Check if already subscribed
+    const existing = queries.getSubscriberByEmail.get(data.email) as any;
+    
+    if (existing) {
+      if (existing.status === 'active') {
+        res.status(200).json({
+          success: true,
+          message: 'Jesteś już zapisany do naszego newslettera!',
+        });
+        return;
+      } else {
+        // Resubscribe
+        queries.resubscribe.run(data.email);
+        res.status(200).json({
+          success: true,
+          message: 'Witamy ponownie! Zostałeś ponownie zapisany do newslettera.',
+        });
+        return;
+      }
+    }
+
+    // Insert new subscriber
+    queries.insertSubscriber.run({
+      email: data.email,
+      name: data.name || null,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Dziękujemy za zapisanie się do newslettera! Będziemy informować Cię o nowościach.',
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        success: false,
+        message: 'Błąd walidacji',
+        errors: formatZodErrors(error),
+      });
+      return;
+    }
+
+    // Handle unique constraint violation
+    if ((error as any)?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(200).json({
+        success: true,
+        message: 'Jesteś już zapisany do naszego newslettera!',
+      });
+      return;
+    }
+
+    console.error('Newsletter subscribe error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Wystąpił błąd serwera. Spróbuj ponownie później.',
+    });
+  }
+});
+
+// === POST /api/newsletter/unsubscribe ===
+router.post('/newsletter/unsubscribe', async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        message: 'Podaj adres email',
+      });
+      return;
+    }
+
+    const queries = getQueries();
+    queries.unsubscribe.run(email);
+
+    res.status(200).json({
+      success: true,
+      message: 'Zostałeś wypisany z newslettera.',
+    });
+  } catch (error) {
+    console.error('Newsletter unsubscribe error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Wystąpił błąd serwera.',
+    });
+  }
+});
+
+// === GET /api/products/availability ===
+// Get today's availability for all products
+router.get('/products/availability', (req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    
+    // Get today's date in YYYY-MM-DD format (local timezone)
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+    
+    // Get all products that are currently reserved
+    const reserved = queries.getReservedProductsToday.all({ today: todayStr }) as { product_id: string }[];
+    const reservedIds = new Set(reserved.map(r => r.product_id));
+    
+    // Build availability map for all products
+    const availability: Record<string, boolean> = {};
+    for (const productId of Object.keys(products)) {
+      availability[productId] = !reservedIds.has(productId);
+    }
+    
+    res.json({
+      success: true,
+      date: todayStr,
+      availability,
+      reservedCount: reservedIds.size,
+      totalProducts: Object.keys(products).length,
+    });
+  } catch (error) {
+    console.error('Products availability error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Błąd pobierania dostępności',
+    });
+  }
 });
 
 // === GET /api/availability/:productId ===
@@ -279,6 +478,78 @@ router.get('/reservations/:productId', (req: Request, res: Response) => {
       success: false,
       message: 'Błąd pobierania rezerwacji',
     });
+  }
+});
+
+// === GET /api/newsletter/unsubscribe ===
+// Unsubscribe via link in email
+router.get('/newsletter/unsubscribe', (req: Request, res: Response) => {
+  try {
+    const { email } = req.query;
+    
+    if (!email || typeof email !== 'string') {
+      res.status(400).send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Błąd - WB-Rent</title></head>
+        <body style="font-family: Arial, sans-serif; background: #0a0a0a; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+          <div style="text-align: center; padding: 40px;">
+            <h1 style="color: #ef4444;">Błąd</h1>
+            <p>Nieprawidłowy link do wypisania.</p>
+            <a href="https://wbrent.pl" style="color: #b8972a;">Wróć na stronę główną</a>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    const queries = getQueries();
+    queries.unsubscribe.run(email);
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Wypisano z newslettera - WB-Rent</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+      </head>
+      <body style="font-family: Arial, sans-serif; background: #0a0a0a; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+        <div style="text-align: center; padding: 40px; max-width: 500px;">
+          <div style="width: 80px; height: 80px; background: #22c55e20; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px;">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2">
+              <polyline points="20,6 9,17 4,12"></polyline>
+            </svg>
+          </div>
+          <h1 style="color: #b8972a; margin-bottom: 16px;">Wypisano z newslettera</h1>
+          <p style="color: #a1a1aa; margin-bottom: 24px;">
+            Twój adres <strong style="color: #fff;">${email}</strong> został usunięty z listy mailingowej WB-Rent.
+          </p>
+          <p style="color: #71717a; font-size: 14px; margin-bottom: 24px;">
+            Jeśli zmienisz zdanie, zawsze możesz zapisać się ponownie na naszej stronie.
+          </p>
+          <a href="https://wbrent.pl" style="display: inline-block; background: linear-gradient(135deg, #b8972a 0%, #8b7420 100%); color: #000; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+            Wróć na stronę główną
+          </a>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Newsletter unsubscribe error:', error);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Błąd - WB-Rent</title></head>
+      <body style="font-family: Arial, sans-serif; background: #0a0a0a; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+        <div style="text-align: center; padding: 40px;">
+          <h1 style="color: #ef4444;">Wystąpił błąd</h1>
+          <p>Spróbuj ponownie później.</p>
+          <a href="https://wbrent.pl" style="color: #b8972a;">Wróć na stronę główną</a>
+        </div>
+      </body>
+      </html>
+    `);
   }
 });
 

@@ -5,6 +5,7 @@ export interface Product {
   description: string;
   categoryId: string;
   image: string;
+  images?: string[]; // Gallery images (optional, falls back to single image)
   pricePerDay: number;
   priceNextDay: number;
   priceWeekend: number;
@@ -15,6 +16,14 @@ export interface Product {
   weekendPickupFee: number;
   features: string[];
   available: boolean;
+}
+
+// Helper to get all images for a product (gallery or fallback to single image)
+export function getProductImages(product: Product): string[] {
+  if (product.images && product.images.length > 0) {
+    return product.images;
+  }
+  return [product.image];
 }
 
 export interface Category {

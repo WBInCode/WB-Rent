@@ -38,7 +38,7 @@ const steps: Step[] = [
 
 export function HowItWorks() {
   return (
-    <section id="jak-to-dziala" className="relative overflow-hidden py-20 md:py-28 lg:py-32 bg-bg-secondary">
+    <section id="jak-to-dziala" className="relative overflow-hidden py-20 md:py-28 lg:py-32">
       {/* Background decorations */}
       <div className="absolute inset-0 pointer-events-none">
         {/* Connecting line */}

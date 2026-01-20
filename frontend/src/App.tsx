@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
 import { ReservationProvider } from '@/context/ReservationContext';
+import { AnimatedBackground } from '@/components/AnimatedBackground';
 
 // Lazy load sections below the fold
 const Categories = lazy(() => import('@/sections/Categories').then(m => ({ default: m.Categories })));
@@ -15,6 +16,17 @@ const Footer = lazy(() => import('@/sections/Footer').then(m => ({ default: m.Fo
 // Lazy load admin panel
 const AdminPanel = lazy(() => import('@/pages/AdminPanel').then(m => ({ default: m.AdminPanel })));
 
+// Lazy load product page
+const ProductPage = lazy(() => import('@/pages/ProductPage').then(m => ({ default: m.ProductPage })));
+
+// Lazy load legal pages
+const RegulaminPage = lazy(() => import('@/pages/RegulaminPage').then(m => ({ default: m.RegulaminPage })));
+const PolitykaPrywatnosciPage = lazy(() => import('@/pages/PolitykaPrywatnosciPage').then(m => ({ default: m.PolitykaPrywatnosciPage })));
+const RodoPage = lazy(() => import('@/pages/RodoPage').then(m => ({ default: m.RodoPage })));
+
+// Lazy load other pages
+const WkrotcePage = lazy(() => import('@/pages/WkrotcePage'));
+
 // Loading fallback
 const SectionLoader = () => (
   <div className="py-20 flex justify-center">
@@ -26,16 +38,18 @@ const SectionLoader = () => (
 function MainSite() {
   return (
     <ReservationProvider>
-      <div className="min-h-screen bg-bg-primary">
-        {/* Skip to main content link for keyboard users */}
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
-        >
-          Przejdź do treści głównej
-        </a>
+      <div className="min-h-screen bg-transparent relative">
+        {/* Content wrapper - above background */}
+        <div className="relative" style={{ zIndex: 1 }}>
+          {/* Skip to main content link for keyboard users */}
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
+          >
+            Przejdź do treści głównej
+          </a>
 
-        <Navbar />
+          <Navbar />
       
       <main id="main-content" role="main">
         {/* Hero Section - not lazy, above the fold */}
@@ -67,7 +81,8 @@ function MainSite() {
       <Suspense fallback={<SectionLoader />}>
         <Footer />
       </Suspense>
-    </div>
+        </div>
+      </div>
     </ReservationProvider>
   );
 }
@@ -75,9 +90,16 @@ function MainSite() {
 function App() {
   return (
     <BrowserRouter>
+      {/* Global Animated Background - visible on all pages except admin */}
+      <AnimatedBackground />
       <Suspense fallback={<SectionLoader />}>
         <Routes>
           <Route path="/" element={<MainSite />} />
+          <Route path="/produkt/:id" element={<ProductPage />} />
+          <Route path="/regulamin" element={<RegulaminPage />} />
+          <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
+          <Route path="/rodo" element={<RodoPage />} />
+          <Route path="/wkrotce" element={<WkrotcePage />} />
           <Route path="/admin" element={<AdminPanel />} />
         </Routes>
       </Suspense>

@@ -215,7 +215,7 @@ export function FAQContact() {
   };
 
   return (
-    <section id="faq" className="relative overflow-hidden py-20 md:py-28 lg:py-32 bg-bg-secondary">
+    <section id="faq" className="relative overflow-hidden py-20 md:py-28 lg:py-32">
       {/* Background decoration */}
       <div 
         className="absolute bottom-0 left-0 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none"

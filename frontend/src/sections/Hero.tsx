@@ -12,9 +12,9 @@ const features = [
 ];
 
 const stats = [
-  { value: '500+', label: 'Realizacji' },
   { value: '24/7', label: 'Wsparcie' },
-  { value: '98%', label: 'Zadowolenia' },
+  { value: '30km', label: 'Zasięg dostaw' },
+  { value: '~1h', label: 'Czas odpowiedzi' },
 ];
 
 export function Hero() {

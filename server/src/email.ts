@@ -641,3 +641,114 @@ export const sendReturnReminderEmail = async (
 
   return sendEmail(reservation.email, subject, html);
 };
+
+// === NEWSLETTER EMAIL ===
+export const sendNewsletterEmail = async (
+  data: {
+    email: string;
+    name: string | null;
+    title: string;
+    content: string;
+  }
+) => {
+  const greeting = data.name ? `Cześć <strong style="color: #b8972a;">${data.name}</strong>,` : 'Cześć,';
+  const subject = `📢 ${data.title} - WB-Rent`;
+  
+  // Convert newlines to paragraphs for content
+  const formattedContent = data.content
+    .split('\n\n')
+    .map(p => `<p style="margin: 15px 0; line-height: 1.6;">${p.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Nowości i aktualności</p>
+      </div>
+      
+      <p>${greeting}</p>
+      
+      <div style="background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%); padding: 25px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #b8972a;">
+        <h3 style="color: #b8972a; margin: 0 0 15px 0; font-size: 20px;">${data.title}</h3>
+        <div style="color: #e5e5e5;">
+          ${formattedContent}
+        </div>
+      </div>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${config.siteUrl}" style="display: inline-block; background: linear-gradient(135deg, #b8972a 0%, #8b7420 100%); color: #000000; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          Odwiedź naszą stronę
+        </a>
+      </div>
+      
+      <div style="border-top: 1px solid #333; padding-top: 20px; margin-top: 20px;">
+        <p style="color: #71717a; font-size: 12px; margin: 0;">
+          Pozdrawiamy,<br>
+          Zespół WB-Rent<br>
+          <span style="color: #a1a1aa; font-size: 11px;">WB Partners Sp. z o.o. | NIP: 5170455185 | ul. Słowackiego 24/11, 35-060 Rzeszów</span>
+        </p>
+        <p style="color: #525252; font-size: 10px; margin-top: 15px;">
+          Otrzymujesz tę wiadomość, ponieważ zapisałeś się do newslettera WB-Rent.<br>
+          <a href="${config.siteUrl}/api/newsletter/unsubscribe?email=${encodeURIComponent(data.email)}" style="color: #525252; text-decoration: underline;">Kliknij tutaj, aby wypisać się z newslettera</a>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail(data.email, subject, html);
+};
+
+// === PRODUCT AVAILABILITY NOTIFICATION ===
+export const sendProductAvailabilityNotification = async (
+  email: string,
+  productName: string,
+  productId: string
+) => {
+  const subject = `🎉 ${productName} jest już dostępny! - WB-Rent`;
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Powiadomienie o dostępności</p>
+      </div>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #22c55e20 0%, #16a34a20 100%); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+          <span style="font-size: 40px;">✅</span>
+        </div>
+        <h3 style="color: #22c55e; margin: 0 0 10px 0; font-size: 24px;">Produkt dostępny!</h3>
+        <p style="color: #e5e5e5; margin: 0;">Sprzęt, na który czekałeś, jest już wolny:</p>
+      </div>
+      
+      <div style="background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%); padding: 25px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #22c55e; text-align: center;">
+        <h4 style="color: #b8972a; margin: 0 0 10px 0; font-size: 20px;">${productName}</h4>
+        <p style="color: #a1a1aa; margin: 0;">Zarezerwuj teraz zanim ktoś Cię ubiegnie!</p>
+      </div>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${config.siteUrl}/produkt/${productId}" style="display: inline-block; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #ffffff; padding: 15px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+          Zarezerwuj teraz
+        </a>
+      </div>
+      
+      <p style="color: #a1a1aa; text-align: center; margin: 20px 0;">
+        lub zadzwoń: <a href="tel:+48570038552" style="color: #b8972a; text-decoration: none;">+48 570 038 552</a>
+      </p>
+      
+      <div style="border-top: 1px solid #333; padding-top: 20px; margin-top: 20px;">
+        <p style="color: #71717a; font-size: 12px; margin: 0;">
+          Pozdrawiamy,<br>
+          Zespół WB-Rent<br>
+          <span style="color: #a1a1aa; font-size: 11px;">WB Partners Sp. z o.o. | NIP: 5170455185 | ul. Słowackiego 24/11, 35-060 Rzeszów</span>
+        </p>
+        <p style="color: #525252; font-size: 10px; margin-top: 15px;">
+          Otrzymujesz tę wiadomość, ponieważ zapisałeś się na powiadomienie o dostępności tego produktu.
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html);
+};

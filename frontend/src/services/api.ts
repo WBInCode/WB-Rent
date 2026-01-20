@@ -72,6 +72,12 @@ export interface ReservationPayload {
   email: string;
   phone: string;
   company?: string;
+  // Invoice data
+  wantsInvoice: boolean;
+  invoiceNip?: string;
+  invoiceCompany?: string;
+  invoiceAddress?: string;
+  // Other
   notes?: string;
   totalPrice: number;
 }
@@ -133,11 +139,40 @@ export async function checkAvailability(
   );
 }
 
+// Products availability API - get today's availability for all products
+export interface ProductsAvailabilityResponse {
+  date: string;
+  availability: Record<string, boolean>;
+  reservedCount: number;
+  totalProducts: number;
+}
+
+export async function getProductsAvailability(): Promise<ApiResponse<ProductsAvailabilityResponse>> {
+  return apiFetch<ProductsAvailabilityResponse>('/products/availability');
+}
+
+// Notify me when product is available
+export interface NotifyAvailabilityPayload {
+  productId: string;
+  email: string;
+}
+
+export async function notifyWhenAvailable(
+  payload: NotifyAvailabilityPayload
+): Promise<ApiResponse<{ message: string }>> {
+  return apiFetch<{ message: string }>('/notify-availability', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 // Export all API functions
 export const api = {
   submitReservation,
   submitContact,
   checkAvailability,
+  getProductsAvailability,
+  notifyWhenAvailable,
 };
 
 export default api;
