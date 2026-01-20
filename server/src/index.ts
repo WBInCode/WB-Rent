@@ -12,6 +12,9 @@ const app = express();
 
 // === MIDDLEWARE ===
 
+// Trust proxy for Railway/Vercel (required for rate limiting)
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
