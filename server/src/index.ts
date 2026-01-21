@@ -80,9 +80,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 // === START SERVER ===
-const startServer = () => {
+const startServer = async () => {
   // Initialize database
-  initializeDatabase();
+  await initializeDatabase();
   
   // Initialize scheduler for automatic reminders
   initScheduler();

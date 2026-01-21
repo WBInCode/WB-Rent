@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { getQueries } from './db.js';
+import { queries } from './db.js';
 import { config } from './config.js';
 import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendNewsletterEmail, sendProductAvailabilityNotification } from './email.js';
 import { newsletterPostSchema } from './schemas.js';
@@ -32,7 +32,6 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
 
   const token = authHeader.split(' ')[1];
   
-  // Simple token check (in production, use proper JWT)
   if (token !== config.adminToken) {
     res.status(403).json({ success: false, message: 'Nieprawidłowy token' });
     return;
@@ -60,16 +59,15 @@ router.post('/login', (req: Request, res: Response) => {
 });
 
 // Get all reservations
-router.get('/reservations', adminAuth, (req: Request, res: Response) => {
+router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
   try {
-    const queries = getQueries();
     const status = req.query.status as string | undefined;
     
     let reservations;
     if (status && status !== 'all') {
-      reservations = queries.getReservationsByStatus.all(status);
+      reservations = await queries.getReservationsByStatus(status);
     } else {
-      reservations = queries.getReservations.all();
+      reservations = await queries.getReservations();
     }
 
     res.json({ success: true, data: reservations });
@@ -94,17 +92,13 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       return;
     }
 
-    const queries = getQueries();
-    
-    // Get reservation before update
-    const reservation = queries.getReservationById.get(Number(id)) as any;
+    const reservation = await queries.getReservationById(Number(id));
     if (!reservation) {
       res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
       return;
     }
     
-    // Update status
-    queries.updateReservationStatus.run({ id: Number(id), status });
+    await queries.updateReservationStatus({ id: Number(id), status });
     
     // Send email to customer on confirm/reject
     if (status === 'confirmed' || status === 'rejected') {
@@ -120,7 +114,6 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         console.log(`📧 Email sent to ${reservation.email} - reservation ${status}`);
       } catch (emailError) {
         console.error('Email send error:', emailError);
-        // Don't fail the request if email fails
       }
     }
     
@@ -157,9 +150,9 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         console.error('Email send error:', emailError);
       }
 
-      // Auto-send availability notifications to waiting customers
+      // Auto-send availability notifications
       try {
-        const waitingNotifications = queries.getWaitingNotificationsForProduct.all(reservation.product_id) as any[];
+        const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
         const productName = productNames[reservation.product_id] || reservation.product_id;
         
         for (const notification of waitingNotifications) {
@@ -170,8 +163,8 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
               reservation.product_id
             );
             if (result.success) {
-              queries.markNotificationAsSent.run(notification.id);
-              console.log(`📧 Availability notification sent to ${notification.email} for ${productName}`);
+              await queries.markNotificationAsSent(notification.id);
+              console.log(`📧 Availability notification sent to ${notification.email}`);
             }
           } catch (notifyError) {
             console.error(`Failed to notify ${notification.email}:`, notifyError);
@@ -182,10 +175,10 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       }
     }
 
-    // Auto-send availability notifications when reservation is cancelled or rejected
+    // Auto-send availability notifications when cancelled/rejected
     if (status === 'cancelled' || status === 'rejected') {
       try {
-        const waitingNotifications = queries.getWaitingNotificationsForProduct.all(reservation.product_id) as any[];
+        const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
         const productName = productNames[reservation.product_id] || reservation.product_id;
         
         for (const notification of waitingNotifications) {
@@ -196,8 +189,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
               reservation.product_id
             );
             if (result.success) {
-              queries.markNotificationAsSent.run(notification.id);
-              console.log(`📧 Availability notification sent to ${notification.email} for ${productName}`);
+              await queries.markNotificationAsSent(notification.id);
             }
           } catch (notifyError) {
             console.error(`Failed to notify ${notification.email}:`, notifyError);
@@ -208,9 +200,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       }
     }
     
-    // 'completed' - no email to customer, just internal status
-    
-    const updated = queries.getReservationById.get(Number(id));
+    const updated = await queries.getReservationById(Number(id));
 
     res.json({ 
       success: true, 
@@ -224,11 +214,10 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
 });
 
 // Get single reservation
-router.get('/reservations/:id', adminAuth, (req: Request, res: Response) => {
+router.get('/reservations/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    const reservation = queries.getReservationById.get(Number(id));
+    const reservation = await queries.getReservationById(Number(id));
 
     if (!reservation) {
       res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
@@ -243,11 +232,9 @@ router.get('/reservations/:id', adminAuth, (req: Request, res: Response) => {
 });
 
 // Get all contacts
-router.get('/contacts', adminAuth, (_req: Request, res: Response) => {
+router.get('/contacts', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const contacts = queries.getContacts.all();
-
+    const contacts = await queries.getContacts();
     res.json({ success: true, data: contacts });
   } catch (error) {
     console.error('Admin contacts error:', error);
@@ -256,7 +243,7 @@ router.get('/contacts', adminAuth, (_req: Request, res: Response) => {
 });
 
 // Update contact status
-router.patch('/contacts/:id', adminAuth, (req: Request, res: Response) => {
+router.patch('/contacts/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -270,8 +257,7 @@ router.patch('/contacts/:id', adminAuth, (req: Request, res: Response) => {
       return;
     }
 
-    const queries = getQueries();
-    queries.updateContactStatus.run({ id: Number(id), status });
+    await queries.updateContactStatus({ id: Number(id), status });
 
     res.json({ 
       success: true, 
@@ -284,33 +270,35 @@ router.patch('/contacts/:id', adminAuth, (req: Request, res: Response) => {
 });
 
 // Dashboard stats
-router.get('/stats', adminAuth, (_req: Request, res: Response) => {
+router.get('/stats', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const reservations = queries.getReservations.all() as any[];
-    const contacts = queries.getContacts.all() as any[];
+    const reservations = await queries.getReservations();
+    const contacts = await queries.getContacts();
+    const revenueToday = await queries.getRevenueToday();
+    const revenueMonth = await queries.getRevenueThisMonth();
+    const revenueTotal = await queries.getRevenueTotal();
 
     const stats = {
       reservations: {
         total: reservations.length,
-        pending: reservations.filter(r => r.status === 'pending').length,
-        confirmed: reservations.filter(r => r.status === 'confirmed').length,
-        picked_up: reservations.filter(r => r.status === 'picked_up').length,
-        returned: reservations.filter(r => r.status === 'returned').length,
-        completed: reservations.filter(r => r.status === 'completed').length,
-        rejected: reservations.filter(r => r.status === 'rejected').length,
+        pending: reservations.filter((r: any) => r.status === 'pending').length,
+        confirmed: reservations.filter((r: any) => r.status === 'confirmed').length,
+        picked_up: reservations.filter((r: any) => r.status === 'picked_up').length,
+        returned: reservations.filter((r: any) => r.status === 'returned').length,
+        completed: reservations.filter((r: any) => r.status === 'completed').length,
+        rejected: reservations.filter((r: any) => r.status === 'rejected').length,
       },
       contacts: {
         total: contacts.length,
-        new: contacts.filter(c => c.status === 'new' || !c.status).length,
+        new: contacts.filter((c: any) => c.status === 'new' || !c.status).length,
       },
       revenue: {
-        today: (queries.getRevenueToday.get() as any)?.revenue || 0,
-        month: (queries.getRevenueThisMonth.get() as any)?.revenue || 0,
-        total: (queries.getRevenueTotal.get() as any)?.revenue || 0,
+        today: revenueToday?.revenue || 0,
+        month: revenueMonth?.revenue || 0,
+        total: revenueTotal?.revenue || 0,
         pending: reservations
-          .filter(r => r.status === 'pending' || r.status === 'confirmed' || r.status === 'picked_up')
-          .reduce((sum, r) => sum + (r.total_price || 0), 0),
+          .filter((r: any) => ['pending', 'confirmed', 'picked_up'].includes(r.status))
+          .reduce((sum: number, r: any) => sum + (r.total_price || 0), 0),
       }
     };
 
@@ -321,30 +309,22 @@ router.get('/stats', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// Revenue details endpoint
-router.get('/revenue', adminAuth, (_req: Request, res: Response) => {
+// Revenue details
+router.get('/revenue', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
+    const today = (await queries.getRevenueToday())?.revenue || 0;
+    const month = (await queries.getRevenueThisMonth())?.revenue || 0;
+    const total = (await queries.getRevenueTotal())?.revenue || 0;
+    const byMonth = await queries.getRevenueByMonth();
     
-    const today = (queries.getRevenueToday.get() as any)?.revenue || 0;
-    const month = (queries.getRevenueThisMonth.get() as any)?.revenue || 0;
-    const total = (queries.getRevenueTotal.get() as any)?.revenue || 0;
-    const byMonth = queries.getRevenueByMonth.all() as any[];
-    
-    const reservations = queries.getReservations.all() as any[];
+    const reservations = await queries.getReservations();
     const pending = reservations
-      .filter(r => r.status === 'pending' || r.status === 'confirmed' || r.status === 'picked_up')
-      .reduce((sum, r) => sum + (r.total_price || 0), 0);
+      .filter((r: any) => ['pending', 'confirmed', 'picked_up'].includes(r.status))
+      .reduce((sum: number, r: any) => sum + (r.total_price || 0), 0);
     
     res.json({
       success: true,
-      data: {
-        today,
-        month,
-        total,
-        pending,
-        byMonth,
-      }
+      data: { today, month, total, pending, byMonth }
     });
   } catch (error) {
     console.error('Admin revenue error:', error);
@@ -352,20 +332,17 @@ router.get('/revenue', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// Delete single contact
-router.delete('/contacts/:id', adminAuth, (req: Request, res: Response) => {
+// Delete contact
+router.delete('/contacts/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    
-    const contact = queries.getContactById.get(Number(id));
+    const contact = await queries.getContactById(Number(id));
     if (!contact) {
       res.status(404).json({ success: false, message: 'Wiadomość nie znaleziona' });
       return;
     }
 
-    queries.deleteContact.run(Number(id));
-
+    await queries.deleteContact(Number(id));
     res.json({ success: true, message: 'Wiadomość usunięta' });
   } catch (error) {
     console.error('Admin delete contact error:', error);
@@ -374,7 +351,7 @@ router.delete('/contacts/:id', adminAuth, (req: Request, res: Response) => {
 });
 
 // Delete multiple contacts
-router.post('/contacts/delete-many', adminAuth, (req: Request, res: Response) => {
+router.post('/contacts/delete-many', adminAuth, async (req: Request, res: Response) => {
   try {
     const { ids } = req.body;
     
@@ -383,24 +360,12 @@ router.post('/contacts/delete-many', adminAuth, (req: Request, res: Response) =>
       return;
     }
 
-    const queries = getQueries();
-    
-    // Delete each contact
-    const deleteStmt = queries.deleteContact;
-    let deleted = 0;
-    for (const id of ids) {
-      try {
-        deleteStmt.run(Number(id));
-        deleted++;
-      } catch (e) {
-        // Skip if not found
-      }
-    }
+    await queries.deleteContacts(ids.map(Number));
 
     res.json({ 
       success: true, 
-      message: `Usunięto ${deleted} wiadomości`,
-      deleted
+      message: `Usunięto ${ids.length} wiadomości`,
+      deleted: ids.length
     });
   } catch (error) {
     console.error('Admin delete contacts error:', error);
@@ -408,20 +373,18 @@ router.post('/contacts/delete-many', adminAuth, (req: Request, res: Response) =>
   }
 });
 
-// Get single contact with replies
-router.get('/contacts/:id', adminAuth, (req: Request, res: Response) => {
+// Get contact with replies
+router.get('/contacts/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    const contact = queries.getContactById.get(Number(id)) as any;
+    const contact = await queries.getContactById(Number(id));
 
     if (!contact) {
       res.status(404).json({ success: false, message: 'Wiadomość nie znaleziona' });
       return;
     }
 
-    const replies = queries.getRepliesByContact.all(Number(id));
-
+    const replies = await queries.getRepliesByContact(Number(id));
     res.json({ success: true, data: { ...contact, replies } });
   } catch (error) {
     console.error('Admin get contact error:', error);
@@ -429,7 +392,7 @@ router.get('/contacts/:id', adminAuth, (req: Request, res: Response) => {
   }
 });
 
-// Reply to contact message
+// Reply to contact
 router.post('/contacts/:id/reply', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -443,25 +406,20 @@ router.post('/contacts/:id/reply', adminAuth, async (req: Request, res: Response
       return;
     }
 
-    const queries = getQueries();
-    const contact = queries.getContactById.get(Number(id)) as any;
-
+    const contact = await queries.getContactById(Number(id));
     if (!contact) {
       res.status(404).json({ success: false, message: 'Wiadomość nie znaleziona' });
       return;
     }
 
-    // Save reply to database
-    queries.insertContactReply.run({
+    await queries.insertContactReply({
       contactId: Number(id),
       message: message.trim(),
       sentBy: 'admin',
     });
 
-    // Update contact status to replied
-    queries.updateContactStatus.run({ id: Number(id), status: 'replied' });
+    await queries.updateContactStatus({ id: Number(id), status: 'replied' });
 
-    // Send email to customer
     await sendContactReply(
       contact.email,
       contact.name,
@@ -469,8 +427,7 @@ router.post('/contacts/:id/reply', adminAuth, async (req: Request, res: Response
       message.trim()
     );
 
-    // Get updated replies
-    const replies = queries.getRepliesByContact.all(Number(id));
+    const replies = await queries.getRepliesByContact(Number(id));
 
     res.json({ 
       success: true, 
@@ -483,27 +440,19 @@ router.post('/contacts/:id/reply', adminAuth, async (req: Request, res: Response
   }
 });
 
-// Send reminders endpoint (can be called manually or via cron)
+// Send reminders
 router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) => {
   try {
     const { sendPickupReminderEmail, sendReturnReminderEmail } = await import('./email.js');
-    const queries = getQueries();
     
-    // Debug: Show all reservations
-    const allReservations = queries.getReservations.all() as any[];
-    console.log(`📊 Total reservations in database: ${allReservations.length}`);
-    console.log('📊 Reservations by status:', allReservations.reduce((acc: any, r: any) => {
-      acc[r.status] = (acc[r.status] || 0) + 1;
-      return acc;
-    }, {}));
+    const allReservations = await queries.getReservations();
+    console.log(`📊 Total reservations: ${allReservations.length}`);
     
-    // Get reservations needing pickup reminder (start date = tomorrow, status = confirmed)
-    const pickupReminders = queries.getReservationsForPickupReminder.all() as any[];
-    console.log(`📬 Pickup reminders found (status=confirmed, start_date=tomorrow): ${pickupReminders.length}`);
+    const pickupReminders = await queries.getReservationsForPickupReminder();
+    const returnReminders = await queries.getReservationsForReturnReminder();
     
-    // Get reservations needing return reminder (end date = tomorrow, status = picked_up)
-    const returnReminders = queries.getReservationsForReturnReminder.all() as any[];
-    console.log(`📬 Return reminders found (status=picked_up, end_date=tomorrow): ${returnReminders.length}`);
+    console.log(`📬 Pickup reminders: ${pickupReminders.length}`);
+    console.log(`📬 Return reminders: ${returnReminders.length}`);
     
     let sentPickup = 0;
     let sentReturn = 0;
@@ -550,7 +499,6 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
           totalReservations: allReservations.length,
           foundForPickup: pickupReminders.length,
           foundForReturn: returnReminders.length,
-          note: 'Przypomnienia wymagają: dla odbioru status=confirmed i start_date=jutro; dla zwrotu status=picked_up i end_date=jutro'
         }
       }
     });
@@ -560,13 +508,11 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
   }
 });
 
-// Debug endpoint - show database state for reminders
-router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
+// Debug reminders
+router.get('/debug-reminders', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const allReservations = queries.getReservations.all() as any[];
+    const allReservations = await queries.getReservations();
     
-    // Get today and tomorrow dates
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -579,7 +525,7 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
       todayDate: todayStr,
       tomorrowDate: tomorrowStr,
       totalReservations: allReservations.length,
-      reservations: allReservations.map(r => ({
+      reservations: allReservations.map((r: any) => ({
         id: r.id,
         name: r.name,
         email: r.email,
@@ -587,10 +533,8 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
         status: r.status,
         start_date: r.start_date,
         end_date: r.end_date,
-        // Pickup: pending/confirmed + start today or tomorrow
         needsPickupReminder: ['pending', 'confirmed'].includes(r.status) && 
           (r.start_date === todayStr || r.start_date === tomorrowStr),
-        // Return: only picked_up (customer has equipment) + end tomorrow
         needsReturnReminder: r.status === 'picked_up' && r.end_date === tomorrowStr,
       }))
     });
@@ -600,7 +544,7 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// Test email endpoint - send a test reminder email
+// Test reminder email
 router.post('/test-reminder-email', adminAuth, async (req: Request, res: Response) => {
   try {
     const { email, type } = req.body;
@@ -636,14 +580,12 @@ router.post('/test-reminder-email', adminAuth, async (req: Request, res: Respons
   }
 });
 
-// === NEWSLETTER ENDPOINTS ===
+// === NEWSLETTER ===
 
-// Get all subscribers
-router.get('/newsletter/subscribers', adminAuth, (_req: Request, res: Response) => {
+router.get('/newsletter/subscribers', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const subscribers = queries.getAllSubscribers.all();
-    const activeCount = (queries.getActiveSubscribersCount.get() as any)?.count || 0;
+    const subscribers = await queries.getAllSubscribers();
+    const activeCount = (await queries.getActiveSubscribersCount())?.count || 0;
 
     res.json({
       success: true,
@@ -656,13 +598,10 @@ router.get('/newsletter/subscribers', adminAuth, (_req: Request, res: Response) 
   }
 });
 
-// Delete subscriber
-router.delete('/newsletter/subscribers/:id', adminAuth, (req: Request, res: Response) => {
+router.delete('/newsletter/subscribers/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    queries.deleteSubscriber.run(Number(id));
-
+    await queries.deleteSubscriber(Number(id));
     res.json({ success: true, message: 'Subskrybent usunięty' });
   } catch (error) {
     console.error('Delete subscriber error:', error);
@@ -670,12 +609,9 @@ router.delete('/newsletter/subscribers/:id', adminAuth, (req: Request, res: Resp
   }
 });
 
-// Get all newsletter posts
-router.get('/newsletter/posts', adminAuth, (_req: Request, res: Response) => {
+router.get('/newsletter/posts', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const posts = queries.getPosts.all();
-
+    const posts = await queries.getPosts();
     res.json({ success: true, data: posts });
   } catch (error) {
     console.error('Get posts error:', error);
@@ -683,13 +619,10 @@ router.get('/newsletter/posts', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// Create newsletter post
-router.post('/newsletter/posts', adminAuth, (req: Request, res: Response) => {
+router.post('/newsletter/posts', adminAuth, async (req: Request, res: Response) => {
   try {
     const data = newsletterPostSchema.parse(req.body);
-    const queries = getQueries();
-
-    const result = queries.insertPost.run({
+    const result = await queries.insertPost({
       title: data.title,
       content: data.content,
       status: 'draft',
@@ -706,18 +639,16 @@ router.post('/newsletter/posts', adminAuth, (req: Request, res: Response) => {
   }
 });
 
-// Update newsletter post
-router.patch('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) => {
+router.patch('/newsletter/posts/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const data = newsletterPostSchema.parse(req.body);
-    const queries = getQueries();
 
-    queries.updatePost.run({
+    await queries.updatePost({
       id: Number(id),
       title: data.title,
       content: data.content,
-      status: data.status,
+      status: data.status || 'draft',
     });
 
     res.json({ success: true, message: 'Post zaktualizowany' });
@@ -727,13 +658,10 @@ router.patch('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) =
   }
 });
 
-// Delete newsletter post
-router.delete('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) => {
+router.delete('/newsletter/posts/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    queries.deletePost.run(Number(id));
-
+    await queries.deletePost(Number(id));
     res.json({ success: true, message: 'Post usunięty' });
   } catch (error) {
     console.error('Delete post error:', error);
@@ -741,31 +669,26 @@ router.delete('/newsletter/posts/:id', adminAuth, (req: Request, res: Response) 
   }
 });
 
-// Send newsletter post to all active subscribers
 router.post('/newsletter/posts/:id/send', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-
-    // Get the post
-    const post = queries.getPostById.get(Number(id)) as any;
+    const post = await queries.getPostById(Number(id));
+    
     if (!post) {
       res.status(404).json({ success: false, message: 'Post nie znaleziony' });
       return;
     }
 
-    // Get all active subscribers
-    const subscribers = queries.getSubscribers.all() as any[];
+    const subscribers = await queries.getSubscribers();
     
     if (subscribers.length === 0) {
       res.status(400).json({ 
         success: false, 
-        message: 'Brak aktywnych subskrybentów do wysłania newslettera' 
+        message: 'Brak aktywnych subskrybentów' 
       });
       return;
     }
 
-    // Send emails to all subscribers
     let sentCount = 0;
     let failedCount = 0;
 
@@ -778,26 +701,18 @@ router.post('/newsletter/posts/:id/send', adminAuth, async (req: Request, res: R
           content: post.content,
         });
         sentCount++;
-        console.log(`📧 Newsletter sent to ${subscriber.email}`);
       } catch (err) {
         failedCount++;
-        console.error(`Failed to send newsletter to ${subscriber.email}:`, err);
+        console.error(`Failed to send to ${subscriber.email}:`, err);
       }
     }
 
-    // Mark post as sent
-    queries.markPostAsSent.run({
-      id: Number(id),
-      sentCount,
-    });
+    await queries.markPostAsSent({ id: Number(id), sentCount });
 
     res.json({
       success: true,
-      message: `Newsletter wysłany do ${sentCount} subskrybentów${failedCount > 0 ? ` (${failedCount} błędów)` : ''}`,
-      data: {
-        sentCount,
-        failedCount,
-      }
+      message: `Newsletter wysłany do ${sentCount} subskrybentów`,
+      data: { sentCount, failedCount }
     });
   } catch (error) {
     console.error('Send newsletter error:', error);
@@ -805,14 +720,12 @@ router.post('/newsletter/posts/:id/send', adminAuth, async (req: Request, res: R
   }
 });
 
-// Get newsletter stats
-router.get('/newsletter/stats', adminAuth, (_req: Request, res: Response) => {
+router.get('/newsletter/stats', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const subscribers = queries.getAllSubscribers.all() as any[];
-    const posts = queries.getPosts.all() as any[];
-    const activeCount = (queries.getActiveSubscribersCount.get() as any)?.count || 0;
-    const sentPosts = posts.filter(p => p.status === 'sent').length;
+    const subscribers = await queries.getAllSubscribers();
+    const posts = await queries.getPosts();
+    const activeCount = (await queries.getActiveSubscribersCount())?.count || 0;
+    const sentPosts = posts.filter((p: any) => p.status === 'sent').length;
 
     res.json({
       success: true,
@@ -829,18 +742,13 @@ router.get('/newsletter/stats', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// =============================================
-// PRODUCT AVAILABILITY NOTIFICATIONS
-// =============================================
+// === NOTIFICATIONS ===
 
-// Get all product notifications
-router.get('/notifications', adminAuth, (_req: Request, res: Response) => {
+router.get('/notifications', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const notifications = queries.getProductNotifications.all() as any[];
+    const notifications = await queries.getProductNotifications();
     
-    // Add product names to notifications
-    const enrichedNotifications = notifications.map(n => ({
+    const enrichedNotifications = notifications.map((n: any) => ({
       ...n,
       productName: productNames[n.product_id] || n.product_id,
     }));
@@ -852,11 +760,9 @@ router.get('/notifications', adminAuth, (_req: Request, res: Response) => {
   }
 });
 
-// Get notification stats
-router.get('/notifications/stats', adminAuth, (_req: Request, res: Response) => {
+router.get('/notifications/stats', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const queries = getQueries();
-    const stats = queries.getNotificationStats.get() as any;
+    const stats = await queries.getNotificationStats();
 
     res.json({
       success: true,
@@ -872,13 +778,10 @@ router.get('/notifications/stats', adminAuth, (_req: Request, res: Response) => 
   }
 });
 
-// Delete notification
-router.delete('/notifications/:id', adminAuth, (req: Request, res: Response) => {
+router.delete('/notifications/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const queries = getQueries();
-    queries.deleteProductNotification.run(id);
-
+    await queries.deleteProductNotification(Number(id));
     res.json({ success: true, message: 'Powiadomienie usunięte' });
   } catch (error) {
     console.error('Delete notification error:', error);
@@ -886,23 +789,20 @@ router.delete('/notifications/:id', adminAuth, (req: Request, res: Response) => 
   }
 });
 
-// Send notification manually for a product
 router.post('/notifications/send/:productId', adminAuth, async (req: Request, res: Response) => {
   try {
     const productId = req.params.productId as string;
-    const queries = getQueries();
-    
     const productName = productNames[productId];
+    
     if (!productName) {
       res.status(400).json({ success: false, message: 'Produkt nie istnieje' });
       return;
     }
 
-    // Get all waiting notifications for this product
-    const notifications = queries.getWaitingNotificationsForProduct.all(productId) as any[];
+    const notifications = await queries.getWaitingNotificationsForProduct(productId);
 
     if (notifications.length === 0) {
-      res.json({ success: true, message: 'Brak osób oczekujących na ten produkt' });
+      res.json({ success: true, message: 'Brak osób oczekujących' });
       return;
     }
 
@@ -918,20 +818,19 @@ router.post('/notifications/send/:productId', adminAuth, async (req: Request, re
         );
         
         if (result.success) {
-          queries.markNotificationAsSent.run(notification.id);
+          await queries.markNotificationAsSent(notification.id);
           sentCount++;
         } else {
           failedCount++;
         }
       } catch (error) {
-        console.error(`Failed to send notification to ${notification.email}:`, error);
         failedCount++;
       }
     }
 
     res.json({
       success: true,
-      message: `Wysłano ${sentCount} powiadomień${failedCount > 0 ? ` (${failedCount} błędów)` : ''}`,
+      message: `Wysłano ${sentCount} powiadomień`,
       data: { sentCount, failedCount }
     });
   } catch (error) {

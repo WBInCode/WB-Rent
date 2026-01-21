@@ -1,8 +1,7 @@
 import cron from 'node-cron';
-import { getQueries } from './db.js';
+import { queries } from './db.js';
 import { sendPickupReminderEmail, sendReturnReminderEmail } from './email.js';
 
-// Product names mapping
 const productNames: Record<string, string> = {
   'puzzi-10-1': 'Odkurzacz Piorący Kärcher Puzzi 10/1',
   'puzzi-8-1': 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary',
@@ -17,23 +16,16 @@ const productNames: Record<string, string> = {
   'wvp-10-adv': 'Myjka Do Okien Kärcher WVP 10 Adv',
 };
 
-// Send reminders function
 async function sendDailyReminders() {
   console.log('📧 Running daily reminder job...');
   
   try {
-    const queries = getQueries();
-    
-    // Get reservations needing pickup reminder (start date = tomorrow)
-    const pickupReminders = queries.getReservationsForPickupReminder.all() as any[];
-    
-    // Get reservations needing return reminder (end date = tomorrow)
-    const returnReminders = queries.getReservationsForReturnReminder.all() as any[];
+    const pickupReminders = await queries.getReservationsForPickupReminder();
+    const returnReminders = await queries.getReservationsForReturnReminder();
     
     let sentPickup = 0;
     let sentReturn = 0;
     
-    // Send pickup reminders
     for (const reservation of pickupReminders) {
       try {
         await sendPickupReminderEmail({
@@ -44,13 +36,12 @@ async function sendDailyReminders() {
           endDate: reservation.end_date,
         });
         sentPickup++;
-        console.log(`📧 Pickup reminder sent to ${reservation.email} for ${reservation.start_date}`);
+        console.log(`📧 Pickup reminder sent to ${reservation.email}`);
       } catch (err) {
         console.error(`❌ Failed to send pickup reminder to ${reservation.email}:`, err);
       }
     }
     
-    // Send return reminders
     for (const reservation of returnReminders) {
       try {
         await sendReturnReminderEmail({
@@ -61,7 +52,7 @@ async function sendDailyReminders() {
           endDate: reservation.end_date,
         });
         sentReturn++;
-        console.log(`📧 Return reminder sent to ${reservation.email} for ${reservation.end_date}`);
+        console.log(`📧 Return reminder sent to ${reservation.email}`);
       } catch (err) {
         console.error(`❌ Failed to send return reminder to ${reservation.email}:`, err);
       }
@@ -73,10 +64,7 @@ async function sendDailyReminders() {
   }
 }
 
-// Initialize scheduler
 export function initScheduler() {
-  // Run every day at 9:00 AM
-  // Cron format: minute hour day-of-month month day-of-week
   cron.schedule('0 9 * * *', () => {
     console.log('⏰ Triggering scheduled reminder job (9:00 AM)');
     sendDailyReminders();
@@ -84,8 +72,7 @@ export function initScheduler() {
     timezone: 'Europe/Warsaw'
   });
 
-  console.log('📅 Scheduler initialized - reminders will be sent daily at 9:00 AM');
+  console.log('📅 Scheduler initialized - reminders daily at 9:00 AM');
 }
 
-// Export for manual trigger
 export { sendDailyReminders };
