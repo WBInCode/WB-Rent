@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 interface NewsletterSubscribeProps {
   variant?: 'inline' | 'card';
