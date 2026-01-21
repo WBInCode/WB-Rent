@@ -2,11 +2,8 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-// Database file - use /app/data for Railway volume, or local data folder
-const isProduction = process.env.NODE_ENV === 'production';
-const dbPath = isProduction 
-  ? '/app/data/wb-rent.db'
-  : path.join(process.cwd(), 'data', 'wb-rent.db');
+// Database file - use local data folder (works on all platforms)
+const dbPath = path.join(process.cwd(), 'data', 'wb-rent.db');
 
 // Ensure data directory exists
 const dataDir = path.dirname(dbPath);
