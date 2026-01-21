@@ -185,7 +185,15 @@ export const sendReservationConfirmation = async (
           </tr>
           <tr>
             <td style="padding: 8px 0; color: #a1a1aa;">Termin:</td>
-            <td style="padding: 8px 0;">${data.startDate} - ${data.endDate} (${data.days} dni)</td>
+            <td style="padding: 8px 0;">${data.startDate} - ${data.endDate} (${data.days} ${data.days === 1 ? 'doba' : data.days < 5 ? 'doby' : 'dób'})</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #a1a1aa;">Godzina odbioru:</td>
+            <td style="padding: 8px 0;">${data.startTime || '09:00'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #a1a1aa;">Godzina zwrotu:</td>
+            <td style="padding: 8px 0;">${data.endTime || '09:00'}</td>
           </tr>
           <tr>
             <td style="padding: 8px 0; color: #a1a1aa;">Miasto:</td>
@@ -285,6 +293,10 @@ export const sendReservationNotification = async (
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #333; color: #a1a1aa;">Termin:</td>
           <td style="padding: 8px; border-bottom: 1px solid #333;">${data.startDate} - ${data.endDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #333; color: #a1a1aa;">Godziny:</td>
+          <td style="padding: 8px; border-bottom: 1px solid #333;">Odbiór: ${data.startTime || '09:00'} | Zwrot: ${data.endTime || '09:00'}</td>
         </tr>
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #333; color: #a1a1aa;">Wartość:</td>

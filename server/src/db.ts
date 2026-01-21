@@ -46,6 +46,8 @@ export async function initializeDatabase() {
         product_id TEXT NOT NULL,
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
+        start_time TEXT DEFAULT '09:00',
+        end_time TEXT DEFAULT '09:00',
         city TEXT,
         delivery INTEGER DEFAULT 0,
         address TEXT,
@@ -175,6 +177,8 @@ export const queries = {
     productId: string;
     startDate: string;
     endDate: string;
+    startTime: string;
+    endTime: string;
     city?: string;
     delivery: number;
     address?: string;
@@ -195,17 +199,17 @@ export const queries = {
   }) => {
     const result = await pool.query(
       `INSERT INTO reservations (
-        category_id, product_id, start_date, end_date,
+        category_id, product_id, start_date, end_date, start_time, end_time,
         city, delivery, address,
         name, email, phone, company, notes,
         wants_invoice, invoice_nip, invoice_company, invoice_address,
         days, base_price, delivery_fee, total_price,
         ip_address
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
       ) RETURNING id`,
       [
-        data.categoryId, data.productId, data.startDate, data.endDate,
+        data.categoryId, data.productId, data.startDate, data.endDate, data.startTime, data.endTime,
         data.city, data.delivery, data.address,
         data.name, data.email, data.phone, data.company, data.notes,
         data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,

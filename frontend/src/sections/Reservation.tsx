@@ -46,6 +46,9 @@ interface FormData {
   // Dates
   startDate: string;
   endDate: string;
+  // Times (pickup/return hours)
+  startTime: string;
+  endTime: string;
   // Delivery
   delivery: boolean;
   city: string;
@@ -73,6 +76,8 @@ const initialFormData: FormData = {
   productId: '',
   startDate: '',
   endDate: '',
+  startTime: '09:00',
+  endTime: '09:00',
   delivery: false,
   city: '',
   address: '',
@@ -93,6 +98,12 @@ const initialFormData: FormData = {
 
 // Adres biura dla odbioru osobistego
 const OFFICE_ADDRESS = 'ul. Juliusza Słowackiego 24/11, 35-060 Rzeszów';
+
+// Dostępne godziny odbioru/zwrotu (od 8:00 do 20:00)
+const AVAILABLE_HOURS = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'
+];
 
 // Współrzędne Rzeszowa do obliczania odległości
 const RZESZOW_COORDS = { lat: 50.0412, lng: 21.9991 };
@@ -174,14 +185,32 @@ export function Reservation() {
     return getProductById(formData.productId);
   }, [formData.productId]);
 
-  // Calculate rental days
+  // Calculate rental days with time consideration
+  // Logic: doba (24h period) starts from pickup time
+  // If return time > pickup time on same day difference, it's an extra day
   const rentalDays = useMemo(() => {
     if (!formData.startDate || !formData.endDate) return 0;
     const start = new Date(formData.startDate);
     const end = new Date(formData.endDate);
     if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
-    return calculateDays(start, end);
-  }, [formData.startDate, formData.endDate]);
+    
+    // Base days calculation
+    let baseDays = calculateDays(start, end);
+    
+    // Parse times (format: "HH:MM")
+    const startTimeParts = formData.startTime.split(':').map(Number);
+    const endTimeParts = formData.endTime.split(':').map(Number);
+    const startMinutes = startTimeParts[0] * 60 + startTimeParts[1];
+    const endMinutes = endTimeParts[0] * 60 + endTimeParts[1];
+    
+    // If return time is after pickup time, add 1 extra day
+    // E.g., pickup at 09:00, return at 10:00 = +1 day
+    if (endMinutes > startMinutes) {
+      baseDays += 1;
+    }
+    
+    return baseDays;
+  }, [formData.startDate, formData.endDate, formData.startTime, formData.endTime]);
 
   // Check if weekend rental
   const isWeekendRental = useMemo(() => {
@@ -452,6 +481,8 @@ export function Reservation() {
       categoryId: formData.categoryId,
       startDate: formData.startDate,
       endDate: formData.endDate,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
       days: rentalDays,
       delivery: formData.delivery,
       city: formData.delivery ? formData.city : undefined,
@@ -593,25 +624,59 @@ export function Reservation() {
                     <span className="w-6 h-6 rounded-full bg-gold text-bg-primary text-sm font-bold flex items-center justify-center">2</span>
                     Termin wynajmu
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
-                    <DatePicker
-                      label="Data rozpoczęcia"
-                      value={formData.startDate}
-                      onChange={(value) => updateField('startDate', value)}
-                      minDate={getTodayLocalDate()}
-                      required
-                    />
-                    <DatePicker
-                      label="Data zakończenia"
-                      value={formData.endDate}
-                      onChange={(value) => updateField('endDate', value)}
-                      minDate={formData.startDate || getTodayLocalDate()}
-                      required
-                    />
+                  
+                  {/* Data i godzina odbioru */}
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-text-secondary mb-2">Odbiór</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                      <DatePicker
+                        label="Data odbioru"
+                        value={formData.startDate}
+                        onChange={(value) => updateField('startDate', value)}
+                        minDate={getTodayLocalDate()}
+                        required
+                      />
+                      <Select
+                        label="Godzina odbioru"
+                        value={formData.startTime}
+                        onChange={(e) => updateField('startTime', e.target.value)}
+                        options={AVAILABLE_HOURS.map((h) => ({ value: h, label: h }))}
+                        required
+                      />
+                    </div>
                   </div>
+                  
+                  {/* Data i godzina zwrotu */}
+                  <div className="mb-4">
+                    <p className="text-sm font-medium text-text-secondary mb-2">Zwrot</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                      <DatePicker
+                        label="Data zwrotu"
+                        value={formData.endDate}
+                        onChange={(value) => updateField('endDate', value)}
+                        minDate={formData.startDate || getTodayLocalDate()}
+                        required
+                      />
+                      <Select
+                        label="Godzina zwrotu"
+                        value={formData.endTime}
+                        onChange={(e) => updateField('endTime', e.target.value)}
+                        options={AVAILABLE_HOURS.map((h) => ({ value: h, label: h }))}
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Info o obliczaniu doby */}
+                  <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 mb-3">
+                    <p className="text-xs text-gold">
+                      💡 Doba trwa 24h od godziny odbioru. Przykład: odbiór 21.01 o 09:00 = zwrot do 22.01 do 09:00 (1 doba). Zwrot po tej godzinie = dodatkowa doba.
+                    </p>
+                  </div>
+                  
                   {rentalDays > 0 && (
                     <p className="text-sm text-text-muted mt-2">
-                      Czas wynajmu: <span className="text-gold font-medium">{rentalDays} {rentalDays === 1 ? 'dzień' : 'dni'}</span>
+                      Czas wynajmu: <span className="text-gold font-medium">{rentalDays} {rentalDays === 1 ? 'doba' : rentalDays < 5 ? 'doby' : 'dób'}</span>
                       {isWeekendRental && <span className="ml-2 text-success">(cena weekendowa)</span>}
                     </p>
                   )}

@@ -10,6 +10,10 @@ export const reservationSchema = z.object({
   startDate: z.string().min(1, 'Wybierz datę rozpoczęcia'),
   endDate: z.string().min(1, 'Wybierz datę zakończenia'),
   
+  // Times
+  startTime: z.string().min(1, 'Wybierz godzinę odbioru'),
+  endTime: z.string().min(1, 'Wybierz godzinę zwrotu'),
+  
   // Delivery
   delivery: z.boolean(),
   city: z.string().optional(),

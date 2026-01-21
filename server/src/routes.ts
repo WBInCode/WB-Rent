@@ -130,6 +130,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
       productId: data.productId,
       startDate: data.startDate,
       endDate: data.endDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
       city: data.city || 'Nie podano',
       delivery: data.delivery ? 1 : 0,
       address: data.address || undefined,
@@ -157,6 +159,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
       deliveryFee,
       totalPrice,
       productName: data.productName,
+      startTime: data.startTime,
+      endTime: data.endTime,
     };
 
     Promise.all([

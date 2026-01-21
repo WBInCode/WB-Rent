@@ -67,6 +67,8 @@ interface Reservation {
   category_id: string;
   start_date: string;
   end_date: string;
+  start_time?: string;
+  end_time?: string;
   name: string;
   email: string;
   phone: string;
@@ -652,7 +654,7 @@ export function AdminPanel() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
-                          {reservation.start_date} → {reservation.end_date} ({reservation.days} dni)
+                          {reservation.start_date} {reservation.start_time || '09:00'} → {reservation.end_date} {reservation.end_time || '09:00'} ({reservation.days} {reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'})
                         </span>
                         <span className="flex items-center gap-1">
                           <Phone className="w-4 h-4" />

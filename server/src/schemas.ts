@@ -38,6 +38,15 @@ export const reservationSchema = z.object({
   endDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
     message: 'Nieprawidłowa data zakończenia',
   }),
+  
+  // Times (pickup/return hours)
+  startTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'Nieprawidłowy format godziny odbioru (HH:MM)',
+  }),
+  endTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'Nieprawidłowy format godziny zwrotu (HH:MM)',
+  }),
+  
   days: z.number().int().positive('Liczba dni musi być większa od 0'),
 
   // Delivery

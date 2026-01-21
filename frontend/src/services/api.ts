@@ -62,6 +62,8 @@ export interface ReservationPayload {
   categoryId: string;
   startDate: string;
   endDate: string;
+  startTime: string;
+  endTime: string;
   days: number;
   delivery: boolean;
   city?: string;
