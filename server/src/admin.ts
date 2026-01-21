@@ -560,6 +560,77 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
   }
 });
 
+// Debug endpoint - show database state for reminders
+router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
+  try {
+    const queries = getQueries();
+    const allReservations = queries.getReservations.all() as any[];
+    
+    // Get today and tomorrow dates
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    
+    res.json({
+      success: true,
+      serverTime: new Date().toISOString(),
+      tomorrowDate: tomorrowStr,
+      totalReservations: allReservations.length,
+      reservations: allReservations.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        product_id: r.product_id,
+        status: r.status,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        needsPickupReminder: r.status === 'confirmed' && r.start_date === tomorrowStr,
+        needsReturnReminder: r.status === 'picked_up' && r.end_date === tomorrowStr,
+      }))
+    });
+  } catch (error) {
+    console.error('Debug reminders error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Test email endpoint - send a test reminder email
+router.post('/test-reminder-email', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { email, type } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email jest wymagany' });
+    }
+    
+    const { sendPickupReminderEmail, sendReturnReminderEmail } = await import('./email.js');
+    
+    const testReservation = {
+      email,
+      name: 'Test User',
+      productName: 'Odkurzacz Piorący Kärcher Puzzi 10/1',
+      startDate: '2026-01-22',
+      endDate: '2026-01-25',
+    };
+    
+    let result;
+    if (type === 'return') {
+      result = await sendReturnReminderEmail(testReservation);
+    } else {
+      result = await sendPickupReminderEmail(testReservation);
+    }
+    
+    res.json({
+      success: true,
+      message: `Wysłano testowy email przypomnienia (${type || 'pickup'}) do ${email}`,
+      result
+    });
+  } catch (error: any) {
+    console.error('Test email error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Błąd serwera' });
+  }
+});
+
 // === NEWSLETTER ENDPOINTS ===
 
 // Get all subscribers
