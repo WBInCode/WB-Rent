@@ -489,11 +489,21 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
     const { sendPickupReminderEmail, sendReturnReminderEmail } = await import('./email.js');
     const queries = getQueries();
     
-    // Get reservations needing pickup reminder (start date = tomorrow)
-    const pickupReminders = queries.getReservationsForPickupReminder.all() as any[];
+    // Debug: Show all reservations
+    const allReservations = queries.getReservations.all() as any[];
+    console.log(`📊 Total reservations in database: ${allReservations.length}`);
+    console.log('📊 Reservations by status:', allReservations.reduce((acc: any, r: any) => {
+      acc[r.status] = (acc[r.status] || 0) + 1;
+      return acc;
+    }, {}));
     
-    // Get reservations needing return reminder (end date = tomorrow)
+    // Get reservations needing pickup reminder (start date = tomorrow, status = confirmed)
+    const pickupReminders = queries.getReservationsForPickupReminder.all() as any[];
+    console.log(`📬 Pickup reminders found (status=confirmed, start_date=tomorrow): ${pickupReminders.length}`);
+    
+    // Get reservations needing return reminder (end date = tomorrow, status = picked_up)
     const returnReminders = queries.getReservationsForReturnReminder.all() as any[];
+    console.log(`📬 Return reminders found (status=picked_up, end_date=tomorrow): ${returnReminders.length}`);
     
     let sentPickup = 0;
     let sentReturn = 0;
@@ -536,6 +546,12 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
       data: {
         pickupReminders: sentPickup,
         returnReminders: sentReturn,
+        debug: {
+          totalReservations: allReservations.length,
+          foundForPickup: pickupReminders.length,
+          foundForReturn: returnReminders.length,
+          note: 'Przypomnienia wymagają: dla odbioru status=confirmed i start_date=jutro; dla zwrotu status=picked_up i end_date=jutro'
+        }
       }
     });
   } catch (error) {
