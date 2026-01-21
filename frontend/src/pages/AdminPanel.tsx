@@ -249,6 +249,17 @@ export function AdminPanel() {
     }
   }, [isLoggedIn]);
 
+  // Auto-refresh data every 30 seconds
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
   const loadData = async () => {
     setLoading(true);
     try {
