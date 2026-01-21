@@ -1,9 +1,19 @@
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { config } from './config.js';
 import type { ContactInput, ReservationInput } from './schemas.js';
 
-// Create transporter
+// Initialize Resend if API key is provided
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// Create SMTP transporter (fallback)
 const createTransporter = () => {
+  // If Resend is configured, skip SMTP
+  if (resend) {
+    console.log('📧 Email: Using Resend API');
+    return null;
+  }
+  
   // If no SMTP configured, use console logging
   if (!config.smtp.host || !config.smtp.user || !config.smtp.pass) {
     console.log('📧 Email: Using console logging (no SMTP configured)');
@@ -19,6 +29,8 @@ const createTransporter = () => {
       user: config.smtp.user,
       pass: config.smtp.pass,
     },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
   });
 };
 
@@ -34,25 +46,53 @@ const logEmail = (to: string, subject: string, html: string) => {
   console.log('📧 ═══════════════════════════════════════\n');
 };
 
-// Send email
+// Send email (tries Resend first, then SMTP, then console)
 const sendEmail = async (to: string, subject: string, html: string) => {
-  if (!transporter) {
-    logEmail(to, subject, html);
-    return { success: true, messageId: 'console-log' };
+  const fromEmail = process.env.RESEND_FROM || config.smtp.from || 'WB-Rent <noreply@wb-rent.pl>';
+  
+  // Try Resend first
+  if (resend) {
+    try {
+      const { data, error } = await resend.emails.send({
+        from: fromEmail,
+        to: [to],
+        subject,
+        html,
+      });
+      
+      if (error) {
+        console.error('❌ Resend error:', error);
+        return { success: false, error };
+      }
+      
+      console.log(`📧 Email sent via Resend to ${to}`);
+      return { success: true, messageId: data?.id };
+    } catch (error) {
+      console.error('❌ Resend error:', error);
+      return { success: false, error };
+    }
   }
-
-  try {
-    const info = await transporter.sendMail({
-      from: config.smtp.from,
-      to,
-      subject,
-      html,
-    });
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error('❌ Email send error:', error);
-    return { success: false, error };
+  
+  // Try SMTP
+  if (transporter) {
+    try {
+      const info = await transporter.sendMail({
+        from: config.smtp.from,
+        to,
+        subject,
+        html,
+      });
+      console.log(`📧 Email sent via SMTP to ${to}`);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error('❌ Email send error:', error);
+      return { success: false, error };
+    }
   }
+  
+  // Fallback to console
+  logEmail(to, subject, html);
+  return { success: true, messageId: 'console-log' };
 };
 
 // === EMAIL TEMPLATES ===
