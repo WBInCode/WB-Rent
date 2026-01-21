@@ -570,11 +570,13 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const todayStr = today.toISOString().split('T')[0];
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
     
     res.json({
       success: true,
       serverTime: new Date().toISOString(),
+      todayDate: todayStr,
       tomorrowDate: tomorrowStr,
       totalReservations: allReservations.length,
       reservations: allReservations.map(r => ({
@@ -585,8 +587,11 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
         status: r.status,
         start_date: r.start_date,
         end_date: r.end_date,
-        needsPickupReminder: r.status === 'confirmed' && r.start_date === tomorrowStr,
-        needsReturnReminder: r.status === 'picked_up' && r.end_date === tomorrowStr,
+        // Pickup: pending/confirmed + start today or tomorrow
+        needsPickupReminder: ['pending', 'confirmed'].includes(r.status) && 
+          (r.start_date === todayStr || r.start_date === tomorrowStr),
+        // Return: confirmed/picked_up + end tomorrow
+        needsReturnReminder: ['confirmed', 'picked_up'].includes(r.status) && r.end_date === tomorrowStr,
       }))
     });
   } catch (error) {

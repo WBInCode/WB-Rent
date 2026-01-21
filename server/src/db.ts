@@ -288,16 +288,18 @@ function createQueries() {
       LIMIT 12
     `),
     
-    // Reservations for pickup/return reminders (tomorrow)
+    // Reservations for pickup reminder (tomorrow or today, status pending/confirmed)
     getReservationsForPickupReminder: db.prepare(`
       SELECT * FROM reservations 
-      WHERE status = 'confirmed'
-        AND date(start_date) = date('now', '+1 day', 'localtime')
+      WHERE status IN ('pending', 'confirmed')
+        AND (date(start_date) = date('now', '+1 day', 'localtime') 
+             OR date(start_date) = date('now', 'localtime'))
     `),
     
+    // Reservations for return reminder (tomorrow, any active status)
     getReservationsForReturnReminder: db.prepare(`
       SELECT * FROM reservations 
-      WHERE status = 'picked_up'
+      WHERE status IN ('confirmed', 'picked_up')
         AND date(end_date) = date('now', '+1 day', 'localtime')
     `),
 
