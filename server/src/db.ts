@@ -296,10 +296,10 @@ function createQueries() {
              OR date(start_date) = date('now', 'localtime'))
     `),
     
-    // Reservations for return reminder (tomorrow, any active status)
+    // Reservations for return reminder (tomorrow, only picked_up - customer has the equipment)
     getReservationsForReturnReminder: db.prepare(`
       SELECT * FROM reservations 
-      WHERE status IN ('confirmed', 'picked_up')
+      WHERE status = 'picked_up'
         AND date(end_date) = date('now', '+1 day', 'localtime')
     `),
 

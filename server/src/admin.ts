@@ -590,8 +590,8 @@ router.get('/debug-reminders', adminAuth, (_req: Request, res: Response) => {
         // Pickup: pending/confirmed + start today or tomorrow
         needsPickupReminder: ['pending', 'confirmed'].includes(r.status) && 
           (r.start_date === todayStr || r.start_date === tomorrowStr),
-        // Return: confirmed/picked_up + end tomorrow
-        needsReturnReminder: ['confirmed', 'picked_up'].includes(r.status) && r.end_date === tomorrowStr,
+        // Return: only picked_up (customer has equipment) + end tomorrow
+        needsReturnReminder: r.status === 'picked_up' && r.end_date === tomorrowStr,
       }))
     });
   } catch (error) {
