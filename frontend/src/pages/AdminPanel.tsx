@@ -448,10 +448,6 @@ export function AdminPanel() {
               Zaloguj się
             </Button>
           </form>
-          
-          <p className="text-text-muted text-sm text-center mt-6">
-            Domyślne hasło: <code className="text-gold">wbrent2026</code>
-          </p>
         </Card>
       </div>
     );
