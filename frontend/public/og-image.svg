@@ -1,0 +1,38 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0a"/>
+      <stop offset="50%" style="stop-color:#1a1a1a"/>
+      <stop offset="100%" style="stop-color:#0a0a0a"/>
+    </linearGradient>
+  </defs>
+  
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  
+  <circle cx="900" cy="150" r="300" fill="#f59e0b" fill-opacity="0.08"/>
+  <circle cx="200" cy="500" r="200" fill="#f59e0b" fill-opacity="0.06"/>
+  
+  <rect x="30" y="30" width="1140" height="570" rx="20" fill="none" stroke="#f59e0b" stroke-opacity="0.2" stroke-width="1"/>
+  
+  <text x="600" y="200" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="90" font-weight="bold">
+    <tspan fill="#f59e0b">WB</tspan><tspan fill="#fbbf24">-Rent</tspan>
+  </text>
+  
+  <text x="600" y="280" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="#9ca3af">
+    Wypożyczalnia sprzętu czyszczącego i ozonatorów
+  </text>
+  
+  <rect x="200" y="340" width="180" height="70" rx="10" fill="#1f1f1f" stroke="#f59e0b" stroke-opacity="0.3"/>
+  <text x="290" y="385" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#fbbf24">Karcher Puzzi</text>
+  
+  <rect x="510" y="340" width="180" height="70" rx="10" fill="#1f1f1f" stroke="#f59e0b" stroke-opacity="0.3"/>
+  <text x="600" y="385" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#fbbf24">Ozonatory</text>
+  
+  <rect x="820" y="340" width="180" height="70" rx="10" fill="#1f1f1f" stroke="#f59e0b" stroke-opacity="0.3"/>
+  <text x="910" y="385" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#fbbf24">Dostawa</text>
+  
+  <rect x="425" y="460" width="350" height="65" rx="32" fill="#f59e0b"/>
+  <text x="600" y="502" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="bold" fill="#0a0a0a">Rezerwuj online</text>
+  
+  <text x="600" y="580" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#6b7280">wb-rent.pl</text>
+</svg>

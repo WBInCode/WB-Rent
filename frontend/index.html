@@ -19,6 +19,9 @@
     <meta property="og:title" content="WB-Rent | Wypożyczalnia sprzętu czyszczącego i ozonatorów" />
     <meta property="og:description" content="Profesjonalna wypożyczalnia odkurzaczy piorących Kärcher, ozonatorów i sprzętu czyszczącego. Konkurencyjne ceny, szybka rezerwacja online." />
     <meta property="og:image" content="https://wb-rent.pl/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:locale" content="pl_PL" />
     <meta property="og:site_name" content="WB-Rent" />
     
@@ -37,7 +40,6 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.json" />
     
     <!-- Preconnect to external resources -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -45,6 +47,23 @@
   </head>
   <body>
     <div id="root"></div>
+    
+    <!-- Fallback content for crawlers that don't execute JavaScript -->
+    <noscript>
+      <div style="background:#0a0a0a;color:#fff;padding:40px;font-family:Arial,sans-serif;text-align:center;">
+        <h1 style="color:#f59e0b;font-size:2.5rem;margin-bottom:1rem;">WB-Rent</h1>
+        <p style="font-size:1.25rem;color:#d1d5db;margin-bottom:2rem;">Wypożyczalnia sprzętu czyszczącego i ozonatorów</p>
+        <p style="color:#9ca3af;">Profesjonalna wypożyczalnia odkurzaczy piorących Kärcher Puzzi, ozonatorów i sprzętu czyszczącego. Konkurencyjne ceny, szybka rezerwacja online, dostawa pod drzwi.</p>
+        <ul style="list-style:none;padding:0;margin:2rem 0;color:#fbbf24;">
+          <li>✓ Odkurzacze piorące Kärcher Puzzi</li>
+          <li>✓ Ozonatory do dezynfekcji</li>
+          <li>✓ Dostawa pod drzwi</li>
+          <li>✓ Rezerwacja online 24/7</li>
+        </ul>
+        <p style="color:#6b7280;">Kontakt: kontakt@wb-rent.pl</p>
+      </div>
+    </noscript>
+    
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://wb-rent.pl/sitemap.xml
