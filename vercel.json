@@ -19,6 +19,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/(regulamin|polityka-prywatnosci|rodo|wkrotce|admin)", "destination": "/index.html" },
+    { "source": "/produkt/(.*)", "destination": "/index.html" }
   ]
 }
