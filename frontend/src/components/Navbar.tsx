@@ -18,7 +18,6 @@ const navLinks: NavLink[] = [
   { label: 'Jak to działa', href: '/#jak-to-dziala' },
   { label: 'Rezerwacja', href: '/#rezerwacja' },
   { label: 'FAQ', href: '/#faq' },
-  { label: 'Wkrótce', href: '/wkrotce' },
 ];
 
 export function Navbar() {
@@ -86,7 +85,7 @@ export function Navbar() {
   const handleNavClick = (href: string) => {
     setIsMobileMenuOpen(false);
     
-    // If it's an internal page link (like /wkrotce)
+    // If it's an internal page link (for example /kontakt)
     if (href.startsWith('/') && !href.startsWith('/#')) {
       navigate(href);
       return;
@@ -171,7 +170,7 @@ export function Navbar() {
             <Button 
               variant="primary" 
               size="sm"
-              onClick={() => handleNavClick('/#kontakt')}
+              onClick={() => handleNavClick('/kontakt')}
             >
               Skontaktuj się
             </Button>
@@ -233,7 +232,7 @@ export function Navbar() {
                 <Button 
                   variant="primary" 
                   size="lg"
-                  onClick={() => handleNavClick('/#kontakt')}
+                  onClick={() => handleNavClick('/kontakt')}
                 >
                   Skontaktuj się
                 </Button>

@@ -1,27 +1,16 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import { queries } from './db.js';
 import { config } from './config.js';
+import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
+import { getProductName, products } from './products.js';
 import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendNewsletterEmail, sendProductAvailabilityNotification } from './email.js';
 import { newsletterPostSchema } from './schemas.js';
-
-// Product names mapping
-const productNames: Record<string, string> = {
-  'puzzi-10-1': 'Odkurzacz Piorący Kärcher Puzzi 10/1',
-  'puzzi-8-1': 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary',
-  'nt-22-1': 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L',
-  'nt-30-1': 'Odkurzacz Przemysłowy Kärcher NT 30/1 Tact Te L',
-  'ad-4-premium': 'Odkurzacz Kominkowy Kärcher AD 4 Premium',
-  'ozonmed-pro-10g': 'Ozonator powietrza Ozonmed Pro 10G',
-  'af-100-h13': 'Oczyszczacz Powietrza Kärcher AF 100 H13',
-  'dmuchawa-ab-20': 'Dmuchawa Kärcher AB 20 Ec',
-  'sg-4-4': 'Parownica Kärcher SG 4/4',
-  'es-1-7-bp': 'System do dezynfekcji Kärcher ES 1/7 Bp Pack',
-  'wvp-10-adv': 'Myjka Do Okien Kärcher WVP 10 Adv',
-};
+import { createContractSchema, createContractSession, readSignedContractPdfById } from './contracts/service.js';
 
 const router = Router();
 
-// Simple admin authentication middleware
+// Admin authentication middleware - verifies signed, expiring token
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   
@@ -32,22 +21,49 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
 
   const token = authHeader.split(' ')[1];
   
-  if (token !== config.adminToken) {
-    res.status(403).json({ success: false, message: 'Nieprawidłowy token' });
+  if (!token || !verifyToken(token)) {
+    res.status(401).json({ success: false, message: 'Sesja wygasła. Zaloguj się ponownie.' });
     return;
   }
 
   next();
 };
 
+// Brute-force protection for login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { success: false, message: 'Zbyt wiele prób logowania. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Login endpoint
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { password } = req.body;
 
-  if (password === config.adminPassword) {
+  if (typeof password !== 'string') {
+    res.status(401).json({ success: false, message: 'Nieprawidłowe hasło' });
+    return;
+  }
+
+  // DB-stored hash (set via change-password) takes precedence over ENV
+  let valid = false;
+  try {
+    const dbHash = await queries.getSetting('admin_password_hash');
+    valid = dbHash ? verifyScryptHash(password, dbHash) : verifyPassword(password);
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+    return;
+  }
+
+  if (valid) {
+    const { token, expiresAt } = issueToken();
     res.json({ 
       success: true, 
-      token: config.adminToken,
+      token,
+      expiresAt,
       message: 'Zalogowano pomyślnie'
     });
   } else {
@@ -55,6 +71,95 @@ router.post('/login', (req: Request, res: Response) => {
       success: false, 
       message: 'Nieprawidłowe hasło' 
     });
+  }
+});
+
+// Change admin password (stores scrypt hash in DB, overrides ENV password)
+router.post('/change-password', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+      res.status(400).json({ success: false, message: 'Podaj obecne i nowe hasło' });
+      return;
+    }
+
+    if (newPassword.length < 10) {
+      res.status(400).json({ success: false, message: 'Nowe hasło musi mieć co najmniej 10 znaków' });
+      return;
+    }
+
+    const dbHash = await queries.getSetting('admin_password_hash');
+    const currentValid = dbHash ? verifyScryptHash(currentPassword, dbHash) : verifyPassword(currentPassword);
+    if (!currentValid) {
+      res.status(401).json({ success: false, message: 'Obecne hasło jest nieprawidłowe' });
+      return;
+    }
+
+    await queries.setSetting('admin_password_hash', hashPassword(newPassword));
+    res.json({ success: true, message: 'Hasło zmienione' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// === RENTAL CONTRACTS (employee-assisted kiosk flow) ===
+router.post('/contracts', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = createContractSchema.parse({
+      ...req.body,
+      reservationId: Number(req.body?.reservationId),
+      deposit: Number(req.body?.deposit),
+    });
+    const session = await createContractSession(input);
+    res.status(201).json({ success: true, data: session });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się przygotować umowy';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.get('/contracts/reservation/:reservationId', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const contract = await queries.getContractByReservationId(Number(req.params.reservationId));
+    if (!contract) {
+      res.status(404).json({ success: false, message: 'Umowa nie została przygotowana' });
+      return;
+    }
+    res.json({
+      success: true,
+      data: {
+        id: contract.id,
+        contractNumber: contract.contract_number,
+        templateVersion: contract.template_version,
+        status: contract.status,
+        expiresAt: contract.signing_expires_at,
+        signedAt: contract.signed_at,
+        pdfHash: contract.pdf_hash,
+        emailSentAt: contract.email_sent_at,
+      },
+    });
+  } catch (error) {
+    console.error('Get contract error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+router.get('/contracts/:id/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const pdf = await readSignedContractPdfById(Number(req.params.id));
+    if (!pdf) {
+      res.status(404).json({ success: false, message: 'Podpisany dokument nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(pdf.buffer);
+  } catch (error) {
+    console.error('Admin contract PDF error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
   }
 });
 
@@ -97,6 +202,17 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
       return;
     }
+
+    if (status === 'picked_up' && config.contracts.enabled) {
+      const signed = await queries.hasSignedContract(Number(id));
+      if (!signed) {
+        res.status(409).json({
+          success: false,
+          message: 'Nie można wydać sprzętu przed podpisaniem umowy najmu',
+        });
+        return;
+      }
+    }
     
     await queries.updateReservationStatus({ id: Number(id), status });
     
@@ -106,7 +222,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         await sendReservationStatusEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
           totalPrice: reservation.total_price,
@@ -123,7 +239,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         await sendPickedUpEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
           totalPrice: reservation.total_price,
@@ -140,7 +256,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         await sendReturnedEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
           totalPrice: reservation.total_price,
@@ -153,7 +269,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       // Auto-send availability notifications
       try {
         const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
-        const productName = productNames[reservation.product_id] || reservation.product_id;
+        const productName = getProductName(reservation.product_id);
         
         for (const notification of waitingNotifications) {
           try {
@@ -179,7 +295,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     if (status === 'cancelled' || status === 'rejected') {
       try {
         const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
-        const productName = productNames[reservation.product_id] || reservation.product_id;
+        const productName = getProductName(reservation.product_id);
         
         for (const notification of waitingNotifications) {
           try {
@@ -462,7 +578,7 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
         await sendPickupReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -478,7 +594,7 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
         await sendReturnReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -750,7 +866,7 @@ router.get('/notifications', adminAuth, async (_req: Request, res: Response) => 
     
     const enrichedNotifications = notifications.map((n: any) => ({
       ...n,
-      productName: productNames[n.product_id] || n.product_id,
+      productName: getProductName(n.product_id),
     }));
 
     res.json({ success: true, data: enrichedNotifications });
@@ -792,12 +908,12 @@ router.delete('/notifications/:id', adminAuth, async (req: Request, res: Respons
 router.post('/notifications/send/:productId', adminAuth, async (req: Request, res: Response) => {
   try {
     const productId = req.params.productId as string;
-    const productName = productNames[productId];
-    
-    if (!productName) {
+
+    if (!products[productId]) {
       res.status(400).json({ success: false, message: 'Produkt nie istnieje' });
       return;
     }
+    const productName = getProductName(productId);
 
     const notifications = await queries.getWaitingNotificationsForProduct(productId);
 

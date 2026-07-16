@@ -19,7 +19,9 @@
     }
   ],
   "rewrites": [
-    { "source": "/(regulamin|polityka-prywatnosci|rodo|wkrotce|admin)", "destination": "/index.html" },
-    { "source": "/produkt/(.*)", "destination": "/index.html" }
+    { "source": "/(regulamin|polityka-prywatnosci|rodo|kontakt|admin|platnosc|moje-rezerwacje)", "destination": "/index.html" },
+    { "source": "/podpis/(.*)", "destination": "/index.html" },
+    { "source": "/produkt/(.*)", "destination": "/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

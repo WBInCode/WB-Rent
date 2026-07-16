@@ -111,6 +111,8 @@ export function RegulaminPage() {
                   <li>Doba wypożyczenia liczona jest od godziny odbioru sprzętu do tej samej godziny dnia następnego.</li>
                   <li>Minimalna doba wypożyczenia wynosi 24 godziny.</li>
                   <li>Wypożyczenie weekendowe obejmuje okres od piątku (godz. 15:00) do poniedziałku (godz. 9:00).</li>
+                  <li>Przed wydaniem sprzętu i uruchomieniem płatności Najemca otrzymuje do wglądu kompletną, wypełnioną umowę najmu. Umowa wymaga akceptacji i podpisu odręcznego złożonego na ekranie urządzenia.</li>
+                  <li>Podpisana umowa jest utrwalana w formacie PDF, zapisywana w systemie Wypożyczalni i przesyłana na adres e-mail Najemcy. Najemca powinien zachować otrzymany egzemplarz.</li>
                 </ol>
               </Card>
             </motion.section>
@@ -125,7 +127,8 @@ export function RegulaminPage() {
                 <ol className="space-y-3 text-text-secondary list-decimal list-inside">
                   <li>Odbiór sprzętu możliwy jest osobiście w siedzibie wypożyczalni lub poprzez dostawę pod wskazany adres (w promieniu do 30 km od Rzeszowa).</li>
                   <li>Przy odbiorze Najemca zobowiązany jest do okazania dokumentu tożsamości.</li>
-                  <li>Najemca potwierdza odbiór sprawnego sprzętu podpisem na protokole zdawczo-odbiorczym.</li>
+                  <li>Najemca potwierdza stan, kompletność i odbiór sprzętu elektronicznym podpisem na umowie najmu pełniącej również funkcję protokołu wydania.</li>
+                  <li>Wydanie sprzętu jest możliwe dopiero po skutecznym podpisaniu umowy. System rejestruje czas podpisu, adres IP, informacje o urządzeniu oraz skróty kryptograficzne dokumentu i podpisu.</li>
                   <li>Zwrot sprzętu następuje w miejscu jego odbioru, chyba że strony ustalą inaczej.</li>
                   <li>Sprzęt należy zwrócić w stanie niepogorszonym, czysty i suchy.</li>
                   <li>Opóźnienie w zwrocie sprzętu skutkuje naliczeniem dodatkowej opłaty za każdą rozpoczętą dobę.</li>
@@ -144,7 +147,8 @@ export function RegulaminPage() {
                 <ol className="space-y-3 text-text-secondary list-decimal list-inside">
                   <li>Ceny wynajmu są podane w cenniku dostępnym na stronie internetowej i obowiązują w momencie składania rezerwacji.</li>
                   <li>Opłata za wynajem pobierana jest z góry przy odbiorze sprzętu.</li>
-                  <li>Akceptowane formy płatności: gotówka, przelew bankowy, BLIK.</li>
+                  <li>Akceptowane formy płatności: płatność online za pośrednictwem aktywnego operatora (PayU, Przelewy24 lub Stripe), gotówka, przelew bankowy lub BLIK — zgodnie z opcjami udostępnionymi przy zawieraniu umowy.</li>
+                  <li>W przypadku płatności online bramka płatnicza jest uruchamiana dopiero po podpisaniu umowy najmu.</li>
                   <li>Wypożyczalnia może wymagać wpłaty kaucji zwrotnej w wysokości określonej dla danego urządzenia.</li>
                   <li>Kaucja podlega zwrotowi po sprawdzeniu stanu technicznego sprzętu przy jego zwrocie.</li>
                   <li>Z kaucji mogą zostać potrącone koszty naprawy uszkodzeń lub czyszczenia sprzętu.</li>

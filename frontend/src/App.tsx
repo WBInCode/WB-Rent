@@ -25,12 +25,30 @@ const PolitykaPrywatnosciPage = lazy(() => import('@/pages/PolitykaPrywatnosciPa
 const RodoPage = lazy(() => import('@/pages/RodoPage').then(m => ({ default: m.RodoPage })));
 
 // Lazy load other pages
-const WkrotcePage = lazy(() => import('@/pages/WkrotcePage'));
+const PaymentReturnPage = lazy(() => import('@/pages/PaymentReturnPage'));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const MyReservationsPage = lazy(() => import('@/pages/MyReservationsPage'));
+const ContractSigningPage = lazy(() => import('@/pages/ContractSigningPage'));
+const StaffRentalPage = lazy(() => import('@/pages/StaffRentalPage'));
+const ContactPage = lazy(() => import('@/pages/ContactPage'));
 
-// Loading fallback
+// Loading fallback - content-shaped skeleton (less jarring than a spinner)
 const SectionLoader = () => (
-  <div className="py-20 flex justify-center">
-    <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+  <div className="py-20 max-w-7xl mx-auto px-4 md:px-6 lg:px-8" aria-hidden="true">
+    <div className="animate-pulse space-y-6">
+      <div className="h-4 w-32 rounded-full bg-white/5" />
+      <div className="h-9 w-2/5 max-w-md rounded-xl bg-white/10" />
+      <div className="h-4 w-3/5 max-w-xl rounded-full bg-white/5" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-2xl border border-white/5 bg-white/[0.03] p-5 space-y-4">
+            <div className="h-36 rounded-xl bg-white/5" />
+            <div className="h-5 w-3/4 rounded-full bg-white/10" />
+            <div className="h-4 w-1/2 rounded-full bg-white/5" />
+          </div>
+        ))}
+      </div>
+    </div>
   </div>
 );
 
@@ -99,8 +117,13 @@ function App() {
           <Route path="/regulamin" element={<RegulaminPage />} />
           <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
           <Route path="/rodo" element={<RodoPage />} />
-          <Route path="/wkrotce" element={<WkrotcePage />} />
+          <Route path="/platnosc" element={<PaymentReturnPage />} />
+          <Route path="/moje-rezerwacje" element={<MyReservationsPage />} />
+          <Route path="/kontakt" element={<ContactPage />} />
+          <Route path="/podpis/:token" element={<ContractSigningPage />} />
+          <Route path="/admin/nowy-wynajem" element={<StaffRentalPage />} />
           <Route path="/admin" element={<AdminPanel />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

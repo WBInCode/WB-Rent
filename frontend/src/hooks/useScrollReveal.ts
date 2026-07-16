@@ -9,9 +9,14 @@ interface UseScrollRevealOptions {
 export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
   options: UseScrollRevealOptions = {}
 ) {
-  const { threshold = 0.1, rootMargin = '0px', triggerOnce = true } = options;
+  // rootMargin extends the viewport downwards so content starts revealing
+  // ~200px before it scrolls into view (no "empty section" flash on anchor jumps)
+  const { threshold = 0.1, rootMargin = '0px 0px 200px 0px', triggerOnce = true } = options;
   const ref = useRef<T>(null);
-  const [isInView, setIsInView] = useState(false);
+  // With reduced motion, content is visible from the start (no reveal animation)
+  const [isInView, setIsInView] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 
   useEffect(() => {
     const element = ref.current;
@@ -23,7 +28,6 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
     ).matches;
 
     if (prefersReducedMotion) {
-      setIsInView(true);
       return;
     }
 

@@ -12,6 +12,8 @@ interface DatePickerProps {
   required?: boolean;
   error?: string;
   disabled?: boolean;
+  /** Zajęte terminy (YYYY-MM-DD, inclusive) — wyłączone w kalendarzu */
+  blockedRanges?: Array<{ startDate: string; endDate: string }>;
 }
 
 const DAYS = ['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Nie'];
@@ -28,9 +30,11 @@ export function DatePicker({
   maxDate,
   required,
   error,
-  disabled
+  disabled,
+  blockedRanges
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
   const [viewDate, setViewDate] = useState(() => {
     if (value) {
       return new Date(value);
@@ -40,13 +44,23 @@ export function DatePicker({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Get position directly when rendering
+  // Keep the calendar inside the viewport (flip above when space below is tight)
   const getPosition = () => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const calendarWidth = 300;
+      const estimatedHeight = 390;
+      const gap = 8;
+      const top = rect.bottom + gap + estimatedHeight <= window.innerHeight
+        ? rect.bottom + gap
+        : Math.max(gap, rect.top - estimatedHeight - gap);
+      const left = Math.min(
+        Math.max(gap, rect.left),
+        Math.max(gap, window.innerWidth - calendarWidth - gap)
+      );
       return {
-        top: rect.bottom + 8,
-        left: rect.left
+        top,
+        left,
       };
     }
     return { top: 0, left: 0 };
@@ -109,6 +123,16 @@ export function DatePicker({
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
   };
 
+  // Check if date is within a blocked (reserved) range
+  const isDateBlocked = (date: Date) => {
+    if (!blockedRanges || blockedRanges.length === 0) return false;
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const iso = `${y}-${m}-${d}`;
+    return blockedRanges.some(r => iso >= r.startDate && iso <= r.endDate);
+  };
+
   // Check if date is disabled
   const isDateDisabled = (date: Date) => {
     const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -120,6 +144,7 @@ export function DatePicker({
       const maxOnly = new Date(maxDateObj.getFullYear(), maxDateObj.getMonth(), maxDateObj.getDate());
       if (dateOnly > maxOnly) return true;
     }
+    if (isDateBlocked(dateOnly)) return true;
     return false;
   };
 
@@ -174,6 +199,7 @@ export function DatePicker({
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!disabled) {
+      if (!isOpen) setDropdownPos(getPosition());
       setIsOpen(!isOpen);
     }
   };
@@ -204,6 +230,7 @@ export function DatePicker({
     // Current month days
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
+      const blocked = isDateBlocked(date);
       const isDisabled = isDateDisabled(date);
       const selected = isDateSelected(date);
       const today = isToday(date);
@@ -215,9 +242,12 @@ export function DatePicker({
           type="button"
           onClick={(e) => handleDateSelect(day, e)}
           disabled={isDisabled}
+          title={blocked ? 'Termin zajęty' : undefined}
+          aria-label={blocked ? `${day} — termin zajęty` : undefined}
           className={cn(
             'w-9 h-9 text-sm rounded-lg transition-all duration-200 font-medium',
-            isDisabled && 'text-text-muted/30 cursor-not-allowed',
+            blocked && 'text-red-400/60 line-through cursor-not-allowed bg-red-500/5',
+            !blocked && isDisabled && 'text-text-muted/30 cursor-not-allowed',
             !isDisabled && !selected && 'hover:bg-gold/20 hover:text-gold cursor-pointer',
             !isDisabled && !selected && today && 'ring-2 ring-gold/50 text-gold',
             !isDisabled && !selected && isWeekend && !today && 'text-gold/70',
@@ -259,6 +289,7 @@ export function DatePicker({
       <button
         ref={buttonRef}
         type="button"
+        aria-label={label || 'Wybierz datę'}
         onClick={handleToggle}
         disabled={disabled}
         className={cn(
@@ -288,8 +319,8 @@ export function DatePicker({
           ref={dropdownRef}
           className="fixed p-4 rounded-2xl bg-[#1a1a1a] border border-[#333] shadow-2xl"
           style={{ 
-            top: getPosition().top,
-            left: getPosition().left,
+            top: dropdownPos.top,
+            left: dropdownPos.left,
             minWidth: '300px',
             zIndex: 99999
           }}
@@ -336,6 +367,14 @@ export function DatePicker({
           <div className="grid grid-cols-7 gap-1">
             {renderCalendarDays()}
           </div>
+
+          {/* Blocked dates legend */}
+          {blockedRanges && blockedRanges.length > 0 && (
+            <div className="flex items-center gap-2 mt-3 text-xs text-gray-500">
+              <span className="inline-block w-3 h-3 rounded bg-red-500/10 border border-red-400/40" />
+              <span className="text-red-400/70 line-through">termin zajęty</span>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-[#333]">

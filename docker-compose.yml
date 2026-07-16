@@ -1,0 +1,85 @@
+# WB-Rent - full stack (frontend + API + Postgres)
+# Samodzielny stack na VPS (ten sam serwer co wb-platform, ale niezależny deployment).
+# Reverse proxy hosta (Caddy/nginx) kieruje domenę wb-rent.pl na port WEB_PORT.
+#
+# Wymagane zmienne w .env obok tego pliku (patrz server/.env.example):
+#   POSTGRES_PASSWORD, ADMIN_PASSWORD (lub ADMIN_PASSWORD_HASH), ADMIN_TOKEN
+#   oraz opcjonalnie SMTP_*/RESEND_API_KEY, SITE_URL, API_URL
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wbrent
+      POSTGRES_USER: wbrent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - wbrent-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U wbrent -d wbrent']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://wbrent:${POSTGRES_PASSWORD}@db:5432/wbrent
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://wb-rent.pl,https://www.wb-rent.pl}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@wb-rent.pl}
+      SITE_URL: ${SITE_URL:-https://wb-rent.pl}
+      API_URL: ${API_URL:-https://wb-rent.pl}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-"WB-Rent" <noreply@wb-rent.pl>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      # Payments (module switch: payu | przelewy24 | stripe | none)
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-payu}
+      PAYU_SANDBOX: ${PAYU_SANDBOX:-true}
+      PAYU_POS_ID: ${PAYU_POS_ID:-}
+      PAYU_SECOND_KEY: ${PAYU_SECOND_KEY:-}
+      PAYU_CLIENT_ID: ${PAYU_CLIENT_ID:-}
+      PAYU_CLIENT_SECRET: ${PAYU_CLIENT_SECRET:-}
+      P24_SANDBOX: ${P24_SANDBOX:-true}
+      P24_MERCHANT_ID: ${P24_MERCHANT_ID:-}
+      P24_POS_ID: ${P24_POS_ID:-}
+      P24_CRC: ${P24_CRC:-}
+      P24_API_KEY: ${P24_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      CONTRACTS_ENABLED: ${CONTRACTS_ENABLED:-true}
+      CONTRACT_REQUIRED_BEFORE_PAYMENT: ${CONTRACT_REQUIRED_BEFORE_PAYMENT:-true}
+      CONTRACT_ENCRYPTION_KEY: ${CONTRACT_ENCRYPTION_KEY:?set CONTRACT_ENCRYPTION_KEY in .env}
+      CONTRACT_STORAGE_DIR: /app/storage/contracts
+      CONTRACT_SIGNING_TTL_HOURS: ${CONTRACT_SIGNING_TTL_HOURS:-24}
+    volumes:
+      - wbrent-contracts:/app/storage/contracts
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${WEB_PORT:-5340}:80'
+
+volumes:
+  wbrent-pgdata:
+  wbrent-contracts:

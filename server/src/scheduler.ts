@@ -1,20 +1,7 @@
 import cron from 'node-cron';
 import { queries } from './db.js';
+import { getProductName } from './products.js';
 import { sendPickupReminderEmail, sendReturnReminderEmail } from './email.js';
-
-const productNames: Record<string, string> = {
-  'puzzi-10-1': 'Odkurzacz Piorący Kärcher Puzzi 10/1',
-  'puzzi-8-1': 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary',
-  'nt-22-1': 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L',
-  'nt-30-1': 'Odkurzacz Przemysłowy Kärcher NT 30/1 Tact Te L',
-  'ad-4-premium': 'Odkurzacz Kominkowy Kärcher AD 4 Premium',
-  'ozonmed-pro-10g': 'Ozonator powietrza Ozonmed Pro 10G',
-  'af-100-h13': 'Oczyszczacz Powietrza Kärcher AF 100 H13',
-  'dmuchawa-ab-20': 'Dmuchawa Kärcher AB 20 Ec',
-  'sg-4-4': 'Parownica Kärcher SG 4/4',
-  'es-1-7-bp': 'System do dezynfekcji Kärcher ES 1/7 Bp Pack',
-  'wvp-10-adv': 'Myjka Do Okien Kärcher WVP 10 Adv',
-};
 
 async function sendDailyReminders() {
   console.log('📧 Running daily reminder job...');
@@ -31,7 +18,7 @@ async function sendDailyReminders() {
         await sendPickupReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -47,7 +34,7 @@ async function sendDailyReminders() {
         await sendReturnReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: productNames[reservation.product_id] || reservation.product_id,
+          productName: getProductName(reservation.product_id),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });

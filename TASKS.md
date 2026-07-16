@@ -107,10 +107,10 @@
 - [x] Zmiana hasła admina
 
 ### 11. System dostępności dat
-- [ ] API: GET /api/products/:id/availability (zwraca zajęte daty)
-- [ ] Frontend: blokada zajętych dat w date picker
-- [ ] Walidacja: sprawdzenie dostępności przed wysłaniem rezerwacji
-- [ ] Kalendarz zajętości w panelu admina
+- [x] API: GET /api/reservations/product/:productId (zwraca zajęte daty)
+- [x] Frontend: blokada zajętych dat w date picker
+- [x] Walidacja: sprawdzenie dostępności przed wysłaniem + atomowa blokada anty-double-booking
+- [x] Kalendarz zajętości w panelu admina (widok miesięczny)
 
 ### 12. Email notifications
 - [x] Konfiguracja SMTP w .env
@@ -134,10 +134,25 @@
 - [x] Linki w footerze
 
 ### 15. Dokumentacja
-- [ ] README.md z instrukcją uruchomienia
-- [ ] .env.example dla backendu
-- [ ] Opis endpointów API
-- [ ] Instrukcja deploy (produkcja)
+- [x] README.md z instrukcją uruchomienia
+- [x] .env.example dla backendu
+- [x] Opis endpointów API
+- [x] Instrukcja deploy (produkcja / standalone VPS Docker Compose)
+
+### 16. Elektroniczne umowy najmu
+- [x] Tryb „klient z ulicy”: pełny formularz pracownika (rezerwacja + dane umowy)
+- [x] Niezmienny, wersjonowany snapshot umowy
+- [x] AES-256-GCM: dane dokumentu, podpis i PDF zaszyfrowane w bazie / na dysku
+- [x] Jednorazowa sesja podpisu 256-bit (hash tokenu w DB, TTL 24h)
+- [x] Pełnoekranowy ekran tabletowy (palec / rysik / mysz)
+- [x] Wymuszenie przewinięcia pełnej umowy przed zgodą
+- [x] Generator PDF z polskimi znakami, podpisem i metryką dowodową
+- [x] E-mail do klienta z podpisaną umową PDF
+- [x] Automatyczne uruchomienie płatności po podpisie
+- [x] Backend blokuje płatność i wydanie sprzętu przed podpisaniem
+- [x] Panel admina: status, polling, pobieranie PDF, ponowne uruchomienie sesji
+- [x] Polityka prywatności i regulamin zaktualizowane pod e-umowy
+- [x] Testy kryptografii/PDF + Playwright tablet/workflow pracownika
 
 ---
 

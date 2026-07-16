@@ -1,29 +1,27 @@
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema } from './schemas.js';
 import { queries } from './db.js';
+import { products, calculateProductRentalPrice, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from './products.js';
+import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken } from './auth.js';
+import { config } from './config.js';
+import { createPaymentForReservation } from './payments/routes.js';
 import {
   sendContactConfirmation,
   sendReservationConfirmation,
   sendReservationNotification,
+  sendMyReservationsLink,
 } from './email.js';
 
-// Product data
-const products: Record<string, { name: string; pricePerDay: number; categoryId: string }> = {
-  'puzzi-10-1': { name: 'Odkurzacz Piorący Kärcher Puzzi 10/1', pricePerDay: 45, categoryId: 'odkurzacze-piorace' },
-  'puzzi-8-1': { name: 'Odkurzacz Piorący Kärcher Puzzi 8/1 Anniversary', pricePerDay: 40, categoryId: 'odkurzacze-piorace' },
-  'nt-22-1': { name: 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L', pricePerDay: 60, categoryId: 'odkurzacze-przemyslowe' },
-  'nt-30-1': { name: 'Odkurzacz Przemysłowy Kärcher NT 30/1 Tact Te L', pricePerDay: 80, categoryId: 'odkurzacze-przemyslowe' },
-  'ad-4-premium': { name: 'Odkurzacz Kominkowy Kärcher AD 4 Premium', pricePerDay: 40, categoryId: 'odkurzacze-przemyslowe' },
-  'ozonmed-pro-10g': { name: 'Ozonator powietrza Ozonmed Pro 10G', pricePerDay: 25, categoryId: 'ozonatory' },
-  'af-100-h13': { name: 'Oczyszczacz Powietrza Kärcher AF 100 H13', pricePerDay: 60, categoryId: 'ozonatory' },
-  'dmuchawa-ab-20': { name: 'Dmuchawa Kärcher AB 20 Ec', pricePerDay: 30, categoryId: 'pozostale' },
-  'sg-4-4': { name: 'Parownica Kärcher SG 4/4', pricePerDay: 65, categoryId: 'pozostale' },
-  'es-1-7-bp': { name: 'System do dezynfekcji Kärcher ES 1/7 Bp Pack', pricePerDay: 25, categoryId: 'pozostale' },
-  'wvp-10-adv': { name: 'Myjka Do Okien Kärcher WVP 10 Adv', pricePerDay: 30, categoryId: 'pozostale' },
-};
-
-const DELIVERY_FEE = 50;
+// Anti-abuse: magic-link requests are email-sending - keep them rare per IP
+const myReservationsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Zbyt wiele próśb o link. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const router = Router();
 
@@ -100,32 +98,29 @@ router.post('/reservations', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check availability
-    const conflicts = await queries.checkDateAvailability({
-      productId: data.productId,
-      startDate: data.startDate,
-      endDate: data.endDate,
-    });
+    // Recompute rental days server-side (client value is not trusted for pricing).
+    // Same rule as the frontend: date difference, +1 day when return time is later
+    // than pickup time (started doba), minimum 1.
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const dateDiff = Math.round(
+      (Date.parse(data.endDate) - Date.parse(data.startDate)) / msPerDay
+    );
+    const [sh, sm] = data.startTime.split(':').map(Number);
+    const [eh, em] = data.endTime.split(':').map(Number);
+    const extraDay = eh * 60 + em > sh * 60 + sm ? 1 : 0;
+    const days = Math.max(1, dateDiff + extraDay);
 
-    if (conflicts.length > 0) {
-      const conflictInfo = conflicts.map((c: any) => `${c.start_date} - ${c.end_date}`).join(', ');
-      res.status(409).json({
-        success: false,
-        message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
-        errors: [{ field: 'dates', message: 'Termin niedostępny' }],
-      });
-      return;
-    }
-
-    const days = data.days;
-    const basePrice = days * product.pricePerDay;
+    const pickupDay = new Date(`${data.startDate}T12:00:00`).getDay();
+    const isWeekendPackage = pickupDay === 5 && days <= 3;
+    const basePrice = calculateProductRentalPrice(data.productId, days, isWeekendPackage)!;
     const deliveryFee = data.delivery ? DELIVERY_FEE : 0;
-    const weekendPickupFee = data.weekendPickup ? 30 : 0;
+    const weekendPickupFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
     const totalPrice = basePrice + deliveryFee + weekendPickupFee;
 
     const fullName = `${data.firstName} ${data.lastName}`;
 
-    const result = await queries.insertReservation({
+    // Atomic availability check + insert (advisory lock per product, no double-booking race)
+    const result = await queries.createReservationIfAvailable({
       categoryId: data.categoryId,
       productId: data.productId,
       startDate: data.startDate,
@@ -151,6 +146,16 @@ router.post('/reservations', async (req: Request, res: Response) => {
       ipAddress: getClientIp(req),
     });
 
+    if (result.conflicts) {
+      const conflictInfo = result.conflicts.map((c: any) => `${c.start_date} - ${c.end_date}`).join(', ');
+      res.status(409).json({
+        success: false,
+        message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
+        errors: [{ field: 'dates', message: 'Termin niedostępny' }],
+      });
+      return;
+    }
+
     const emailData = {
       ...data,
       name: fullName,
@@ -158,7 +163,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       totalPrice,
-      productName: data.productName,
+      productName: product.name,
       startTime: data.startTime,
       endTime: data.endTime,
     };
@@ -168,10 +173,34 @@ router.post('/reservations', async (req: Request, res: Response) => {
       sendReservationNotification(emailData),
     ]).catch((err) => console.error('Email error:', err));
 
+    // Create online payment only when contracts are not required. In the
+    // assisted rental flow payment is created immediately after signature.
+    let payment: { redirectUrl: string; sessionId: string } | null = null;
+    if (!config.contracts.enabled || !config.contracts.requireBeforePayment) {
+      try {
+        payment = await createPaymentForReservation(
+          {
+            id: Number(result.lastInsertRowid),
+            product_id: data.productId,
+            email: data.email,
+            total_price: totalPrice,
+          },
+          getClientIp(req)
+        );
+      } catch (paymentError) {
+        console.error('Payment create error (fallback to offline):', paymentError);
+      }
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Rezerwacja złożona! Otrzymasz potwierdzenie na email w ciągu 24h.',
+      message: payment
+        ? 'Rezerwacja złożona! Za chwilę przekierujemy Cię do płatności.'
+        : config.contracts.enabled && config.contracts.requireBeforePayment
+          ? 'Rezerwacja złożona! Płatność zostanie uruchomiona po podpisaniu umowy przy wydaniu sprzętu.'
+          : 'Rezerwacja złożona! Otrzymasz potwierdzenie na email w ciągu 24h.',
       id: result.lastInsertRowid,
+      payment,
       summary: {
         productName: product.name,
         days,
@@ -280,6 +309,35 @@ router.get('/products/reserved-today', async (_req: Request, res: Response) => {
   }
 });
 
+// === GET /api/products/availability ===
+// Today's availability map for all products (consumed by frontend product cards)
+router.get('/products/availability', async (_req: Request, res: Response) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const reserved = await queries.getReservedProductsToday(today);
+    const reservedIds = new Set(reserved.map((r: any) => r.product_id));
+
+    const availability: Record<string, boolean> = {};
+    for (const productId of Object.keys(products)) {
+      availability[productId] = !reservedIds.has(productId);
+    }
+
+    res.json({
+      success: true,
+      date: today,
+      availability,
+      reservedCount: reservedIds.size,
+      totalProducts: Object.keys(products).length,
+    });
+  } catch (error) {
+    console.error('Get products availability error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Błąd serwera',
+    });
+  }
+});
+
 // === POST /api/newsletter/subscribe ===
 router.post('/newsletter/subscribe', async (req: Request, res: Response) => {
   try {
@@ -331,31 +389,59 @@ router.post('/newsletter/subscribe', async (req: Request, res: Response) => {
   }
 });
 
-// === POST /api/newsletter/unsubscribe ===
+// === GET /api/newsletter/unsubscribe (link from email, HMAC-signed) ===
+router.get('/newsletter/unsubscribe', async (req: Request, res: Response) => {
+  const email = String(req.query.email || '');
+  const token = String(req.query.token || '');
+
+  const page = (title: string, message: string) => `<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} - WB-Rent</title></head>
+<body style="margin:0;background:#0a0a0a;color:#fff;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+<div style="max-width:480px;padding:40px;text-align:center;">
+<h1 style="color:#b8972a;font-size:1.6rem;">${title}</h1>
+<p style="color:#a1a1aa;line-height:1.6;">${message}</p>
+<a href="${config.siteUrl}" style="display:inline-block;margin-top:20px;background:#b8972a;color:#000;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Wróć na stronę</a>
+</div></body></html>`;
+
+  try {
+    if (!email || !token || !verifyUnsubscribeToken(email, token)) {
+      res.status(400).send(page('Nieprawidłowy link', 'Link wypisu jest nieprawidłowy lub niekompletny. Użyj linku z otrzymanej wiadomości e-mail.'));
+      return;
+    }
+
+    const existing = await queries.getSubscriberByEmail(email);
+    if (existing && existing.status === 'active') {
+      await queries.unsubscribe(email);
+    }
+
+    // Same response whether subscribed or not (no email enumeration)
+    res.send(page('Wypisano z newslettera', 'Twój adres nie będzie już otrzymywał wiadomości od WB-Rent. Przykro nam, że odchodzisz!'));
+  } catch (error) {
+    console.error('Newsletter unsubscribe error:', error);
+    res.status(500).send(page('Błąd', 'Wystąpił błąd. Spróbuj ponownie później.'));
+  }
+});
+
+// === POST /api/newsletter/unsubscribe (requires HMAC token) ===
 router.post('/newsletter/unsubscribe', async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email, token } = req.body;
 
-    if (!email) {
+    if (!email || !token || !verifyUnsubscribeToken(String(email), String(token))) {
       res.status(400).json({
         success: false,
-        message: 'Podaj adres email',
+        message: 'Nieprawidłowy link wypisu. Użyj linku z wiadomości e-mail.',
       });
       return;
     }
 
     const existing = await queries.getSubscriberByEmail(email);
-
-    if (!existing) {
-      res.status(404).json({
-        success: false,
-        message: 'Ten adres email nie jest zapisany do newslettera.',
-      });
-      return;
+    if (existing && existing.status === 'active') {
+      await queries.unsubscribe(email);
     }
 
-    await queries.unsubscribe(email);
-
+    // Same response whether subscribed or not (no email enumeration)
     res.json({
       success: true,
       message: 'Zostałeś wypisany z newslettera.',
@@ -407,6 +493,95 @@ router.post('/notifications/product', async (req: Request, res: Response) => {
       success: false,
       message: 'Wystąpił błąd. Spróbuj ponownie później.',
     });
+  }
+});
+
+// === MOJE REZERWACJE (magic-link, bez rejestracji) ===
+
+// Request an access link (always 200 - no email enumeration)
+router.post('/my-reservations/request-link', myReservationsLimiter, async (req: Request, res: Response) => {
+  try {
+    const email = String(req.body?.email || '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255) {
+      res.status(400).json({ success: false, message: 'Podaj poprawny adres e-mail' });
+      return;
+    }
+
+    const reservations = await queries.getReservationsByEmail(email);
+    if (reservations.length > 0) {
+      const { token } = issueCustomerToken(email);
+      const link = `${config.siteUrl}/moje-rezerwacje?token=${encodeURIComponent(token)}`;
+      sendMyReservationsLink(email, link).catch((err) => console.error('Magic link email error:', err));
+    }
+
+    // Identical response whether the email has reservations or not
+    res.json({
+      success: true,
+      message: 'Jeśli ten adres ma rezerwacje, wysłaliśmy na niego link dostępu (ważny 24h).',
+    });
+  } catch (error) {
+    console.error('Request link error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// List reservations for the token's email (per-resource authorization)
+router.get('/my-reservations', async (req: Request, res: Response) => {
+  try {
+    const email = verifyCustomerToken(String(req.query.token || ''));
+    if (!email) {
+      res.status(401).json({ success: false, message: 'Link wygasł lub jest nieprawidłowy. Poproś o nowy.' });
+      return;
+    }
+
+    const reservations = await queries.getReservationsByEmail(email);
+    res.json({
+      success: true,
+      email,
+      data: reservations.map((r: any) => ({
+        ...r,
+        productName: products[r.product_id]?.name || r.product_id,
+      })),
+    });
+  } catch (error) {
+    console.error('My reservations error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// Cancel own reservation (only pending/confirmed, only before start date)
+router.post('/my-reservations/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const email = verifyCustomerToken(String(req.body?.token || ''));
+    if (!email) {
+      res.status(401).json({ success: false, message: 'Link wygasł lub jest nieprawidłowy. Poproś o nowy.' });
+      return;
+    }
+
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    // Per-resource check: the reservation must belong to the token's email
+    if (!reservation || reservation.email.toLowerCase() !== email.toLowerCase()) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    if (!['pending', 'confirmed'].includes(reservation.status)) {
+      res.status(409).json({ success: false, message: 'Tej rezerwacji nie można już anulować' });
+      return;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    if (String(reservation.start_date) <= today) {
+      res.status(409).json({ success: false, message: 'Rezerwacji nie można anulować w dniu rozpoczęcia — skontaktuj się z nami telefonicznie' });
+      return;
+    }
+
+    await queries.updateReservationStatus({ id: reservation.id, status: 'cancelled' });
+
+    res.json({ success: true, message: 'Rezerwacja anulowana' });
+  } catch (error) {
+    console.error('Cancel reservation error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
   }
 });
 

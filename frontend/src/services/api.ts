@@ -33,7 +33,7 @@ async function apiFetch<T>(
       return {
         success: false,
         error: {
-          message: data.error || 'Wystąpił błąd',
+          message: data.message || data.error || 'Wystąpił błąd',
           errors: data.errors,
         },
       };
@@ -87,6 +87,11 @@ export interface ReservationPayload {
 export interface ReservationResponse {
   id: number;
   message: string;
+  /** Present when an online payment gateway is active */
+  payment?: {
+    redirectUrl: string;
+    sessionId: string;
+  } | null;
 }
 
 export async function submitReservation(
@@ -134,10 +139,33 @@ export interface AvailabilityResponse {
 export async function checkAvailability(
   productId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  signal?: AbortSignal
 ): Promise<ApiResponse<AvailabilityResponse>> {
+  const params = new URLSearchParams({ productId, startDate, endDate });
   return apiFetch<AvailabilityResponse>(
-    `/availability/${productId}?startDate=${startDate}&endDate=${endDate}`
+    `/reservations/check-availability?${params.toString()}`,
+    { signal }
+  );
+}
+
+// Blocked (reserved) date ranges for a product
+export interface BlockedDatesResponse {
+  productId: string;
+  blockedDates: Array<{
+    startDate: string;
+    endDate: string;
+    status: string;
+  }>;
+}
+
+export async function getProductBlockedDates(
+  productId: string,
+  signal?: AbortSignal
+): Promise<ApiResponse<BlockedDatesResponse>> {
+  return apiFetch<BlockedDatesResponse>(
+    `/reservations/product/${encodeURIComponent(productId)}`,
+    { signal }
   );
 }
 
@@ -162,9 +190,160 @@ export interface NotifyAvailabilityPayload {
 export async function notifyWhenAvailable(
   payload: NotifyAvailabilityPayload
 ): Promise<ApiResponse<{ message: string }>> {
-  return apiFetch<{ message: string }>('/notify-availability', {
+  return apiFetch<{ message: string }>('/notifications/product', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+// === PAYMENTS ===
+export interface PaymentConfigResponse {
+  enabled: boolean;
+  provider: 'payu' | 'przelewy24' | 'stripe' | null;
+}
+
+export async function getPaymentConfig(): Promise<ApiResponse<PaymentConfigResponse>> {
+  return apiFetch<PaymentConfigResponse>('/payments/config');
+}
+
+export interface PaymentStatusResponse {
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  amount: number;
+  reservationId: number;
+  provider: string;
+}
+
+export async function getPaymentStatus(
+  sessionId: string
+): Promise<ApiResponse<PaymentStatusResponse>> {
+  return apiFetch<PaymentStatusResponse>(`/payments/status/${encodeURIComponent(sessionId)}`);
+}
+
+export interface CreatePaymentResponse {
+  redirectUrl: string;
+  sessionId: string;
+}
+
+export async function createPayment(
+  reservationId: number,
+  email: string
+): Promise<ApiResponse<CreatePaymentResponse>> {
+  return apiFetch<CreatePaymentResponse>('/payments/create', {
+    method: 'POST',
+    body: JSON.stringify({ reservationId, email }),
+  });
+}
+
+// === MOJE REZERWACJE (magic-link) ===
+export interface MyReservation {
+  id: number;
+  product_id: string;
+  productName: string;
+  start_date: string;
+  end_date: string;
+  start_time?: string;
+  end_time?: string;
+  status: string;
+  days: number;
+  total_price: number;
+  delivery: number;
+  city?: string;
+  created_at: string;
+  payment_status?: string;
+  payment_provider?: string;
+}
+
+export async function requestMyReservationsLink(
+  email: string
+): Promise<ApiResponse<{ message: string }>> {
+  return apiFetch<{ message: string }>('/my-reservations/request-link', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export interface MyReservationsResponse {
+  email: string;
+  data: MyReservation[];
+}
+
+export async function getMyReservations(
+  token: string
+): Promise<ApiResponse<MyReservationsResponse>> {
+  return apiFetch<MyReservationsResponse>(`/my-reservations?token=${encodeURIComponent(token)}`);
+}
+
+export async function cancelMyReservation(
+  id: number,
+  token: string
+): Promise<ApiResponse<{ message: string }>> {
+  return apiFetch<{ message: string }>(`/my-reservations/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
+// === ELECTRONIC RENTAL CONTRACTS ===
+export interface ContractSnapshot {
+  contractNumber: string;
+  templateVersion: string;
+  generatedAt: string;
+  lessor: { name: string; address: string; nip: string; representative: string };
+  renter: {
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    documentType: 'dowod_osobisty' | 'paszport';
+    documentNumber: string;
+    pesel?: string;
+  };
+  rental: {
+    reservationId: number;
+    productId: string;
+    productName: string;
+    startDate: string;
+    endDate: string;
+    startTime: string;
+    endTime: string;
+    days: number;
+    totalPrice: number;
+    deposit: number;
+    delivery: boolean;
+    deliveryAddress?: string;
+    accessories: string;
+    conditionNotes: string;
+  };
+  clauses: Array<{ number: number; title: string; text: string }>;
+}
+
+export interface ContractPreviewResponse {
+  id: number;
+  status: string;
+  contentHash: string;
+  signedAt?: string | null;
+  snapshot: ContractSnapshot;
+}
+
+export async function getContractPreview(token: string): Promise<ApiResponse<ContractPreviewResponse>> {
+  return apiFetch<ContractPreviewResponse>(`/contracts/sign/${encodeURIComponent(token)}`);
+}
+
+export interface SignContractResponse {
+  contractNumber: string;
+  pdfHash: string;
+  pdfUrl: string;
+  payment?: { redirectUrl: string; sessionId: string } | null;
+}
+
+export async function submitContractSignature(
+  token: string,
+  signature: string,
+  accepted: boolean
+): Promise<ApiResponse<SignContractResponse>> {
+  return apiFetch<SignContractResponse>(`/contracts/sign/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    body: JSON.stringify({ signature, accepted }),
   });
 }
 

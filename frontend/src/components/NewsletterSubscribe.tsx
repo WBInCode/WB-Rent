@@ -58,7 +58,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
         setStatus('error');
         setMessage(data.message || 'Wystąpił błąd. Spróbuj ponownie.');
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setMessage('Błąd połączenia. Spróbuj ponownie później.');
     }

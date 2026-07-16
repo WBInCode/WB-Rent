@@ -17,9 +17,11 @@ interface ButtonProps extends Omit<HTMLMotionProps<'button'>, 'children'> {
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary: `
-    bg-gold text-bg-primary font-semibold
-    hover:bg-gold-light
-    shadow-md hover:shadow-lg
+    bg-gradient-to-r from-gold via-gold-light to-gold bg-[length:200%_100%] bg-left
+    text-bg-primary font-semibold
+    hover:bg-right hover:shadow-[0_0_28px_rgba(212,168,75,0.35)]
+    shadow-md
+    transition-[background-position,box-shadow] duration-300
   `,
   secondary: `
     bg-bg-card text-text-primary font-medium
@@ -33,7 +35,7 @@ const variantStyles: Record<ButtonVariant, string> = {
   outline: `
     bg-transparent text-gold font-medium
     border border-gold/30 hover:border-gold
-    hover:bg-gold-muted
+    hover:bg-gold-muted hover:shadow-[0_0_20px_rgba(212,168,75,0.15)]
   `,
 };
 

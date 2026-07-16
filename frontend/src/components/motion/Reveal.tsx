@@ -59,7 +59,7 @@ export function Reveal({
   children,
   variant = 'fade-up',
   delay = 0,
-  duration = 0.5,
+  duration = 0.4,
   threshold = 0.1,
   triggerOnce = true,
   className = '',
@@ -104,7 +104,7 @@ interface StaggerProps extends Omit<HTMLMotionProps<'div'>, 'variants'> {
 
 export function Stagger({
   children,
-  staggerDelay = 0.1,
+  staggerDelay = 0.07,
   delayChildren = 0,
   threshold = 0.1,
   triggerOnce = true,

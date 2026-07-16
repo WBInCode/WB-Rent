@@ -37,19 +37,29 @@ const Select = ({
   id,
 }: SelectProps) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 300 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectId = id || label?.toLowerCase().replace(/\s/g, '-');
 
   const selectedOption = options.find(opt => opt.value === value);
 
-  // Get position
+  // Get position (event handlers only - not during render)
   const getPosition = () => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const gap = 4;
+      const menuHeight = Math.min(240, options.length * 44 + 16);
+      const top = rect.bottom + gap + menuHeight <= window.innerHeight
+        ? rect.bottom + gap
+        : Math.max(8, rect.top - menuHeight - gap);
+      const left = Math.min(
+        Math.max(8, rect.left),
+        Math.max(8, window.innerWidth - rect.width - 8)
+      );
       return {
-        top: rect.bottom + 4,
-        left: rect.left,
+        top,
+        left,
         width: rect.width
       };
     }
@@ -119,7 +129,11 @@ const Select = ({
           ref={buttonRef}
           type="button"
           id={selectId}
-          onClick={() => !disabled && setIsOpen(!isOpen)}
+          onClick={() => {
+            if (disabled) return;
+            if (!isOpen) setDropdownPos(getPosition());
+            setIsOpen(!isOpen);
+          }}
           disabled={disabled}
           className={cn(
             'w-full text-left',
@@ -155,9 +169,9 @@ const Select = ({
             ref={dropdownRef}
             className="fixed py-2 rounded-xl bg-[#1a1a1a] border border-[#333] shadow-2xl overflow-hidden"
             style={{
-              top: getPosition().top,
-              left: getPosition().left,
-              width: getPosition().width,
+              top: dropdownPos.top,
+              left: dropdownPos.left,
+              width: dropdownPos.width,
               zIndex: 99999,
               maxHeight: '240px',
               overflowY: 'auto'

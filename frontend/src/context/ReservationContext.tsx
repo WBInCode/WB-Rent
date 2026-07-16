@@ -29,6 +29,7 @@ export function ReservationProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- context hook co-located with provider (standard pattern)
 export function useReservationContext() {
   const context = useContext(ReservationContext);
   if (!context) {

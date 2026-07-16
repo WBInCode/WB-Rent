@@ -36,7 +36,7 @@ const getTodayLocalDate = () => {
 };
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { useSubmitForm } from '@/hooks';
-import { submitReservation, checkAvailability, type ReservationPayload } from '@/services/api';
+import { submitReservation, checkAvailability, getProductBlockedDates, type ReservationPayload } from '@/services/api';
 import { useReservationContext } from '@/context/ReservationContext';
 
 interface FormData {
@@ -126,6 +126,8 @@ export function Reservation() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+  // Zajęte terminy wybranego produktu (blokada w kalendarzu)
+  const [blockedRanges, setBlockedRanges] = useState<Array<{ startDate: string; endDate: string }>>([]);
   
   // Stan dla sprawdzania odległości dostawy
   const [deliveryDistanceStatus, setDeliveryDistanceStatus] = useState<'idle' | 'checking' | 'ok' | 'too_far'>('idle');
@@ -159,9 +161,16 @@ export function Reservation() {
   } = useSubmitForm(submitReservation, {
     resetOnSuccess: true,
     successTimeout: 5000,
-    onSuccess: () => {
+    onSuccess: (data) => {
       setFormData(initialFormData);
       setValidationError(null);
+
+      // Online payment active -> go straight to the gateway
+      if (data?.payment?.redirectUrl) {
+        window.location.assign(data.payment.redirectUrl);
+        return;
+      }
+
       // Scroll to the success message (top of reservation section)
       const reservationSection = document.getElementById('rezerwacja');
       if (reservationSection) {
@@ -239,6 +248,31 @@ export function Reservation() {
     );
   }, [formData.productId, rentalDays, formData.delivery, isWeekendRental, isWeekendPickup]);
 
+  // Fetch blocked (reserved) date ranges when product changes
+  useEffect(() => {
+    if (!formData.productId) {
+      setBlockedRanges([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    getProductBlockedDates(formData.productId, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.success && result.data?.blockedDates) {
+        // Blokujemy tylko aktywne rezerwacje (pending/confirmed/picked_up)
+        setBlockedRanges(
+          result.data.blockedDates
+            .filter((b) => ['pending', 'confirmed', 'picked_up'].includes(b.status))
+            .map((b) => ({ startDate: b.startDate, endDate: b.endDate }))
+        );
+      } else {
+        setBlockedRanges([]);
+      }
+    });
+
+    return () => controller.abort();
+  }, [formData.productId]);
+
   // Auto-check availability when product/dates change
   useEffect(() => {
     // Reset if missing required fields
@@ -248,7 +282,8 @@ export function Reservation() {
       return;
     }
 
-    // Debounce the check
+    // Debounce the check; abort stale in-flight requests (race-condition safe)
+    const controller = new AbortController();
     const timeoutId = setTimeout(async () => {
       setAvailabilityStatus('checking');
       
@@ -256,8 +291,11 @@ export function Reservation() {
         const result = await checkAvailability(
           formData.productId,
           formData.startDate,
-          formData.endDate
+          formData.endDate,
+          controller.signal
         );
+
+        if (controller.signal.aborted) return;
 
         if (!result.success) {
           setAvailabilityStatus('idle');
@@ -278,11 +316,14 @@ export function Reservation() {
           setAvailabilityMessage(null);
         }
       } catch {
-        setAvailabilityStatus('idle');
+        if (!controller.signal.aborted) setAvailabilityStatus('idle');
       }
     }, 500); // 500ms debounce
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [formData.productId, formData.startDate, formData.endDate, rentalDays]);
 
   // Update form field
@@ -634,6 +675,7 @@ export function Reservation() {
                         value={formData.startDate}
                         onChange={(value) => updateField('startDate', value)}
                         minDate={getTodayLocalDate()}
+                        blockedRanges={blockedRanges}
                         required
                       />
                       <Select
@@ -655,6 +697,7 @@ export function Reservation() {
                         value={formData.endDate}
                         onChange={(value) => updateField('endDate', value)}
                         minDate={formData.startDate || getTodayLocalDate()}
+                        blockedRanges={blockedRanges}
                         required
                       />
                       <Select

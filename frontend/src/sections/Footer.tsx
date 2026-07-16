@@ -21,9 +21,9 @@ const footerLinks = {
   informacje: [
     { label: 'Jak to działa', href: '/#jak-to-dziala' },
     { label: 'Cennik', href: '/#produkty' },
+    { label: 'Moje rezerwacje', href: '/moje-rezerwacje' },
     { label: 'FAQ', href: '/#faq' },
-    { label: 'Kontakt', href: '/#kontakt' },
-    { label: 'Wkrótce', href: '/wkrotce' },
+    { label: 'Kontakt', href: '/kontakt' },
   ],
   prawne: [
     { label: 'Regulamin', href: '/regulamin' },
@@ -71,7 +71,7 @@ export function Footer() {
         }, 100);
       }
     } else if (href.startsWith('/') && !href.startsWith('/#')) {
-      // For internal pages like /wkrotce, use navigate
+      // For internal pages like /kontakt, use navigate
       e.preventDefault();
       navigate(href);
     }

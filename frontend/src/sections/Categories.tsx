@@ -119,10 +119,10 @@ export function Categories() {
                   className="h-full group"
                 >
                   <div className="p-6 md:p-8 lg:p-10">
-                    {/* Icon */}
+                    {/* Icon - gold medallion */}
                     <div className="mb-6">
-                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gold/10 flex items-center justify-center group-hover:bg-gold/20 transition-colors duration-300">
-                        <Icon className="w-7 h-7 md:w-8 md:h-8 text-gold" />
+                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-gold/25 via-gold/10 to-transparent ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 group-hover:shadow-[0_0_24px_rgba(212,168,75,0.25)] transition-all duration-300">
+                        <Icon className="w-7 h-7 md:w-8 md:h-8 text-gold-light" strokeWidth={1.75} />
                       </div>
                     </div>
 

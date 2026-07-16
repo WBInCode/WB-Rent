@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useEffectEvent } from 'react';
 import { 
   adminLogin, 
   adminLogout, 
@@ -21,9 +21,16 @@ import {
   deleteNewsletterSubscriber,
   getProductNotifications,
   deleteNotification,
-  sendProductNotifications
+  sendProductNotifications,
+  changeAdminPassword,
+  createContractSession,
+  getReservationContract,
+  downloadContractPdf,
+  type CreateContractPayload,
 } from '@/services/adminApi';
-import { Button, Card, Badge, Input } from '@/components/ui';
+import { products } from '@/data/products';
+import { Button, Card, Badge, Input, Select, Textarea } from '@/components/ui';
+import { AdminAvailabilityCalendar } from '@/components/AdminAvailabilityCalendar';
 import {
   BarChart,
   Bar,
@@ -58,7 +65,14 @@ import {
   Bell,
   Users,
   FileText,
-  Plus
+  Plus,
+  Settings,
+  FileSignature,
+  Download,
+  Copy,
+  ExternalLink,
+  Loader2,
+  CalendarDays,
 } from 'lucide-react';
 
 interface Reservation {
@@ -86,6 +100,10 @@ interface Reservation {
   invoice_nip?: string;
   invoice_company?: string;
   invoice_address?: string;
+  // Payments
+  payment_status?: string;
+  payment_provider?: string;
+  contract_status?: 'not_prepared' | 'ready' | 'signed';
   created_at: string;
 }
 
@@ -186,18 +204,66 @@ const STATUS_COLORS: Record<string, 'warning' | 'success' | 'error' | 'default' 
   archived: 'default',
 };
 
+// Product id -> display name (from the shared catalog)
+const PRODUCT_NAMES: Record<string, string> = Object.fromEntries(
+  products.map((p) => [p.id, p.name])
+);
+
+// CSV export (Excel-friendly: BOM + semicolon separator for PL locale)
+function exportToCsv(filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) {
+  const escapeCell = (cell: string | number | null | undefined): string => {
+    const s = cell == null ? '' : String(cell);
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [headers, ...rows]
+    .map((row) => row.map(escapeCell).join(';'))
+    .join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function AdminPanel() {
   const [isLoggedIn, setIsLoggedIn] = useState(isAdminLoggedIn());
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'reservations' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications'>('reservations');
+  const [activeTab, setActiveTab] = useState<'reservations' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'settings'>('reservations');
+  // Change password form state
+  const [pwdCurrent, setPwdCurrent] = useState('');
+  const [pwdNew, setPwdNew] = useState('');
+  const [pwdConfirm, setPwdConfirm] = useState('');
+  const [pwdSaving, setPwdSaving] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  // Employee-assisted rental contract / kiosk flow
+  const [contractFor, setContractFor] = useState<Reservation | null>(null);
+  const [contractSaving, setContractSaving] = useState(false);
+  const [contractSession, setContractSession] = useState<{
+    signingUrl: string;
+    contractNumber: string;
+    expiresAt: string;
+  } | null>(null);
+  const [contractSignedId, setContractSignedId] = useState<number | null>(null);
+  const [contractForm, setContractForm] = useState<Omit<CreateContractPayload, 'reservationId'>>({
+    renterAddress: '',
+    documentType: 'dowod_osobisty',
+    documentNumber: '',
+    pesel: '',
+    employeeName: localStorage.getItem('wb-rent-employee-name') || '',
+    deposit: 300,
+    accessories: '',
+    conditionNotes: 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
+  });
 
   // Reply modal state
   const [replyingTo, setReplyingTo] = useState<Contact | null>(null);
@@ -239,15 +305,84 @@ export function AdminPanel() {
     setConfirmModal({ message, onConfirm });
   };
 
+  const openContractModal = (reservation: Reservation) => {
+    const product = products.find((item) => item.id === reservation.product_id);
+    setContractSession(null);
+    setContractSignedId(null);
+    setContractFor(reservation);
+    setContractForm((current) => ({
+      ...current,
+      renterAddress: reservation.address || '',
+      documentNumber: '',
+      pesel: '',
+      accessories: product?.includedAccessories.join(', ') || 'Urządzenie wraz ze standardowym wyposażeniem',
+      conditionNotes: 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
+    }));
+  };
+
+  useEffect(() => {
+    if (!contractSession || !contractFor || contractSignedId) return;
+    let stopped = false;
+    const check = async () => {
+      const response = await getReservationContract(contractFor.id);
+      if (stopped) return;
+      if (response.success && response.data?.status === 'signed') {
+        setContractSignedId(response.data.id);
+        showToast('success', 'Klient podpisał umowę');
+        loadDataEvent();
+      }
+    };
+    void check();
+    const interval = window.setInterval(check, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [contractSession, contractFor, contractSignedId]);
+
+  const handlePrepareContract = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!contractFor) return;
+    setContractSaving(true);
+    const response = await createContractSession({
+      reservationId: contractFor.id,
+      ...contractForm,
+      deposit: Number(contractForm.deposit),
+    });
+    if (response.success && response.data) {
+      localStorage.setItem('wb-rent-employee-name', contractForm.employeeName);
+      setContractSession(response.data);
+      showToast('success', 'Umowa gotowa do podpisu');
+      void loadData();
+    } else {
+      showToast('error', response.message || 'Nie udało się przygotować umowy');
+    }
+    setContractSaving(false);
+  };
+
+  const handleDownloadReservationContract = async (reservationId: number) => {
+    try {
+      const response = await getReservationContract(reservationId);
+      if (!response.success || !response.data?.id) throw new Error(response.message);
+      await downloadContractPdf(response.data.id);
+    } catch {
+      showToast('error', 'Nie udało się pobrać podpisanej umowy');
+    }
+  };
+
   const [newPostTitle, setNewPostTitle] = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [sendingNewsletter, setSendingNewsletter] = useState(false);
   const [sendingReminders, setSendingReminders] = useState(false);
 
+  const loadDataEvent = useEffectEvent(() => {
+    void loadData();
+  });
+
   // Load data on login
   useEffect(() => {
     if (isLoggedIn) {
-      loadData();
+      loadDataEvent();
     }
   }, [isLoggedIn]);
 
@@ -256,7 +391,7 @@ export function AdminPanel() {
     if (!isLoggedIn) return;
     
     const interval = setInterval(() => {
-      loadData();
+      loadDataEvent();
     }, 30000); // 30 seconds
     
     return () => clearInterval(interval);
@@ -345,7 +480,7 @@ export function AdminPanel() {
         } else {
           showToast('error', result.message || 'Błąd usuwania');
         }
-      } catch (error) {
+      } catch {
         showToast('error', 'Błąd usuwania wiadomości');
       }
       setDeleting(false);
@@ -364,7 +499,7 @@ export function AdminPanel() {
         } else {
           showToast('error', result.message || 'Błąd usuwania');
         }
-      } catch (error) {
+      } catch {
         showToast('error', 'Błąd usuwania wiadomości');
       }
     });
@@ -462,6 +597,14 @@ export function AdminPanel() {
           <h1 className="text-xl font-bold text-gold">WB-Rent Admin</h1>
           
           <div className="flex items-center gap-4">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => window.location.assign('/admin/nowy-wynajem')}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nowy wynajem
+            </Button>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -551,6 +694,13 @@ export function AdminPanel() {
             Wiadomości ({contacts.length})
           </Button>
           <Button
+            variant={activeTab === 'calendar' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('calendar')}
+          >
+            <CalendarDays className="w-4 h-4 mr-2" />
+            Kalendarz
+          </Button>
+          <Button
             variant={activeTab === 'revenue' ? 'primary' : 'ghost'}
             onClick={() => setActiveTab('revenue')}
           >
@@ -578,13 +728,20 @@ export function AdminPanel() {
             <Bell className="w-4 h-4 mr-2" />
             Powiadomienia ({productNotifications.filter(n => n.status === 'waiting').length})
           </Button>
+          <Button
+            variant={activeTab === 'settings' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('settings')}
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Ustawienia
+          </Button>
         </div>
 
         {/* Reservations Tab */}
         {activeTab === 'reservations' && (
           <div className="space-y-4">
             {/* Filter */}
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap items-center">
               {['all', 'pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected'].map((status) => (
                 <Button
                   key={status}
@@ -606,6 +763,29 @@ export function AdminPanel() {
                   {status === 'all' ? 'Wszystkie' : STATUS_LABELS[status]}
                 </Button>
               ))}
+              <div className="ml-auto">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    exportToCsv(
+                      `rezerwacje-${new Date().toISOString().slice(0, 10)}.csv`,
+                      ['ID', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
+                      reservations.map(r => [
+                        r.id, STATUS_LABELS[r.status] || r.status, PRODUCT_NAMES[r.product_id] || r.product_id,
+                        r.start_date, r.end_date, r.start_time || '', r.end_time || '',
+                        r.name, r.email, r.phone, r.city, r.delivery ? 'tak' : 'nie',
+                        r.days, r.base_price, r.delivery_fee, r.total_price,
+                        r.wants_invoice ? 'tak' : 'nie', r.invoice_nip || '', r.created_at,
+                      ])
+                    );
+                    showToast('success', `Wyeksportowano ${reservations.length} rezerwacji`);
+                  }}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Eksport CSV
+                </Button>
+              </div>
             </div>
 
             {/* Reservations list */}
@@ -631,6 +811,21 @@ export function AdminPanel() {
                         <Badge variant={STATUS_COLORS[reservation.status] || 'default'}>
                           {STATUS_LABELS[reservation.status] || reservation.status}
                         </Badge>
+                        {reservation.payment_status === 'paid' && (
+                          <Badge variant="success">✓ Opłacona{reservation.payment_provider ? ` (${reservation.payment_provider})` : ''}</Badge>
+                        )}
+                        {reservation.payment_status === 'pending' && (
+                          <Badge variant="warning">Płatność w toku</Badge>
+                        )}
+                        {(reservation.payment_status === 'failed' || reservation.payment_status === 'cancelled') && (
+                          <Badge variant="error">Płatność nieudana</Badge>
+                        )}
+                        {reservation.contract_status === 'ready' && (
+                          <Badge variant="warning">Umowa czeka na podpis</Badge>
+                        )}
+                        {reservation.contract_status === 'signed' && (
+                          <Badge variant="success">✓ Umowa podpisana</Badge>
+                        )}
                         <span className="text-sm text-text-muted">
                           #{reservation.id}
                         </span>
@@ -669,6 +864,26 @@ export function AdminPanel() {
                       </div>
 
                       <div className="flex gap-2">
+                        {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openContractModal(reservation)}
+                            title="Przygotuj umowę i uruchom ekran podpisu"
+                          >
+                            <FileSignature className="w-4 h-4 mr-1.5" /> Umowa
+                          </Button>
+                        )}
+                        {reservation.contract_status === 'signed' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownloadReservationContract(reservation.id)}
+                            title="Pobierz podpisaną umowę PDF"
+                          >
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -706,6 +921,7 @@ export function AdminPanel() {
                             size="sm"
                             onClick={() => handleStatusChange(reservation.id, 'picked_up', 'reservation')}
                             title="Oznacz jako wydane"
+                            disabled={reservation.contract_status !== 'signed'}
                           >
                             📦 Wydaj
                           </Button>
@@ -809,6 +1025,11 @@ export function AdminPanel() {
           </div>
         )}
 
+        {/* Availability Calendar Tab */}
+        {activeTab === 'calendar' && (
+          <AdminAvailabilityCalendar reservations={reservations} productNames={PRODUCT_NAMES} />
+        )}
+
         {/* Contacts Tab */}
         {activeTab === 'contacts' && (
           <div className="space-y-4">
@@ -848,6 +1069,27 @@ export function AdminPanel() {
                       <Trash2 className="w-4 h-4 mr-2" />
                     )}
                     Usuń zaznaczone ({selectedContacts.length})
+                  </Button>
+                )}
+
+                {selectedContacts.length === 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      exportToCsv(
+                        `wiadomosci-${new Date().toISOString().slice(0, 10)}.csv`,
+                        ['ID', 'Status', 'Imię', 'Email', 'Temat', 'Wiadomość', 'Utworzono'],
+                        contacts.map(c => [
+                          c.id, STATUS_LABELS[c.status || 'new'] || c.status,
+                          c.name, c.email, c.subject || '', c.message, c.created_at,
+                        ])
+                      );
+                      showToast('success', `Wyeksportowano ${contacts.length} wiadomości`);
+                    }}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    Eksport CSV
                   </Button>
                 )}
               </div>
@@ -1255,7 +1497,7 @@ export function AdminPanel() {
                     } else {
                       showToast('error', result.message);
                     }
-                  } catch (e) {
+                  } catch {
                     showToast('error', 'Błąd wysyłania');
                   }
                   setSendingReminders(false);
@@ -1404,7 +1646,7 @@ export function AdminPanel() {
                         } else {
                           showToast('error', result.message);
                         }
-                      } catch (e) {
+                      } catch {
                         showToast('error', 'Błąd tworzenia postu');
                       }
                     }}
@@ -1467,7 +1709,7 @@ export function AdminPanel() {
                                     } else {
                                       showToast('error', result.message);
                                     }
-                                  } catch (e) {
+                                  } catch {
                                     showToast('error', 'Błąd wysyłania');
                                   }
                                   setSendingNewsletter(false);
@@ -1498,7 +1740,7 @@ export function AdminPanel() {
                                   } else {
                                     showToast('error', result.message);
                                   }
-                                } catch (e) {
+                                } catch {
                                   showToast('error', 'Błąd usuwania');
                                 }
                               });
@@ -1554,7 +1796,7 @@ export function AdminPanel() {
                                       showToast('success', 'Subskrybent usunięty');
                                       loadData();
                                     }
-                                  } catch (e) {
+                                  } catch {
                                     showToast('error', 'Błąd usuwania');
                                   }
                                 });
@@ -1685,7 +1927,7 @@ export function AdminPanel() {
                                       await sendProductNotifications(notification.product_id);
                                       showToast('success', 'Powiadomienia wysłane');
                                       loadData();
-                                    } catch (e) {
+                                    } catch {
                                       showToast('error', 'Błąd wysyłania powiadomień');
                                     } finally {
                                       setSendingNotification(null);
@@ -1705,7 +1947,7 @@ export function AdminPanel() {
                                       await deleteNotification(notification.id);
                                       showToast('success', 'Powiadomienie usunięte');
                                       loadData();
-                                    } catch (e) {
+                                    } catch {
                                       showToast('error', 'Błąd usuwania');
                                     }
                                   });
@@ -1748,7 +1990,7 @@ export function AdminPanel() {
                                 await sendProductNotifications(productId);
                                 showToast('success', 'Powiadomienia wysłane');
                                 loadData();
-                              } catch (e) {
+                              } catch {
                                 showToast('error', 'Błąd wysyłania powiadomień');
                               } finally {
                                 setSendingNotification(null);
@@ -1776,7 +2018,260 @@ export function AdminPanel() {
             )}
           </div>
         )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && (
+          <Card variant="glass" className="p-6 max-w-lg">
+            <h2 className="text-lg font-bold text-gold mb-1">Zmiana hasła</h2>
+            <p className="text-sm text-text-muted mb-6">
+              Nowe hasło zastąpi hasło skonfigurowane na serwerze. Minimum 10 znaków.
+            </p>
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (pwdNew.length < 10) {
+                  showToast('error', 'Nowe hasło musi mieć co najmniej 10 znaków');
+                  return;
+                }
+                if (pwdNew !== pwdConfirm) {
+                  showToast('error', 'Hasła nie są identyczne');
+                  return;
+                }
+                setPwdSaving(true);
+                try {
+                  const res = await changeAdminPassword(pwdCurrent, pwdNew);
+                  if (res.success) {
+                    showToast('success', 'Hasło zmienione');
+                    setPwdCurrent('');
+                    setPwdNew('');
+                    setPwdConfirm('');
+                  } else {
+                    showToast('error', res.message || 'Błąd zmiany hasła');
+                  }
+                } catch {
+                  showToast('error', 'Błąd połączenia z serwerem');
+                } finally {
+                  setPwdSaving(false);
+                }
+              }}
+            >
+              <Input
+                label="Obecne hasło"
+                type="password"
+                value={pwdCurrent}
+                onChange={(e) => setPwdCurrent(e.target.value)}
+                placeholder="Wprowadź obecne hasło"
+                required
+              />
+              <Input
+                label="Nowe hasło"
+                type="password"
+                value={pwdNew}
+                onChange={(e) => setPwdNew(e.target.value)}
+                placeholder="Minimum 10 znaków"
+                required
+              />
+              <Input
+                label="Powtórz nowe hasło"
+                type="password"
+                value={pwdConfirm}
+                onChange={(e) => setPwdConfirm(e.target.value)}
+                placeholder="Powtórz nowe hasło"
+                required
+              />
+              <Button type="submit" variant="primary" disabled={pwdSaving}>
+                {pwdSaving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Zapisywanie...
+                  </>
+                ) : (
+                  'Zmień hasło'
+                )}
+              </Button>
+            </form>
+          </Card>
+        )}
       </main>
+
+      {/* Contract preparation / kiosk modal */}
+      {contractFor && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+          <Card variant="glass" className="w-full max-w-3xl max-h-[94vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-gold mb-1">Rezerwacja #{contractFor.id}</p>
+                  <h2 className="text-xl font-bold text-text-primary">Przygotowanie umowy najmu</h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {contractFor.name} • {PRODUCT_NAMES[contractFor.product_id] || contractFor.product_id}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setContractFor(null);
+                    setContractSession(null);
+                  }}
+                  aria-label="Zamknij"
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {contractSession ? (
+                <div className="py-6 text-center">
+                  <CheckCircle className={`w-14 h-14 mx-auto mb-4 ${contractSignedId ? 'text-green-500' : 'text-gold'}`} />
+                  <h3 className="text-xl font-semibold text-text-primary">
+                    {contractSignedId ? 'Umowa podpisana' : 'Umowa gotowa do podpisu'}
+                  </h3>
+                  <p className="text-gold mt-1">{contractSession.contractNumber}</p>
+                  <p className="text-sm text-text-muted mt-2 mb-6">
+                    {contractSignedId
+                      ? 'PDF został zapisany i wysłany klientowi. Możesz teraz pobrać egzemplarz albo wydać sprzęt.'
+                      : `Link wygasa ${new Date(contractSession.expiresAt).toLocaleString('pl-PL')}. Przekaż tablet klientowi i uruchom tryb podpisu.`}
+                  </p>
+
+                  {!contractSignedId && (
+                    <div className="p-3 rounded-lg bg-bg-secondary border border-border text-left text-xs text-text-secondary break-all mb-5">
+                      {contractSession.signingUrl}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    {!contractSignedId && <Button
+                      variant="primary"
+                      onClick={() => window.open(contractSession.signingUrl, '_blank', 'noopener,noreferrer')}
+                    >
+                      <ExternalLink className="w-4 h-4 mr-2" /> Uruchom ekran podpisu
+                    </Button>}
+                    {!contractSignedId && <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(contractSession.signingUrl);
+                        showToast('success', 'Link skopiowany');
+                      }}
+                    >
+                      <Copy className="w-4 h-4 mr-2" /> Kopiuj link
+                    </Button>}
+                    {contractSignedId && (
+                      <Button variant="primary" onClick={() => downloadContractPdf(contractSignedId)}>
+                        <Download className="w-4 h-4 mr-2" /> Pobierz podpisany PDF
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handlePrepareContract} className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gold mb-3">Dane Najemcy z dokumentu</h3>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Input
+                        label="Adres zamieszkania"
+                        value={contractForm.renterAddress}
+                        onChange={(event) => setContractForm((current) => ({ ...current, renterAddress: event.target.value }))}
+                        placeholder="Ulica, numer, kod, miejscowość"
+                        required
+                      />
+                      <Select
+                        label="Rodzaj dokumentu"
+                        value={contractForm.documentType}
+                        onChange={(event) => setContractForm((current) => ({
+                          ...current,
+                          documentType: event.target.value as 'dowod_osobisty' | 'paszport',
+                        }))}
+                        options={[
+                          { value: 'dowod_osobisty', label: 'Dowód osobisty' },
+                          { value: 'paszport', label: 'Paszport' },
+                        ]}
+                        required
+                      />
+                      <Input
+                        label="Numer dokumentu"
+                        value={contractForm.documentNumber}
+                        onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
+                        placeholder="ABC 123456"
+                        maxLength={30}
+                        required
+                      />
+                      <Input
+                        label="PESEL (opcjonalnie)"
+                        value={contractForm.pesel || ''}
+                        onChange={(event) => setContractForm((current) => ({ ...current, pesel: event.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                        placeholder="11 cyfr"
+                        inputMode="numeric"
+                        pattern="\d{11}"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-gold mb-3">Wydanie sprzętu i rozliczenie</h3>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Input
+                        label="Pracownik wydający"
+                        value={contractForm.employeeName}
+                        onChange={(event) => setContractForm((current) => ({ ...current, employeeName: event.target.value }))}
+                        placeholder="Imię i nazwisko"
+                        required
+                      />
+                      <Input
+                        label="Kaucja (zł)"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={contractForm.deposit}
+                        onChange={(event) => setContractForm((current) => ({ ...current, deposit: Number(event.target.value) }))}
+                        required
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <Textarea
+                        label="Wydawane akcesoria"
+                        value={contractForm.accessories}
+                        onChange={(event) => setContractForm((current) => ({ ...current, accessories: event.target.value }))}
+                        rows={3}
+                        required
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <Textarea
+                        label="Stan sprzętu przy wydaniu"
+                        value={contractForm.conditionNotes}
+                        onChange={(event) => setContractForm((current) => ({ ...current, conditionNotes: event.target.value }))}
+                        rows={3}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-lg bg-gold/10 border border-gold/25 text-sm text-text-secondary">
+                    Po kliknięciu system utworzy niezmienny, zaszyfrowany snapshot umowy.
+                    Klient zobaczy całą treść przed polem podpisu. Płatność i wydanie sprzętu
+                    pozostaną zablokowane do czasu podpisania.
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                    <Button type="button" variant="ghost" onClick={() => setContractFor(null)}>
+                      Anuluj
+                    </Button>
+                    <Button type="submit" variant="primary" disabled={contractSaving}>
+                      {contractSaving ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <FileSignature className="w-4 h-4 mr-2" />
+                      )}
+                      {contractSaving ? 'Przygotowywanie…' : 'Generuj umowę'}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Reply Modal */}
       {replyingTo && (

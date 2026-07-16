@@ -93,17 +93,28 @@ export function HowItWorks() {
                   </div>
                 )}
 
-                {/* Card */}
-                <div className="relative h-full p-6 md:p-8 rounded-2xl bg-bg-card border border-border hover:border-gold/30 transition-all duration-300 group-hover:shadow-gold">
-                  {/* Step number */}
-                  <div className="absolute -top-4 left-6 px-3 py-1 rounded-full bg-gold text-bg-primary text-sm font-bold">
-                    {step.number}
-                  </div>
+                {/* Step number sits above the clipped card surface */}
+                <div className="absolute -top-4 left-6 z-20 px-3 py-1 rounded-full bg-gradient-to-r from-gold to-gold-light text-bg-primary text-sm font-bold shadow-[0_2px_12px_rgba(212,168,75,0.35)]">
+                  {step.number}
+                </div>
 
-                  {/* Icon */}
+                {/* Card */}
+                <div className="relative h-full p-6 md:p-8 rounded-2xl bg-bg-card border border-border hover:border-gold/30 transition-all duration-300 group-hover:shadow-gold overflow-hidden">
+                  {/* Watermark step number (brand detail) */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-2 -bottom-6 text-[7rem] leading-none font-bold text-white/[0.03] group-hover:text-gold/[0.06] transition-colors duration-500 select-none"
+                    style={{ fontFamily: 'var(--font-family-display)' }}
+                  >
+                    {step.number}
+                  </span>
+
+                  {/* Icon - gold medallion */}
                   <div className="mt-4 mb-6">
-                    <div className="w-14 h-14 rounded-xl bg-gold/10 flex items-center justify-center group-hover:bg-gold/20 transition-colors duration-300">
-                      <Icon className="w-7 h-7 text-gold" />
+                    <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-gold/25 via-gold/10 to-transparent ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 group-hover:shadow-[0_0_24px_rgba(212,168,75,0.25)] transition-all duration-300">
+                      <Icon className="w-8 h-8 text-gold-light" strokeWidth={1.75} />
+                      {/* Corner sparkle */}
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold-light opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>
                   </div>
 

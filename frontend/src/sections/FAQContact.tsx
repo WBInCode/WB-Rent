@@ -1,24 +1,10 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ChevronDown, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Clock, 
-  Send,
-  User,
-  MessageSquare,
-  Loader2,
-  CheckCircle2,
-  AlertCircle
-} from 'lucide-react';
-import { Card, Input, Button, Textarea } from '@/components/ui';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronDown, MessageCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Button, Card } from '@/components/ui';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
-import { useSubmitForm } from '@/hooks';
-import { submitContact, type ContactPayload } from '@/services/api';
 
-// FAQ Data
 const faqItems = [
   {
     question: 'Jak mogę zarezerwować sprzęt?',
@@ -26,7 +12,7 @@ const faqItems = [
   },
   {
     question: 'Jakie są formy płatności?',
-    answer: 'Akceptujemy płatności gotówką przy odbiorze, przelewem bankowym oraz kartą płatniczą. W przypadku firm możliwa jest również płatność na fakturę z odroczonym terminem.',
+    answer: 'Akceptujemy płatności online, gotówkę przy odbiorze, przelew bankowy i BLIK — zależnie od opcji udostępnionych przy zawieraniu umowy.',
   },
   {
     question: 'Czy mogę odebrać sprzęt osobiście?',
@@ -42,43 +28,15 @@ const faqItems = [
   },
   {
     question: 'Jakie są godziny odbioru i zwrotu?',
-    answer: 'Standardowe godziny to poniedziałek-piątek 8:00-18:00, sobota 9:00-14:00. Odbiór w niedzielę lub poza godzinami pracy jest możliwy za dodatkową opłatą.',
+    answer: 'Standardowe godziny to poniedziałek-piątek 9:00-17:00 oraz sobota 9:00-15:00. Odbiór poza godzinami pracy wymaga wcześniejszego uzgodnienia.',
   },
   {
     question: 'Czy oferujecie wynajem długoterminowy?',
-    answer: 'Tak, oferujemy atrakcyjne rabaty przy wynajmie długoterminowym (powyżej 7 dni). Skontaktuj się z nami, aby uzyskać indywidualną wycenę.',
+    answer: 'Tak, oferujemy atrakcyjne warunki przy wynajmie długoterminowym powyżej 7 dni. Skontaktuj się z nami, aby uzyskać indywidualną wycenę.',
   },
   {
     question: 'Jakie dokumenty są potrzebne do wynajmu?',
-    answer: 'Wymagamy dowodu osobistego lub innego dokumentu tożsamości. W przypadku firm - dodatkowo NIP i dane firmy. Podpisujemy umowę najmu określającą warunki.',
-  },
-];
-
-// Contact info
-const contactInfo = [
-  {
-    icon: Phone,
-    label: 'Telefon',
-    value: '570 038 828',
-    href: 'tel:+48570038828',
-  },
-  {
-    icon: Mail,
-    label: 'Email',
-    value: 'kontakt@wb-rent.pl',
-    href: 'mailto:kontakt@wb-rent.pl',
-  },
-  {
-    icon: MapPin,
-    label: 'Adres',
-    value: 'ul. Słowackiego 24/11, 35-060 Rzeszów',
-    href: 'https://maps.google.com/?q=Juliusza+Słowackiego+24/11,+35-060+Rzeszów',
-  },
-  {
-    icon: Clock,
-    label: 'Godziny',
-    value: 'Pon-Pt: 9-17, Sob: 9-15, Nd: nieczynne',
-    href: null,
+    answer: 'Wymagamy dowodu osobistego lub paszportu. W przypadku firm dodatkowo potrzebujemy NIP i danych firmy. Przed wydaniem sprzętu klient podpisuje elektroniczną umowę najmu.',
   },
 ];
 
@@ -106,12 +64,7 @@ function FAQItem({ question, answer, isOpen, onToggle, index }: FAQItemProps) {
         <span className="text-text-primary font-medium pr-4 group-hover:text-gold transition-colors">
           {question}
         </span>
-        <motion.div
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="shrink-0"
-          aria-hidden="true"
-        >
+        <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }} className="shrink-0" aria-hidden="true">
           <ChevronDown className={`w-5 h-5 ${isOpen ? 'text-gold' : 'text-text-muted'}`} />
         </motion.div>
       </button>
@@ -127,9 +80,7 @@ function FAQItem({ question, answer, isOpen, onToggle, index }: FAQItemProps) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <p className="pb-5 text-text-secondary leading-relaxed">
-              {answer}
-            </p>
+            <p className="pb-5 text-text-secondary leading-relaxed">{answer}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -139,91 +90,15 @@ function FAQItem({ question, answer, isOpen, onToggle, index }: FAQItemProps) {
 
 export function FAQContact() {
   const [openFAQ, setOpenFAQ] = useState<number | null>(0);
-  const [validationError, setValidationError] = useState<string | null>(null);
-  
-  // Contact form state
-  const [contactForm, setContactForm] = useState({
-    name: '',
-    email: '',
-    subject: '',
-    message: '',
-    honeypot: '', // Anti-spam
-  });
-
-  // API submission hook
-  const {
-    status: formStatus,
-    error: apiError,
-    submit: submitToApi,
-  } = useSubmitForm(submitContact, {
-    resetOnSuccess: true,
-    successTimeout: 5000,
-    onSuccess: () => {
-      setContactForm({
-        name: '',
-        email: '',
-        subject: '',
-        message: '',
-        honeypot: '',
-      });
-      setValidationError(null);
-    },
-  });
-
-  // Combined error message
-  const errorMessage = validationError || apiError;
-
-  const handleFAQToggle = (index: number) => {
-    setOpenFAQ(openFAQ === index ? null : index);
-  };
-
-  const updateContactField = (field: string, value: string) => {
-    setContactForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleContactSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setValidationError(null);
-
-    // Honeypot check
-    if (contactForm.honeypot) {
-      return; // Bot detected
-    }
-
-    // Basic validation
-    if (!contactForm.name || !contactForm.email || !contactForm.message) {
-      setValidationError('Wypełnij wszystkie wymagane pola');
-      return;
-    }
-
-    // Message length validation
-    if (contactForm.message.length < 10) {
-      setValidationError(`Wiadomość musi mieć minimum 10 znaków (obecnie: ${contactForm.message.length})`);
-      return;
-    }
-
-    // Prepare payload for API
-    const payload: ContactPayload = {
-      name: contactForm.name,
-      email: contactForm.email,
-      subject: contactForm.subject || undefined,
-      message: contactForm.message,
-    };
-
-    // Submit to API
-    await submitToApi(payload);
-  };
 
   return (
     <section id="faq" className="relative overflow-hidden py-20 md:py-28 lg:py-32">
-      {/* Background decoration */}
-      <div 
+      <div
         className="absolute bottom-0 left-0 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
         style={{ background: 'radial-gradient(circle, rgba(184, 151, 42, 0.3) 0%, transparent 70%)' }}
       />
 
-      <div className="relative max-w-7xl mx-auto px-4 md:px-6 lg:px-8">
-        {/* Section Header */}
+      <div className="relative max-w-4xl mx-auto px-4 md:px-6 lg:px-8">
         <motion.div
           variants={revealVariants}
           initial="hidden"
@@ -231,191 +106,51 @@ export function FAQContact() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-12 md:mb-16"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">
-            Pomoc i kontakt
-          </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">
-            Masz pytania?
-          </h2>
+          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">Pomoc</span>
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">Najczęściej zadawane pytania</h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            Znajdź odpowiedzi na najczęściej zadawane pytania lub skontaktuj się z nami bezpośrednio.
+            Najważniejsze informacje o rezerwacji, płatności, odbiorze i zasadach wynajmu.
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
-          {/* FAQ Column */}
-          <motion.div
-            variants={staggerContainerVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-50px' }}
-          >
-            <motion.div variants={staggerItemVariants}>
-              <h3 className="text-xl font-semibold text-text-primary mb-6">
-                Często zadawane pytania
-              </h3>
-              <Card variant="glass" padding="none" className="overflow-hidden">
-                <div className="px-6" role="region" aria-label="Często zadawane pytania">
-                  {faqItems.map((item, index) => (
-                    <FAQItem
-                      key={index}
-                      index={index}
-                      question={item.question}
-                      answer={item.answer}
-                      isOpen={openFAQ === index}
-                      onToggle={() => handleFAQToggle(index)}
-                    />
-                  ))}
-                </div>
-              </Card>
-            </motion.div>
-          </motion.div>
-
-          {/* Contact Column */}
-          <motion.div
-            id="kontakt"
-            variants={staggerContainerVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, margin: '-50px' }}
-            className="space-y-8"
-          >
-            {/* Contact Info */}
-            <motion.div variants={staggerItemVariants}>
-              <h3 className="text-xl font-semibold text-text-primary mb-6">
-                Dane kontaktowe
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {contactInfo.map((info) => {
-                  const Icon = info.icon;
-                  const content = (
-                    <div className="flex items-start gap-3 p-4 rounded-xl bg-bg-card border border-border hover:border-gold/30 transition-colors">
-                      <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
-                        <Icon className="w-5 h-5 text-gold" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-text-muted uppercase tracking-wider">{info.label}</p>
-                        <p className="text-text-primary font-medium">{info.value}</p>
-                      </div>
-                    </div>
-                  );
-
-                  return info.href ? (
-                    <a key={info.label} href={info.href} className="block">
-                      {content}
-                    </a>
-                  ) : (
-                    <div key={info.label}>{content}</div>
-                  );
-                })}
+        <motion.div
+          variants={staggerContainerVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-50px' }}
+        >
+          <motion.div variants={staggerItemVariants}>
+            <Card variant="glass" padding="none" className="overflow-hidden">
+              <div className="px-6 md:px-8" role="region" aria-label="Często zadawane pytania">
+                {faqItems.map((item, index) => (
+                  <FAQItem
+                    key={item.question}
+                    index={index}
+                    question={item.question}
+                    answer={item.answer}
+                    isOpen={openFAQ === index}
+                    onToggle={() => setOpenFAQ(openFAQ === index ? null : index)}
+                  />
+                ))}
               </div>
-            </motion.div>
-
-            {/* Contact Form */}
-            <motion.div variants={staggerItemVariants}>
-              <h3 className="text-xl font-semibold text-text-primary mb-6">
-                Napisz do nas
-              </h3>
-              
-              {formStatus === 'success' ? (
-                <Card variant="glow" className="p-8 text-center">
-                  <CheckCircle2 className="w-12 h-12 text-success mx-auto mb-4" />
-                  <h4 className="text-lg font-semibold text-text-primary mb-2">
-                    Wiadomość wysłana!
-                  </h4>
-                  <p className="text-text-secondary text-sm">
-                    Dziękujemy za kontakt. Odpowiemy najszybciej jak to możliwe.
-                  </p>
-                </Card>
-              ) : (
-                <Card variant="glass" padding="lg">
-                  <form onSubmit={handleContactSubmit} className="space-y-4">
-                    {/* Honeypot - hidden from users */}
-                    <input
-                      type="text"
-                      name="honeypot"
-                      value={contactForm.honeypot}
-                      onChange={(e) => updateContactField('honeypot', e.target.value)}
-                      className="hidden"
-                      tabIndex={-1}
-                      autoComplete="off"
-                    />
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input
-                        label="Imię"
-                        placeholder="Jan Kowalski"
-                        value={contactForm.name}
-                        onChange={(e) => updateContactField('name', e.target.value)}
-                        leftIcon={<User className="w-4 h-4" />}
-                        required
-                      />
-                      <Input
-                        label="Email"
-                        type="email"
-                        placeholder="jan@example.com"
-                        value={contactForm.email}
-                        onChange={(e) => updateContactField('email', e.target.value)}
-                        leftIcon={<Mail className="w-4 h-4" />}
-                        required
-                      />
-                    </div>
-
-                    <Input
-                      label="Temat (opcjonalnie)"
-                      placeholder="W czym możemy pomóc?"
-                      value={contactForm.subject}
-                      onChange={(e) => updateContactField('subject', e.target.value)}
-                      leftIcon={<MessageSquare className="w-4 h-4" />}
-                    />
-
-                    <Textarea
-                      label="Wiadomość"
-                      placeholder="Napisz swoją wiadomość..."
-                      value={contactForm.message}
-                      onChange={(e) => updateContactField('message', e.target.value)}
-                      rows={4}
-                      required
-                    />
-                    
-                    {/* Character counter */}
-                    <p className={`text-xs text-right -mt-2 ${contactForm.message.length < 10 ? 'text-error' : 'text-text-muted'}`}>
-                      {contactForm.message.length}/10 minimum znaków
-                    </p>
-
-                    {/* Error message */}
-                    {formStatus === 'error' && errorMessage && (
-                      <div className="p-3 rounded-lg bg-error/10 border border-error/20 flex items-start gap-2">
-                        <AlertCircle className="w-5 h-5 text-error shrink-0 mt-0.5" />
-                        <p className="text-sm text-error">{errorMessage}</p>
-                      </div>
-                    )}
-
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      size="lg"
-                      className="w-full"
-                      disabled={formStatus === 'loading'}
-                    >
-                      {formStatus === 'loading' ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                          Wysyłanie...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-5 h-5 mr-2" />
-                          Wyślij wiadomość
-                        </>
-                      )}
-                    </Button>
-                  </form>
-                </Card>
-              )}
-            </motion.div>
+            </Card>
           </motion.div>
-        </div>
+        </motion.div>
+
+        <motion.div
+          variants={revealVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          className="mt-10 text-center"
+        >
+          <p className="text-text-secondary mb-4">Nie znalazłeś odpowiedzi?</p>
+          <Link to="/kontakt">
+            <Button variant="primary">
+              <MessageCircle className="w-4 h-4 mr-2" /> Przejdź do kontaktu
+            </Button>
+          </Link>
+        </motion.div>
       </div>
     </section>
   );

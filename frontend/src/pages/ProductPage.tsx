@@ -35,6 +35,39 @@ export function ProductPage() {
     window.scrollTo(0, 0);
   }, [id]);
 
+  // SEO: Product JSON-LD + page title
+  useEffect(() => {
+    if (!product) return;
+
+    const prevTitle = document.title;
+    document.title = `${product.name} — wynajem | WB-Rent`;
+
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.text = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: product.name,
+      description: product.description,
+      image: `https://wb-rent.pl${product.image}`,
+      brand: { '@type': 'Brand', name: product.name.includes('Kärcher') ? 'Kärcher' : 'WB-Rent' },
+      offers: {
+        '@type': 'Offer',
+        url: `https://wb-rent.pl/produkt/${product.id}`,
+        priceCurrency: 'PLN',
+        price: product.pricePerDay,
+        availability: isAvailable ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        businessFunction: 'http://purl.org/goodrelations/v1#LeaseOut',
+      },
+    });
+    document.head.appendChild(script);
+
+    return () => {
+      document.title = prevTitle;
+      script.remove();
+    };
+  }, [product, isAvailable]);
+
   // Fetch real-time availability
   useEffect(() => {
     if (!id) return;
@@ -223,17 +256,17 @@ export function ProductPage() {
                       <p className="text-xl font-bold text-blue-400">{formatPrice(product.priceNextDay)}</p>
                     </div>
 
-                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 hover:border-purple-500/40 transition-colors">
+                    <div className="flex items-center justify-between p-3 bg-gradient-to-r from-gold/10 to-gold-light/10 border border-gold/20 hover:border-gold/40 transition-colors">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500/20 flex items-center justify-center">
-                          <Star className="w-4 h-4 text-purple-400" />
+                        <div className="w-10 h-10 bg-gold/20 flex items-center justify-center">
+                          <Star className="w-4 h-4 text-gold-light" />
                         </div>
                         <div>
                           <p className="font-medium text-text-primary">Wynajem weekendowy</p>
                           <p className="text-xs text-text-muted">Pt-Pon (3 dni w cenie)</p>
                         </div>
                       </div>
-                      <p className="text-xl font-bold text-purple-400">{formatPrice(product.priceWeekend)}</p>
+                      <p className="text-xl font-bold text-gold-light">{formatPrice(product.priceWeekend)}</p>
                     </div>
                   </div>
 
@@ -316,7 +349,7 @@ export function ProductPage() {
                   size="lg"
                   className="flex-1"
                   onClick={() => {
-                    navigate('/#kontakt');
+                    navigate('/kontakt');
                     setTimeout(() => {
                       document.getElementById('kontakt')?.scrollIntoView({ behavior: 'smooth' });
                     }, 100);

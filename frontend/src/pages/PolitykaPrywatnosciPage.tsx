@@ -126,6 +126,19 @@ export function PolitykaPrywatnosciPage() {
                         <li>Treść wiadomości</li>
                       </ul>
                     </div>
+                    <div className="p-4 rounded-lg bg-bg-primary/50 md:col-span-2">
+                      <h4 className="font-semibold text-text-primary mb-2">Elektroniczna umowa najmu i wydanie sprzętu:</h4>
+                      <ul className="space-y-1 text-sm list-disc list-inside">
+                        <li>Adres zamieszkania, rodzaj i numer dokumentu tożsamości oraz opcjonalnie numer PESEL</li>
+                        <li>Obraz odręcznego podpisu złożonego na ekranie urządzenia</li>
+                        <li>Data i czas podpisu, adres IP, informacje o przeglądarce i urządzeniu</li>
+                        <li>Opis wydanego sprzętu, akcesoriów, stanu technicznego, kaucji i rozliczenia</li>
+                        <li>Skróty kryptograficzne treści umowy, podpisu i finalnego dokumentu PDF</li>
+                      </ul>
+                      <p className="text-xs text-text-muted mt-3">
+                        Dane dokumentu i podpis są przechowywane w postaci zaszyfrowanej. Nie wykonujemy kopii ani zdjęcia dokumentu tożsamości.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -145,6 +158,8 @@ export function PolitykaPrywatnosciPage() {
                     <li><strong>Obsługa zapytań</strong> (art. 6 ust. 1 lit. f RODO) – prawnie uzasadniony interes Administratora polegający na udzielaniu odpowiedzi na pytania.</li>
                     <li><strong>Wystawianie faktur</strong> (art. 6 ust. 1 lit. c RODO) – wypełnienie obowiązku prawnego ciążącego na Administratorze.</li>
                     <li><strong>Dochodzenie roszczeń</strong> (art. 6 ust. 1 lit. f RODO) – prawnie uzasadniony interes Administratora.</li>
+                    <li><strong>Zawarcie i udokumentowanie elektronicznej umowy najmu</strong> (art. 6 ust. 1 lit. b RODO) – utworzenie niezmiennego egzemplarza umowy, potwierdzenie wydania sprzętu oraz przesłanie dokumentu klientowi.</li>
+                    <li><strong>Zapewnienie integralności i wartości dowodowej dokumentu</strong> (art. 6 ust. 1 lit. f RODO) – rejestrowanie metadanych podpisu i skrótów kryptograficznych w celu ochrony praw obu stron i obrony przed roszczeniami.</li>
                     <li><strong>Marketing bezpośredni</strong> (art. 6 ust. 1 lit. a RODO) – wyłącznie na podstawie dobrowolnej zgody.</li>
                   </ol>
                 </div>
@@ -160,6 +175,7 @@ export function PolitykaPrywatnosciPage() {
                 </div>
                 <ol className="space-y-3 text-text-secondary list-decimal list-inside">
                   <li>Dane związane z realizacją rezerwacji przechowywane są przez okres 5 lat od zakończenia roku kalendarzowego, w którym dokonano transakcji (wymogi podatkowe).</li>
+                  <li>Podpisane umowy najmu, protokoły wydania, zaszyfrowane dane identyfikacyjne i metryka dowodowa przechowywane są przez okres obowiązywania umowy, a następnie do upływu terminów przedawnienia roszczeń (co do zasady 6 lat), chyba że dłuższy okres wynika z przepisów podatkowych lub toczącego się postępowania.</li>
                   <li>Dane z formularza kontaktowego przechowywane są przez okres 2 lat od ostatniego kontaktu.</li>
                   <li>Dane przetwarzane na podstawie zgody – do momentu jej wycofania.</li>
                   <li>Dane do celów marketingowych – do momentu wniesienia sprzeciwu.</li>

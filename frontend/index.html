@@ -40,10 +40,43 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
     
     <!-- Preconnect to external resources -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts: Inter (body) + Sora (display/headings) -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Structured data: LocalBusiness -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "name": "WB-Rent",
+      "description": "Wypożyczalnia sprzętu czyszczącego i ozonatorów — odkurzacze piorące Kärcher, ozonatory, parownice. Rezerwacja online, dostawa do 30 km.",
+      "url": "https://wb-rent.pl",
+      "image": "https://wb-rent.pl/og-image.png",
+      "telephone": "+48570038828",
+      "priceRange": "25-150 PLN",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "ul. Juliusza Słowackiego 24/11",
+        "addressLocality": "Rzeszów",
+        "postalCode": "35-060",
+        "addressCountry": "PL"
+      },
+      "geo": { "@type": "GeoCoordinates", "latitude": 50.0412, "longitude": 21.9991 },
+      "openingHours": "Mo-Su 08:00-20:00",
+      "sameAs": [
+        "https://www.facebook.com/fbwbpartners",
+        "https://www.instagram.com/wbrent.pl/"
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

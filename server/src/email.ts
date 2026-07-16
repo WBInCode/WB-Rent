@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import { config } from './config.js';
+import { unsubscribeToken } from './auth.js';
 import type { ContactInput, ReservationInput } from './schemas.js';
 
 // Initialize Resend if API key is provided
@@ -46,8 +47,37 @@ const logEmail = (to: string, subject: string, html: string) => {
   console.log('📧 ═══════════════════════════════════════\n');
 };
 
+// === HTML ESCAPING (anti-injection) ===
+// User-provided strings MUST be escaped before interpolation into HTML templates.
+const esc = (value: string | null | undefined): string => {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+/** Returns a shallow copy with the given string fields HTML-escaped. */
+const escFields = <T extends Record<string, unknown>>(obj: T, fields: (keyof T)[]): T => {
+  const copy: Record<string, unknown> = { ...obj };
+  for (const f of fields) {
+    if (typeof copy[f as string] === 'string') {
+      copy[f as string] = esc(copy[f as string] as string);
+    }
+  }
+  return copy as T;
+};
+
+interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 // Send email (tries Resend first, then SMTP, then console)
-const sendEmail = async (to: string, subject: string, html: string) => {
+const sendEmail = async (to: string, subject: string, html: string, attachments: EmailAttachment[] = []) => {
   const fromEmail = process.env.RESEND_FROM || config.smtp.from || 'WB-Rent <noreply@wb-rent.pl>';
   
   // Try Resend first
@@ -58,6 +88,10 @@ const sendEmail = async (to: string, subject: string, html: string) => {
         to: [to],
         subject,
         html,
+        attachments: attachments.map((attachment) => ({
+          filename: attachment.filename,
+          content: attachment.content,
+        })),
       });
       
       if (error) {
@@ -81,6 +115,7 @@ const sendEmail = async (to: string, subject: string, html: string) => {
         to,
         subject,
         html,
+        attachments,
       });
       console.log(`📧 Email sent via SMTP to ${to}`);
       return { success: true, messageId: info.messageId };
@@ -98,6 +133,7 @@ const sendEmail = async (to: string, subject: string, html: string) => {
 // === EMAIL TEMPLATES ===
 
 export const sendContactConfirmation = async (data: ContactInput) => {
+  data = escFields(data, ['name', 'message', 'subject']);
   const subject = 'Potwierdzenie wiadomości - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -122,6 +158,7 @@ export const sendContactConfirmation = async (data: ContactInput) => {
 
 export const sendContactNotification = async (data: ContactInput) => {
   const subject = `Nowa wiadomość kontaktowa: ${data.subject || 'Brak tematu'}`;
+  data = escFields(data, ['name', 'email', 'message', 'subject']);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #f59e0b;">Nowa wiadomość kontaktowa</h2>
@@ -160,6 +197,7 @@ export const sendReservationConfirmation = async (
     productName: string;
   }
 ) => {
+  data = escFields(data, ['firstName', 'lastName', 'productName', 'city', 'address', 'company', 'notes']);
   const subject = '⏳ Rezerwacja oczekuje na potwierdzenie - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -263,6 +301,7 @@ export const sendReservationNotification = async (
   }
 ) => {
   const subject = `Nowa rezerwacja: ${data.productName} (${data.startDate})`;
+  data = escFields(data, ['firstName', 'lastName', 'email', 'phone', 'company', 'productName', 'city', 'address', 'notes']);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #f59e0b;">Nowa rezerwacja!</h2>
@@ -325,6 +364,8 @@ export const sendContactReply = async (
   replyMessage: string
 ) => {
   const subject = `Re: ${originalSubject || 'Twoje zapytanie'} - WB-Rent`;
+  customerName = esc(customerName);
+  replyMessage = esc(replyMessage);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
       <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
@@ -368,6 +409,7 @@ export const sendReservationStatusEmail = async (
   status: 'confirmed' | 'rejected'
 ) => {
   const isConfirmed = status === 'confirmed';
+  reservation = escFields(reservation, ['name', 'productName']);
   
   const subject = isConfirmed 
     ? '✅ Rezerwacja potwierdzona - WB-Rent'
@@ -447,6 +489,7 @@ export const sendPickedUpEmail = async (
     totalPrice: number;
   }
 ) => {
+  reservation = escFields(reservation, ['name', 'productName']);
   const subject = '📦 Sprzęt został odebrany - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -511,6 +554,7 @@ export const sendReturnedEmail = async (
     totalPrice: number;
   }
 ) => {
+  reservation = escFields(reservation, ['name', 'productName']);
   const subject = '✅ Sprzęt został zwrócony - Dziękujemy! - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -578,6 +622,7 @@ export const sendPickupReminderEmail = async (
     endDate: string;
   }
 ) => {
+  reservation = escFields(reservation, ['name', 'productName']);
   const subject = '⏰ Przypomnienie: Jutro odbiór sprzętu - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -641,6 +686,7 @@ export const sendReturnReminderEmail = async (
     endDate: string;
   }
 ) => {
+  reservation = escFields(reservation, ['name', 'productName']);
   const subject = '⏰ Przypomnienie: Jutro zwrot sprzętu - WB-Rent';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -703,11 +749,13 @@ export const sendNewsletterEmail = async (
     content: string;
   }
 ) => {
-  const greeting = data.name ? `Cześć <strong style="color: #b8972a;">${data.name}</strong>,` : 'Cześć,';
   const subject = `📢 ${data.title} - WB-Rent`;
+  // Escape name/title; content is admin-authored (plain text converted to paragraphs)
+  data = escFields(data, ['name', 'title']);
+  const greeting = data.name ? `Cześć <strong style="color: #b8972a;">${data.name}</strong>,` : 'Cześć,';
   
   // Convert newlines to paragraphs for content
-  const formattedContent = data.content
+  const formattedContent = esc(data.content)
     .split('\n\n')
     .map(p => `<p style="margin: 15px 0; line-height: 1.6;">${p.replace(/\n/g, '<br>')}</p>`)
     .join('');
@@ -742,7 +790,7 @@ export const sendNewsletterEmail = async (
         </p>
         <p style="color: #525252; font-size: 10px; margin-top: 15px;">
           Otrzymujesz tę wiadomość, ponieważ zapisałeś się do newslettera WB-Rent.<br>
-          <a href="${config.siteUrl}/api/newsletter/unsubscribe?email=${encodeURIComponent(data.email)}" style="color: #525252; text-decoration: underline;">Kliknij tutaj, aby wypisać się z newslettera</a>
+          <a href="${config.apiUrl}/api/newsletter/unsubscribe?email=${encodeURIComponent(data.email)}&token=${unsubscribeToken(data.email)}" style="color: #525252; text-decoration: underline;">Kliknij tutaj, aby wypisać się z newslettera</a>
         </p>
       </div>
     </div>
@@ -758,6 +806,8 @@ export const sendProductAvailabilityNotification = async (
   productId: string
 ) => {
   const subject = `🎉 ${productName} jest już dostępny! - WB-Rent`;
+  productName = esc(productName);
+  productId = encodeURIComponent(productId);
   
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -803,4 +853,82 @@ export const sendProductAvailabilityNotification = async (
   `;
 
   return sendEmail(email, subject, html);
+};
+
+// === CUSTOMER MAGIC LINK ("moje rezerwacje") ===
+export const sendMyReservationsLink = async (email: string, link: string) => {
+  const subject = '🔑 Twoje rezerwacje - link dostępu - WB-Rent';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Dostęp do Twoich rezerwacji</p>
+      </div>
+
+      <p>Cześć,</p>
+      <p style="color: #e5e5e5;">
+        Otrzymaliśmy prośbę o dostęp do listy Twoich rezerwacji.
+        Kliknij poniższy przycisk — link jest ważny przez <strong style="color: #b8972a;">24 godziny</strong>.
+      </p>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${link}" style="display: inline-block; background: linear-gradient(135deg, #b8972a 0%, #8b7420 100%); color: #000000; padding: 15px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+          Zobacz moje rezerwacje
+        </a>
+      </div>
+
+      <p style="color: #71717a; font-size: 13px;">
+        Jeśli to nie Ty prosiłeś o ten link, zignoruj tę wiadomość — nikt nie uzyska dostępu bez niego.
+      </p>
+
+      <div style="border-top: 1px solid #333; padding-top: 20px; margin-top: 20px;">
+        <p style="color: #71717a; font-size: 12px; margin: 0;">
+          Pozdrawiamy,<br>
+          Zespół WB-Rent<br>
+          <span style="color: #a1a1aa; font-size: 11px;">WB Partners Sp. z o.o. | NIP: 5170455185 | ul. Słowackiego 24/11, 35-060 Rzeszów</span>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html);
+};
+
+// === SIGNED RENTAL CONTRACT ===
+export const sendSignedContractEmail = async (
+  email: string,
+  customerName: string,
+  contractNumber: string,
+  pdf: Buffer
+) => {
+  const safeName = esc(customerName);
+  const safeNumber = esc(contractNumber);
+  const subject = `Podpisana umowa najmu ${contractNumber} - WB-Rent`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Podpisana umowa najmu</p>
+      </div>
+      <p>Cześć <strong style="color: #b8972a;">${safeName}</strong>,</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Dziękujemy za podpisanie umowy <strong>${safeNumber}</strong>.
+        Jej niezmienny egzemplarz PDF znajduje się w załączniku do tej wiadomości.
+      </p>
+      <div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 24px 0; border-left: 4px solid #22c55e;">
+        <p style="margin: 0; color: #bbf7d0;">✓ Umowa została podpisana i zapisana w systemie WB-Rent.</p>
+      </div>
+      <p style="color: #71717a; font-size: 13px;">
+        Zachowaj ten dokument do zakończenia najmu. W razie pytań skontaktuj się z nami: 570 038 828.
+      </p>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html, [
+    {
+      filename: `umowa-${contractNumber.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+      content: pdf,
+      contentType: 'application/pdf',
+    },
+  ]);
 };
