@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { MapPin, Truck, ArrowRight, Calculator, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { Card, Select, Input, Toggle, Button } from '@/components/ui';
 import { DatePicker } from '@/components/ui/DatePicker';
@@ -42,6 +43,7 @@ export function CostWidget() {
   const [distanceMessage, setDistanceMessage] = useState<string | null>(null);
 
   const { setPreFillData } = useReservationContext();
+  const navigate = useNavigate();
 
   // Get products for selected category
   const availableProducts = useMemo(() => {
@@ -199,12 +201,10 @@ export function CostWidget() {
       city,
       delivery,
     });
-    
-    // Scroll to reservation form
-    const element = document.getElementById('rezerwacja');
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' });
-    }
+
+    // The form lives on its own page now; the provider sits above the router,
+    // so the prefilled selection survives the navigation.
+    navigate('/rezerwacja');
   };
 
   return (

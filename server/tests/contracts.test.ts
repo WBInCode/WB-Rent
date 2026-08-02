@@ -21,7 +21,9 @@ describe('szyfrowanie umów AES-256-GCM', () => {
   it('wykrywa modyfikację ciphertextu (GCM auth tag)', () => {
     const encrypted = encryptContractData('tajne dane');
     const parts = encrypted.split(':');
-    parts[3] = parts[3].slice(0, -2) + 'xx';
+    const ciphertext = Buffer.from(parts[3], 'base64url');
+    ciphertext[0] ^= 0x01;
+    parts[3] = ciphertext.toString('base64url');
     expect(() => decryptContractData(parts.join(':'))).toThrow();
   });
 
@@ -67,6 +69,15 @@ describe('walidacja danych umowy', () => {
   it('odrzuca znaki sterujące w numerze dokumentu', () => {
     expect(() => createContractSchema.parse({ ...valid, documentNumber: '<script>' })).toThrow();
   });
+
+  it('zwraca czytelny polski komunikat dla zbyt krótkiego numeru dokumentu', () => {
+    const result = createContractSchema.safeParse({ ...valid, documentNumber: 'AB' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(['documentNumber']);
+      expect(result.error.issues[0].message).toBe('Numer dokumentu musi mieć co najmniej 3 znaki');
+    }
+  });
 });
 
 describe('generator podpisanej umowy PDF', () => {
@@ -98,12 +109,27 @@ describe('generator podpisanej umowy PDF', () => {
         reservationId: 1,
         productId: 'puzzi-10-1',
         productName: 'Odkurzacz Piorący Kärcher Puzzi 10/1',
+        items: [
+          {
+            productId: 'puzzi-10-1',
+            productName: 'Odkurzacz Piorący Kärcher Puzzi 10/1',
+            categoryId: 'odkurzacze-piorace',
+            itemPrice: 90,
+          },
+          {
+            productId: 'nt-22-1',
+            productName: 'Odkurzacz Przemysłowy Kärcher NT 22/1 AP L',
+            categoryId: 'odkurzacze-przemyslowe',
+            itemPrice: 105,
+          },
+        ],
         startDate: '2026-08-01',
         endDate: '2026-08-03',
+        isIndefinite: false,
         startTime: '09:00',
         endTime: '09:00',
         days: 2,
-        totalPrice: 90,
+        totalPrice: 195,
         deposit: 300,
         delivery: false,
         accessories: 'Wąż, ssawka, środek czyszczący',
@@ -112,15 +138,40 @@ describe('generator podpisanej umowy PDF', () => {
       clauses: contractClauses,
     };
 
-    const pdf = await generateContractPdf(snapshot, signature, {
+    const pdf = await generateContractPdf(snapshot, { renter: signature, lessor: signature }, {
       signedAt: '2026-08-01T08:55:00.000Z',
       signedIp: '127.0.0.1',
       signedUserAgent: 'Vitest Contract Test',
       contentHash: sha256(JSON.stringify(snapshot)),
-      signatureHash: sha256(signature),
+      renterSignatureHash: sha256(signature),
+      lessorSignatureHash: sha256(signature),
     });
 
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pdf.length).toBeGreaterThan(10_000);
+
+    // Regression: WOFF subset fonts produced corrupted Polish text when
+    // viewed/copied from the PDF. Full embedded TTF must remain extractable.
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const document = await pdfjs.getDocument({
+      data: new Uint8Array(pdf),
+      useSystemFonts: true,
+    }).promise;
+    expect(document.numPages).toBe(2);
+    const pages: string[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+    }
+    const extracted = pages.join(' ');
+    expect(extracted).toContain('UMOWA NAJMU SPRZĘTU');
+    expect(extracted).toContain('Łukasz Wiśniewski');
+    expect(extracted).toContain('Odkurzacz Piorący Kärcher');
+    expect(extracted).toContain('Odkurzacz Przemysłowy Kärcher NT 22/1');
+    expect(extracted).toContain('Sprzęt (pozycje)');
+    expect(extracted).toContain('Wynajmujący');
+    expect(extracted).toContain('OŚWIADCZENIE I PODPISY STRON');
+    expect(extracted).toContain('Anna Żółć');
   });
 });

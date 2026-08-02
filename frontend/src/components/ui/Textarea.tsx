@@ -38,7 +38,7 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           className={cn(
             'w-full min-h-[120px] resize-y',
             'bg-bg-card border border-border',
-            'rounded-[--radius-md]',
+            'rounded-[--radius-sm]',
             'px-4 py-3',
             'text-text-primary placeholder:text-text-muted',
             'transition-all duration-[--duration-fast]',

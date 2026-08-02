@@ -9,16 +9,37 @@ import { encryptContractData, decryptContractData, randomSigningToken, sha256, s
 import { CONTRACT_TEMPLATE_VERSION, contractClauses, type ContractSnapshot } from './template.js';
 import { generateContractPdf } from './pdf.js';
 
-export const createContractSchema = z.object({
-  reservationId: z.number().int().positive(),
-  renterAddress: z.string().trim().min(5).max(300),
-  documentType: z.enum(['dowod_osobisty', 'paszport']),
-  documentNumber: z.string().trim().min(3).max(30).regex(/^[\p{L}\d\s-]+$/u),
-  pesel: z.string().trim().regex(/^\d{11}$/).optional().or(z.literal('')),
-  employeeName: z.string().trim().min(3).max(120),
-  deposit: z.number().min(0).max(100000),
-  accessories: z.string().trim().min(2).max(1000),
-  conditionNotes: z.string().trim().min(2).max(1000),
+export const contractDetailsSchema = z.object({
+  renterAddress: z.string().trim()
+    .min(5, 'Adres zamieszkania musi mieć co najmniej 5 znaków')
+    .max(300, 'Adres zamieszkania może mieć maksymalnie 300 znaków'),
+  documentType: z.enum(['dowod_osobisty', 'paszport'], {
+    message: 'Wybierz rodzaj dokumentu',
+  }),
+  documentNumber: z.string().trim()
+    .min(3, 'Numer dokumentu musi mieć co najmniej 3 znaki')
+    .max(30, 'Numer dokumentu może mieć maksymalnie 30 znaków')
+    .regex(/^[\p{L}\d\s-]+$/u, 'Numer dokumentu może zawierać tylko litery, cyfry, spacje i myślniki'),
+  pesel: z.string().trim()
+    .regex(/^\d{11}$/, 'PESEL musi składać się dokładnie z 11 cyfr')
+    .optional()
+    .or(z.literal('')),
+  employeeName: z.string().trim()
+    .min(3, 'Podaj imię i nazwisko pracownika')
+    .max(120, 'Dane pracownika mogą mieć maksymalnie 120 znaków'),
+  deposit: z.number()
+    .min(0, 'Kaucja nie może być ujemna')
+    .max(100000, 'Kaucja jest zbyt wysoka'),
+  accessories: z.string().trim()
+    .min(2, 'Wpisz wydawane akcesoria lub informację „brak”')
+    .max(1000, 'Lista akcesoriów może mieć maksymalnie 1000 znaków'),
+  conditionNotes: z.string().trim()
+    .min(2, 'Opisz stan sprzętu przy wydaniu')
+    .max(1000, 'Opis stanu może mieć maksymalnie 1000 znaków'),
+});
+
+export const createContractSchema = contractDetailsSchema.extend({
+  reservationId: z.number().int().positive('Nieprawidłowy identyfikator rezerwacji'),
 });
 
 export type CreateContractInput = z.infer<typeof createContractSchema>;
@@ -42,6 +63,13 @@ export async function createContractSession(input: CreateContractInput) {
   if (existing?.status === 'signed') throw new Error('Umowa dla tej rezerwacji jest już podpisana');
 
   const contractNumber = contractNumberFor(data.reservationId);
+  const reservationItems = Array.isArray(reservation.items) && reservation.items.length > 0
+    ? reservation.items
+    : [{
+        product_id: reservation.product_id,
+        category_id: reservation.category_id,
+        item_price: reservation.base_price,
+      }];
   const snapshot: ContractSnapshot = {
     contractNumber,
     templateVersion: CONTRACT_TEMPLATE_VERSION,
@@ -65,8 +93,15 @@ export async function createContractSession(input: CreateContractInput) {
       reservationId: reservation.id,
       productId: reservation.product_id,
       productName: getProductName(reservation.product_id),
+      items: reservationItems.map((item: any) => ({
+        productId: String(item.product_id),
+        productName: getProductName(String(item.product_id)),
+        categoryId: String(item.category_id),
+        itemPrice: Number(item.item_price),
+      })),
       startDate: String(reservation.start_date),
-      endDate: String(reservation.end_date),
+      endDate: reservation.end_date ? String(reservation.end_date) : null,
+      isIndefinite: Boolean(reservation.is_indefinite),
       startTime: reservation.start_time || '09:00',
       endTime: reservation.end_time || '09:00',
       days: reservation.days,
@@ -131,7 +166,8 @@ const decodeSignature = (dataUrl: string): Buffer => {
 
 export async function signContract(data: {
   token: string;
-  signatureDataUrl: string;
+  renterSignatureDataUrl: string;
+  lessorSignatureDataUrl: string;
   accepted: boolean;
   ip: string;
   userAgent: string;
@@ -143,18 +179,25 @@ export async function signContract(data: {
   if (contract.status !== 'ready') throw new Error('Umowa nie jest gotowa do podpisu');
   if (new Date(contract.signing_expires_at).getTime() < Date.now()) throw new Error('Sesja podpisu wygasła');
 
-  const signature = decodeSignature(data.signatureDataUrl);
+  const renterSignature = decodeSignature(data.renterSignatureDataUrl);
+  const lessorSignature = decodeSignature(data.lessorSignatureDataUrl);
   const snapshot = parseSnapshot(contract.snapshot_encrypted);
   const signedAt = new Date().toISOString();
-  const signatureHash = sha256(signature);
+  const renterSignatureHash = sha256(renterSignature);
+  const lessorSignatureHash = sha256(lessorSignature);
   const audit = {
     signedAt,
     signedIp: data.ip.slice(0, 100),
     signedUserAgent: data.userAgent.slice(0, 500),
     contentHash: contract.content_hash as string,
-    signatureHash,
+    renterSignatureHash,
+    lessorSignatureHash,
   };
-  const pdf = await generateContractPdf(snapshot, signature, audit);
+  const pdf = await generateContractPdf(
+    snapshot,
+    { renter: renterSignature, lessor: lessorSignature },
+    audit
+  );
   const pdfHash = sha256(pdf);
 
   const storageDir = path.resolve(config.contracts.storageDir);
@@ -166,8 +209,10 @@ export async function signContract(data: {
 
   const updated = await queries.markContractSigned({
     id: contract.id,
-    signatureEncrypted: encryptContractData(signature),
-    signatureHash,
+    renterSignatureEncrypted: encryptContractData(renterSignature),
+    renterSignatureHash,
+    lessorSignatureEncrypted: encryptContractData(lessorSignature),
+    lessorSignatureHash,
     signedName: snapshot.renter.name,
     signedIp: audit.signedIp,
     signedUserAgent: audit.signedUserAgent,
@@ -176,13 +221,26 @@ export async function signContract(data: {
   });
   if (!updated) throw new Error('Umowa została podpisana w innej sesji');
 
+  // The signed contract belongs in the document archive as well. A failure here
+  // must not undo a valid signature, so it is logged rather than thrown.
+  await queries.registerContractDocument({
+    title: `Umowa najmu ${snapshot.contractNumber}`,
+    reservationId: snapshot.rental.reservationId,
+    customerEmail: snapshot.renter.email,
+    documentDate: audit.signedAt.slice(0, 10),
+    fileName: `umowa-${snapshot.contractNumber.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+    filePath: pdfPath,
+    sizeBytes: pdf.length,
+    fileHash: pdfHash,
+  }).catch((error) => console.error('Register contract document error:', error));
+
   const emailResult = await sendSignedContractEmail(
     snapshot.renter.email,
     snapshot.renter.name,
     snapshot.contractNumber,
     pdf
   );
-  if (emailResult.success) await queries.markContractEmailed(contract.id);
+  if (emailResult.delivered) await queries.markContractEmailed(contract.id);
 
   return {
     id: contract.id as number,
@@ -191,6 +249,8 @@ export async function signContract(data: {
     pdf,
     pdfHash,
     snapshot,
+    emailDelivered: emailResult.delivered,
+    emailTransport: emailResult.transport,
   };
 }
 
@@ -210,5 +270,111 @@ export async function readSignedContractPdfById(id: number) {
   return {
     buffer: decryptContractData(await fs.readFile(contract.pdf_path, 'utf8')),
     filename: `umowa-${String(contract.contract_number).replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+  };
+}
+
+/**
+ * Rebuild a signed PDF from the encrypted immutable snapshot and original
+ * signature. The signature time/IP/UA and all evidence hashes remain intact;
+ * only the PDF representation and its own hash are replaced.
+ */
+export async function regenerateSignedContractPdf(id: number, resendEmail = false) {
+  const contract = await queries.getContractById(id);
+  if (!contract || contract.status !== 'signed' || !contract.pdf_path || !contract.signature_encrypted) {
+    throw new Error('Podpisana umowa nie istnieje lub nie ma kompletnego materiału dowodowego');
+  }
+
+  const snapshot = parseSnapshot(contract.snapshot_encrypted);
+  const renterSignature = decryptContractData(contract.signature_encrypted);
+  const lessorSignature = contract.lessor_signature_encrypted
+    ? decryptContractData(contract.lessor_signature_encrypted)
+    : undefined;
+  const pdf = await generateContractPdf(snapshot, { renter: renterSignature, lessor: lessorSignature }, {
+    signedAt: new Date(contract.signed_at).toISOString(),
+    signedIp: contract.signed_ip || 'unknown',
+    signedUserAgent: contract.signed_user_agent || 'unknown',
+    contentHash: contract.content_hash,
+    renterSignatureHash: contract.signature_hash,
+    lessorSignatureHash: contract.lessor_signature_hash || undefined,
+  });
+  const pdfHash = sha256(pdf);
+  await fs.writeFile(contract.pdf_path, encryptContractData(pdf), { mode: 0o600 });
+  await queries.refreshContractDocument(contract.pdf_path, sha256(pdf), pdf.length)
+    .catch((error) => console.error('Refresh contract document error:', error));
+  await queries.updateContractPdfHash(id, pdfHash);
+
+  if (resendEmail) {
+    const emailResult = await sendSignedContractEmail(
+      snapshot.renter.email,
+      snapshot.renter.name,
+      snapshot.contractNumber,
+      pdf
+    );
+    if (emailResult.delivered) await queries.markContractEmailed(id);
+  }
+
+  return { contractNumber: snapshot.contractNumber, pdfHash, pdf };
+}
+
+/**
+ * Adds contracts signed before the archive existed (or whose registration
+ * failed) to the document list. Idempotent - safe to run on every boot.
+ */
+export async function backfillContractDocuments() {
+  const pending = await queries.getUnarchivedSignedContracts();
+  if (pending.length === 0) return 0;
+
+  let registered = 0;
+  for (const contract of pending) {
+    try {
+      const pdf = decryptContractData(await fs.readFile(contract.pdf_path, 'utf8'));
+      const signedAt = contract.signed_at ? new Date(contract.signed_at).toISOString().slice(0, 10) : null;
+      const added = await queries.registerContractDocument({
+        title: `Umowa najmu ${contract.contract_number}`,
+        reservationId: contract.reservation_id ?? null,
+        customerEmail: contract.customer_email || '',
+        documentDate: signedAt,
+        fileName: `umowa-${String(contract.contract_number).replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+        filePath: contract.pdf_path,
+        sizeBytes: pdf.length,
+        fileHash: contract.pdf_hash || sha256(pdf),
+      });
+      if (added) registered += 1;
+    } catch (error) {
+      console.error(`Nie udało się zarchiwizować umowy ${contract.contract_number}:`, error);
+    }
+  }
+
+  if (registered > 0) {
+    console.log(`📄 Dodano ${registered} podpisanych umów do archiwum dokumentów`);
+  }
+  return registered;
+}
+
+/** Re-send the existing immutable PDF without regenerating or changing its hash. */
+export async function resendSignedContractEmail(id: number) {  const contract = await queries.getContractById(id);
+  if (!contract || contract.status !== 'signed' || !contract.pdf_path) {
+    throw new Error('Podpisana umowa nie istnieje');
+  }
+  const snapshot = parseSnapshot(contract.snapshot_encrypted);
+  const pdf = decryptContractData(await fs.readFile(contract.pdf_path, 'utf8'));
+  const currentHash = sha256(pdf);
+  if (contract.pdf_hash && currentHash !== contract.pdf_hash) {
+    throw new Error('Integralność pliku PDF jest nieprawidłowa — wysyłka została zablokowana');
+  }
+
+  const result = await sendSignedContractEmail(
+    snapshot.renter.email,
+    snapshot.renter.name,
+    snapshot.contractNumber,
+    pdf
+  );
+  if (result.delivered) await queries.markContractEmailed(id);
+
+  return {
+    delivered: result.delivered,
+    transport: result.transport,
+    email: snapshot.renter.email,
+    contractNumber: snapshot.contractNumber,
   };
 }

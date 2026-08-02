@@ -1,14 +1,68 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z, ZodError } from 'zod';
 import { queries } from './db.js';
 import { config } from './config.js';
 import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
-import { getProductName, products } from './products.js';
-import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendNewsletterEmail, sendProductAvailabilityNotification } from './email.js';
-import { newsletterPostSchema } from './schemas.js';
-import { createContractSchema, createContractSession, readSignedContractPdfById } from './contracts/service.js';
+import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail } from './email.js';
+import { calculateRentalItemsPrice, getProductName, products } from './products.js';
+import {
+  newsletterPostSchema,
+  productInventorySchema,
+  documentMetadataSchema,
+  discountSchema,
+  couponCreateSchema,
+  businessSettingsSchema,
+} from './schemas.js';
+import { contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
+import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
+import { deleteDocumentFile, documentUpload, readDocumentFile, saveDocumentFile } from './documents.js';
+import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
 const router = Router();
+
+const BUSINESS_SETTINGS_KEY = 'business_settings';
+
+/** Stored settings merged over schema defaults, so new options appear without a migration. */
+const loadBusinessSettings = async () => {
+  const raw = await queries.getSetting(BUSINESS_SETTINGS_KEY);
+  let stored: unknown = {};
+  if (raw) {
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      stored = {};
+    }
+  }
+  const parsed = businessSettingsSchema.safeParse(stored);
+  return parsed.success ? parsed.data : businessSettingsSchema.parse({});
+};
+
+const termChangeSchema = z.object({
+  endDate: z.string().nullable().optional(),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Nieprawidłowa godzina zwrotu'),
+  isIndefinite: z.boolean(),
+  note: z.string().trim().min(3, 'Podaj powód lub sposób uzgodnienia zmiany').max(500),
+  changedBy: z.string().trim().min(3, 'Podaj pracownika zatwierdzającego zmianę').max(120),
+});
+
+const reservationStatuses = ['pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected', 'cancelled'] as const;
+const statusChangeSchema = z.object({
+  status: z.enum(reservationStatuses),
+  note: z.string().trim().max(500).optional(),
+  changedBy: z.string().trim().max(120).optional(),
+  notifyCustomer: z.boolean().optional(),
+});
+
+const reservationProductIds = (reservation: any): string[] => {
+  if (Array.isArray(reservation.items) && reservation.items.length > 0) {
+    return reservation.items.map((item: any) => String(item.product_id));
+  }
+  return [String(reservation.product_id)];
+};
+
+const reservationProductNames = (reservation: any): string =>
+  reservationProductIds(reservation).map(getProductName).join(', ');
 
 // Admin authentication middleware - verifies signed, expiring token
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -104,7 +158,142 @@ router.post('/change-password', adminAuth, async (req: Request, res: Response) =
   }
 });
 
+// === PRODUCT INVENTORY ===
+router.get('/products', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await queries.getProducts(true) });
+  } catch (error) {
+    console.error('Get admin products error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać magazynu' });
+  }
+});
+
+router.post('/products/images', adminAuth, (req: Request, res: Response) => {
+  productImageUpload.single('image')(req, res, async (uploadError) => {
+    try {
+      if (uploadError) {
+        const message = uploadError instanceof Error && uploadError.message.includes('File too large')
+          ? 'Zdjęcie może mieć maksymalnie 5 MB'
+          : 'Nie udało się odczytać zdjęcia';
+        res.status(400).json({ success: false, message });
+        return;
+      }
+      if (!req.file?.buffer) {
+        res.status(400).json({ success: false, message: 'Wybierz zdjęcie do wysłania' });
+        return;
+      }
+      const url = await saveProductImage(req.file.buffer);
+      res.status(201).json({ success: true, data: { url }, message: 'Zdjęcie zostało dodane' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nie udało się zapisać zdjęcia';
+      res.status(400).json({ success: false, message });
+    }
+  });
+});
+
+router.delete('/products/images/:filename', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const filename = req.params.filename as string;
+    const url = `/api/product-images/${filename}`;
+    if (await queries.isProductImageInUse(url)) {
+      res.status(409).json({ success: false, message: 'Najpierw usuń zdjęcie z galerii produktu i zapisz zmiany' });
+      return;
+    }
+    await deleteProductImage(filename);
+    res.json({ success: true, message: 'Plik zdjęcia został usunięty' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się usunąć zdjęcia';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/products', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const data = productInventorySchema.parse(req.body);
+    const product = await queries.createProduct(data);
+    res.status(201).json({ success: true, data: product, message: 'Produkt został dodany' });
+  } catch (error: any) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane produktu' });
+      return;
+    }
+    if (error?.code === '23505') {
+      res.status(409).json({ success: false, message: 'Produkt o takim ID już istnieje' });
+      return;
+    }
+    console.error('Create product error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się dodać produktu' });
+  }
+});
+
+router.put('/products/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const data = productInventorySchema.parse({ ...req.body, id });
+    const product = await queries.updateProduct(id, data);
+    if (!product) {
+      res.status(404).json({ success: false, message: 'Produkt nie istnieje' });
+      return;
+    }
+    res.json({ success: true, data: product, message: 'Produkt został zapisany' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane produktu' });
+      return;
+    }
+    console.error('Update product error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać produktu' });
+  }
+});
+
+router.delete('/products/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deletedProduct = await queries.deleteProduct(req.params.id as string);
+    if (!deletedProduct) {
+      res.status(409).json({
+        success: false,
+        message: 'Produktu użytego w rezerwacji nie można usunąć. Ukryj go zamiast tego.',
+      });
+      return;
+    }
+    const uploadedImages = Array.isArray(deletedProduct.images)
+      ? deletedProduct.images.filter((url: unknown): url is string =>
+          typeof url === 'string' && url.startsWith('/api/product-images/'))
+      : [];
+    await Promise.all(uploadedImages.map((url: string) =>
+      deleteProductImage(url.split('/').pop() as string).catch((error) =>
+        console.error('Delete orphaned product image error:', error))))
+    res.json({ success: true, message: 'Produkt został usunięty' });
+  } catch (error) {
+    console.error('Delete product error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się usunąć produktu' });
+  }
+});
+
 // === RENTAL CONTRACTS (employee-assisted kiosk flow) ===
+router.post('/contracts/validate', adminAuth, (req: Request, res: Response) => {
+  try {
+    contractDetailsSchema.parse({
+      ...req.body,
+      deposit: Number(req.body?.deposit),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        success: false,
+        message: error.issues[0]?.message || 'Sprawdź dane umowy',
+        errors: error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+      return;
+    }
+    res.status(400).json({ success: false, message: 'Nieprawidłowe dane umowy' });
+  }
+});
+
 router.post('/contracts', adminAuth, async (req: Request, res: Response) => {
   try {
     const input = createContractSchema.parse({
@@ -115,6 +304,17 @@ router.post('/contracts', adminAuth, async (req: Request, res: Response) => {
     const session = await createContractSession(input);
     res.status(201).json({ success: true, data: session });
   } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        success: false,
+        message: error.issues[0]?.message || 'Sprawdź dane umowy',
+        errors: error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+      return;
+    }
     const message = error instanceof Error ? error.message : 'Nie udało się przygotować umowy';
     res.status(400).json({ success: false, message });
   }
@@ -163,8 +363,173 @@ router.get('/contracts/:id/pdf', adminAuth, async (req: Request, res: Response) 
   }
 });
 
+router.post('/contracts/:id/regenerate-pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await regenerateSignedContractPdf(
+      Number(req.params.id),
+      req.body?.resendEmail === true
+    );
+    res.json({
+      success: true,
+      message: 'PDF umowy został zregenerowany z oryginalnego snapshotu i podpisu',
+      data: { contractNumber: result.contractNumber, pdfHash: result.pdfHash },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się zregenerować PDF';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/contracts/:id/resend-email', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await resendSignedContractEmail(Number(req.params.id));
+    if (!result.delivered) {
+      const message = result.transport === 'console'
+        ? 'E-mail nie został dostarczony: transport pocztowy nie jest skonfigurowany'
+        : `E-mail nie został dostarczony: dostawca ${result.transport.toUpperCase()} odrzucił wysyłkę`;
+      res.status(503).json({
+        success: false,
+        message,
+        data: result,
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Umowa ${result.contractNumber} została wysłana ponownie na ${result.email}`,
+      data: result,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się wysłać umowy';
+    res.status(400).json({ success: false, message });
+  }
+});
+
 // Get all reservations
 router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
+
+  router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res: Response) => {
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    const changes = await queries.getReservationTermChanges(reservation.id);
+    res.json({ success: true, data: changes });
+  });
+
+  router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {
+    try {
+      const input = termChangeSchema.parse(req.body);
+      const reservation = await queries.getReservationById(Number(req.params.id));
+      if (!reservation) {
+        res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+        return;
+      }
+      if (reservation.status !== 'picked_up') {
+        res.status(409).json({ success: false, message: 'Termin można zmienić tylko dla wydanego sprzętu' });
+        return;
+      }
+      if (input.isIndefinite && reservation.is_indefinite) {
+        res.status(400).json({ success: false, message: 'Ten wynajem jest już bezterminowy' });
+        return;
+      }
+
+      let endDate: string | null = null;
+      let days = Number(reservation.days);
+      let basePrice = Number(reservation.base_price);
+      let totalPrice = Number(reservation.total_price);
+      if (!input.isIndefinite) {
+        if (!input.endDate || Number.isNaN(Date.parse(input.endDate))) {
+          res.status(400).json({ success: false, message: 'Podaj prawidłową datę zwrotu' });
+          return;
+        }
+        endDate = input.endDate;
+        const currentEnd = reservation.end_date ? String(reservation.end_date) : null;
+        const currentEndAt = currentEnd
+          ? Date.parse(`${currentEnd.slice(0, 10)}T${reservation.end_time || '09:00'}`)
+          : null;
+        const newEndAt = Date.parse(`${endDate}T${input.endTime}`);
+        if (currentEndAt !== null && newEndAt <= currentEndAt) {
+          res.status(400).json({ success: false, message: 'Nowy termin musi być późniejszy od obecnego terminu zwrotu' });
+          return;
+        }
+        if (Date.parse(endDate) < Date.parse(String(reservation.start_date))) {
+          res.status(400).json({ success: false, message: 'Termin zwrotu nie może być wcześniejszy od odbioru' });
+          return;
+        }
+
+        const dateDiff = Math.round(
+          (Date.parse(endDate) - Date.parse(String(reservation.start_date))) / 86_400_000
+        );
+        const [startHour, startMinute] = String(reservation.start_time || '09:00').split(':').map(Number);
+        const [endHour, endMinute] = input.endTime.split(':').map(Number);
+        const extraDay = endHour * 60 + endMinute > startHour * 60 + startMinute ? 1 : 0;
+        days = Math.max(1, dateDiff + extraDay);
+        const pickupDay = new Date(`${String(reservation.start_date)}T12:00:00`).getDay();
+        const pricing = calculateRentalItemsPrice(
+          reservationProductIds(reservation),
+          days,
+          pickupDay === 5 && days === 3
+        );
+        if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
+        basePrice = pricing.basePrice;
+        const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
+        totalPrice = basePrice + fixedFees;
+      }
+
+      const result = await queries.changeReservationTerm({
+        id: reservation.id,
+        endDate,
+        endTime: input.endTime,
+        isIndefinite: input.isIndefinite,
+        days,
+        basePrice,
+        totalPrice,
+        itemPrices: input.isIndefinite
+          ? (reservation.items || []).map((item: any) => ({ productId: String(item.product_id), itemPrice: Number(item.item_price) }))
+          : (calculateRentalItemsPrice(
+              reservationProductIds(reservation),
+              days,
+              new Date(`${String(reservation.start_date)}T12:00:00`).getDay() === 5 && days === 3
+            )?.items.map((item) => ({ productId: item.productId, itemPrice: item.itemPrice })) || []),
+        note: input.note,
+        changedBy: input.changedBy,
+      });
+      if (result.conflicts?.length) {
+        const conflict = result.conflicts[0];
+        res.status(409).json({
+          success: false,
+          message: `Nie można zmienić terminu: ${getProductName(conflict.product_id)} jest zarezerwowany od ${conflict.start_date}`,
+          data: { conflicts: result.conflicts },
+        });
+        return;
+      }
+
+      const priceDelta = totalPrice - Number(reservation.total_price);
+      const emailResult = await sendRentalTermChangedEmail({
+        email: reservation.email,
+        name: reservation.name,
+        productName: reservationProductNames(reservation),
+        endDate: input.isIndefinite ? 'bezterminowo - do odwołania' : `${endDate} ${input.endTime}`,
+        totalPrice,
+        priceDelta,
+        note: input.note,
+      });
+      res.json({
+        success: true,
+        message: input.isIndefinite ? 'Wynajem zmieniono na bezterminowy' : 'Termin wynajmu został przedłużony',
+        data: { reservation: result.reservation, priceDelta, emailDelivered: emailResult.delivered },
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zmiany' });
+        return;
+      }
+      console.error('Reservation term change error:', error);
+      res.status(500).json({ success: false, message: 'Nie udało się zmienić terminu wynajmu' });
+    }
+  });
   try {
     const status = req.query.status as string | undefined;
     
@@ -182,20 +547,22 @@ router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
   }
 });
 
+router.get('/reservations/:id/status-changes', adminAuth, async (req: Request, res: Response) => {
+  const reservation = await queries.getReservationById(Number(req.params.id));
+  if (!reservation) {
+    res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+    return;
+  }
+  const changes = await queries.getReservationStatusChanges(reservation.id);
+  res.json({ success: true, data: changes });
+});
+
 // Update reservation status
 router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
-
-    const validStatuses = ['pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected', 'cancelled'];
-    if (!validStatuses.includes(status)) {
-      res.status(400).json({ 
-        success: false, 
-        message: `Nieprawidłowy status. Dozwolone: ${validStatuses.join(', ')}` 
-      });
-      return;
-    }
+    const input = statusChangeSchema.parse(req.body);
+    const { status } = input;
 
     const reservation = await queries.getReservationById(Number(id));
     if (!reservation) {
@@ -213,18 +580,57 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         return;
       }
     }
+
+    if (status === 'returned' && reservation.is_indefinite) {
+      res.status(409).json({
+        success: false,
+        message: 'Najpierw ustal faktyczny termin zwrotu i rozlicz wynajem bezterminowy',
+      });
+      return;
+    }
+
+    const activeStatuses = ['pending', 'confirmed', 'picked_up'];
+    if (activeStatuses.includes(status) && !activeStatuses.includes(reservation.status)) {
+      const conflicts = await queries.getReservationActivationConflicts({
+        id: reservation.id,
+        productIds: reservationProductIds(reservation),
+        startDate: String(reservation.start_date),
+        endDate: reservation.end_date ? String(reservation.end_date) : null,
+      });
+      if (conflicts.length > 0) {
+        res.status(409).json({
+          success: false,
+          message: `Nie można przywrócić aktywnego statusu: termin koliduje z rezerwacją #${conflicts[0].id}`,
+          data: { conflicts },
+        });
+        return;
+      }
+    }
     
-    await queries.updateReservationStatus({ id: Number(id), status });
+    const notifyCustomer = input.notifyCustomer
+      ?? ['confirmed', 'rejected', 'picked_up', 'returned'].includes(status);
+    const updateResult = await queries.updateReservationStatus({
+      id: Number(id),
+      status,
+      note: input.note || `Status zmieniono na: ${status}`,
+      changedBy: input.changedBy || 'Panel administratora',
+      notifyCustomer,
+    });
+    if (!updateResult.changed) {
+      res.json({ success: true, message: 'Status nie wymagał zmiany', data: updateResult.reservation });
+      return;
+    }
     
     // Send email to customer on confirm/reject
-    if (status === 'confirmed' || status === 'rejected') {
+    if (notifyCustomer && (status === 'confirmed' || status === 'rejected')) {
       try {
         await sendReservationStatusEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
-          endDate: reservation.end_date,
+          endDate: reservation.end_date || 'bezterminowo',
+          isIndefinite: Boolean(reservation.is_indefinite),
           totalPrice: reservation.total_price,
         }, status);
         console.log(`📧 Email sent to ${reservation.email} - reservation ${status}`);
@@ -234,14 +640,14 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     }
     
     // Send email when equipment is picked up
-    if (status === 'picked_up') {
+    if (notifyCustomer && status === 'picked_up') {
       try {
         await sendPickedUpEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
-          endDate: reservation.end_date,
+          endDate: reservation.end_date || 'bezterminowo',
           totalPrice: reservation.total_price,
         });
         console.log(`📧 Picked up email sent to ${reservation.email}`);
@@ -252,38 +658,37 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     
     // Send email when equipment is returned
     if (status === 'returned') {
-      try {
-        await sendReturnedEmail({
-          email: reservation.email,
-          name: reservation.name,
-          productName: getProductName(reservation.product_id),
-          startDate: reservation.start_date,
-          endDate: reservation.end_date,
-          totalPrice: reservation.total_price,
-        });
-        console.log(`📧 Returned email sent to ${reservation.email}`);
-      } catch (emailError) {
-        console.error('Email send error:', emailError);
+      if (notifyCustomer) {
+        try {
+          await sendReturnedEmail({
+            email: reservation.email,
+            name: reservation.name,
+            productName: reservationProductNames(reservation),
+            startDate: reservation.start_date,
+            endDate: reservation.end_date || 'bezterminowo',
+            totalPrice: reservation.total_price,
+          });
+          console.log(`📧 Returned email sent to ${reservation.email}`);
+        } catch (emailError) {
+          console.error('Email send error:', emailError);
+        }
       }
 
       // Auto-send availability notifications
       try {
-        const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
-        const productName = getProductName(reservation.product_id);
-        
-        for (const notification of waitingNotifications) {
-          try {
-            const result = await sendProductAvailabilityNotification(
-              notification.email,
-              productName,
-              reservation.product_id
-            );
-            if (result.success) {
-              await queries.markNotificationAsSent(notification.id);
-              console.log(`📧 Availability notification sent to ${notification.email}`);
+        for (const productId of reservationProductIds(reservation)) {
+          const waitingNotifications = await queries.getWaitingNotificationsForProduct(productId);
+          const productName = getProductName(productId);
+          for (const notification of waitingNotifications) {
+            try {
+              const result = await sendProductAvailabilityNotification(notification.email, productName, productId);
+              if (result.success) {
+                await queries.markNotificationAsSent(notification.id);
+                console.log(`📧 Availability notification sent to ${notification.email}`);
+              }
+            } catch (notifyError) {
+              console.error(`Failed to notify ${notification.email}:`, notifyError);
             }
-          } catch (notifyError) {
-            console.error(`Failed to notify ${notification.email}:`, notifyError);
           }
         }
       } catch (notifyError) {
@@ -294,21 +699,16 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     // Auto-send availability notifications when cancelled/rejected
     if (status === 'cancelled' || status === 'rejected') {
       try {
-        const waitingNotifications = await queries.getWaitingNotificationsForProduct(reservation.product_id);
-        const productName = getProductName(reservation.product_id);
-        
-        for (const notification of waitingNotifications) {
-          try {
-            const result = await sendProductAvailabilityNotification(
-              notification.email,
-              productName,
-              reservation.product_id
-            );
-            if (result.success) {
-              await queries.markNotificationAsSent(notification.id);
+        for (const productId of reservationProductIds(reservation)) {
+          const waitingNotifications = await queries.getWaitingNotificationsForProduct(productId);
+          const productName = getProductName(productId);
+          for (const notification of waitingNotifications) {
+            try {
+              const result = await sendProductAvailabilityNotification(notification.email, productName, productId);
+              if (result.success) await queries.markNotificationAsSent(notification.id);
+            } catch (notifyError) {
+              console.error(`Failed to notify ${notification.email}:`, notifyError);
             }
-          } catch (notifyError) {
-            console.error(`Failed to notify ${notification.email}:`, notifyError);
           }
         }
       } catch (notifyError) {
@@ -316,14 +716,16 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       }
     }
     
-    const updated = await queries.getReservationById(Number(id));
-
     res.json({ 
       success: true, 
       message: `Status zmieniony na: ${status}`,
-      data: updated
+      data: updateResult.reservation
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowy status' });
+      return;
+    }
     console.error('Admin update reservation error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
   }
@@ -578,7 +980,7 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
         await sendPickupReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -594,7 +996,7 @@ router.post('/send-reminders', adminAuth, async (_req: Request, res: Response) =
         await sendReturnReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -646,6 +1048,8 @@ router.get('/debug-reminders', adminAuth, async (_req: Request, res: Response) =
         name: r.name,
         email: r.email,
         product_id: r.product_id,
+        product_ids: reservationProductIds(r),
+        product_names: reservationProductNames(r),
         status: r.status,
         start_date: r.start_date,
         end_date: r.end_date,
@@ -952,6 +1356,418 @@ router.post('/notifications/send/:productId', adminAuth, async (req: Request, re
   } catch (error) {
     console.error('Send notifications error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// === DOCUMENT ARCHIVE ===
+
+const parseDocumentMetadata = (body: Record<string, any>) =>
+  documentMetadataSchema.parse({
+    title: body.title,
+    category: body.category || undefined,
+    reservationId: body.reservationId ? Number(body.reservationId) : null,
+    customerEmail: typeof body.customerEmail === 'string' ? body.customerEmail : '',
+    documentDate: body.documentDate || null,
+    notes: typeof body.notes === 'string' ? body.notes : '',
+  });
+
+router.get('/documents', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const documents = await queries.getDocuments({
+      archived: req.query.archived === undefined ? undefined : req.query.archived === 'true',
+      category: typeof req.query.category === 'string' && req.query.category ? req.query.category : undefined,
+      reservationId: req.query.reservationId ? Number(req.query.reservationId) : undefined,
+      search: typeof req.query.search === 'string' && req.query.search ? req.query.search : undefined,
+    });
+    res.json({ success: true, data: documents });
+  } catch (error) {
+    console.error('Get documents error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać dokumentów' });
+  }
+});
+
+router.post('/documents', adminAuth, (req: Request, res: Response) => {
+  documentUpload.single('file')(req, res, async (uploadError) => {
+    let stored: Awaited<ReturnType<typeof saveDocumentFile>> | null = null;
+    try {
+      if (uploadError) {
+        const message = uploadError instanceof Error && uploadError.message.includes('File too large')
+          ? 'Dokument może mieć maksymalnie 15 MB'
+          : 'Nie udało się odczytać pliku';
+        res.status(400).json({ success: false, message });
+        return;
+      }
+      if (!req.file?.buffer) {
+        res.status(400).json({ success: false, message: 'Wybierz plik do wysłania' });
+        return;
+      }
+
+      const metadata = parseDocumentMetadata(req.body ?? {});
+      stored = await saveDocumentFile(req.file.buffer);
+
+      const document = await queries.insertDocument({
+        title: metadata.title,
+        category: metadata.category,
+        reservationId: metadata.reservationId,
+        customerEmail: metadata.customerEmail,
+        documentDate: metadata.documentDate,
+        // Client-supplied name is only a label; the stored path is server-generated.
+        fileName: `${metadata.title.replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 60)}.${stored.extension}`,
+        filePath: stored.filePath,
+        mimeType: stored.mimeType,
+        sizeBytes: stored.sizeBytes,
+        fileHash: stored.fileHash,
+        source: 'manual',
+        notes: metadata.notes,
+        uploadedBy: 'admin',
+      });
+
+      res.status(201).json({ success: true, data: document, message: 'Dokument został dodany do archiwum' });
+    } catch (error) {
+      // Never leave an orphaned encrypted blob behind when the row insert fails.
+      if (stored) await deleteDocumentFile(stored.filePath).catch(() => undefined);
+      if (error instanceof ZodError) {
+        res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane dokumentu' });
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Nie udało się zapisać dokumentu';
+      console.error('Upload document error:', error);
+      res.status(400).json({ success: false, message });
+    }
+  });
+});
+
+router.get('/documents/:id/download', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const document = await queries.getDocumentById(Number(req.params.id));
+    if (!document) {
+      res.status(404).json({ success: false, message: 'Dokument nie istnieje' });
+      return;
+    }
+    const file = await readDocumentFile(document.file_path);
+    const safeName = String(document.file_name).replace(/[^\w.-]+/g, '_');
+    res.setHeader('Content-Type', document.mime_type);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(file);
+  } catch (error) {
+    console.error('Download document error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać dokumentu' });
+  }
+});
+
+router.put('/documents/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const metadata = parseDocumentMetadata(req.body ?? {});
+    const document = await queries.updateDocument(Number(req.params.id), metadata);
+    if (!document) {
+      res.status(404).json({ success: false, message: 'Dokument nie istnieje' });
+      return;
+    }
+    res.json({ success: true, data: document, message: 'Dokument został zapisany' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane dokumentu' });
+      return;
+    }
+    console.error('Update document error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać dokumentu' });
+  }
+});
+
+router.post('/documents/:id/archive', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const archived = req.body?.archived !== false;
+    const document = await queries.setDocumentArchived(Number(req.params.id), archived);
+    if (!document) {
+      res.status(404).json({ success: false, message: 'Dokument nie istnieje' });
+      return;
+    }
+    res.json({
+      success: true,
+      data: document,
+      message: archived ? 'Dokument przeniesiony do archiwum' : 'Dokument przywrócony z archiwum',
+    });
+  } catch (error) {
+    console.error('Archive document error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zmienić statusu dokumentu' });
+  }
+});
+
+router.delete('/documents/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const document = await queries.getDocumentById(Number(req.params.id));
+    if (!document) {
+      res.status(404).json({ success: false, message: 'Dokument nie istnieje' });
+      return;
+    }
+    // Signed contracts are legally binding records - archive, never delete.
+    if (document.source === 'system') {
+      res.status(409).json({
+        success: false,
+        message: 'Umowy podpisanej w systemie nie można usunąć. Przenieś ją do archiwum.',
+      });
+      return;
+    }
+
+    const deleted = await queries.deleteDocument(document.id);
+    if (!deleted) {
+      res.status(404).json({ success: false, message: 'Dokument nie istnieje' });
+      return;
+    }
+    await deleteDocumentFile(deleted.file_path).catch((error) =>
+      console.error('Delete document file error:', error));
+    res.json({ success: true, message: 'Dokument został usunięty' });
+  } catch (error) {
+    console.error('Delete document error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się usunąć dokumentu' });
+  }
+});
+
+// === DISCOUNTS ===
+
+router.get('/discounts', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await queries.getDiscounts() });
+  } catch (error) {
+    console.error('Get discounts error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać rabatów' });
+  }
+});
+
+router.post('/discounts', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const data = discountSchema.parse(req.body);
+    const discount = await queries.insertDiscount(data);
+    res.status(201).json({ success: true, data: discount, message: 'Rabat został dodany' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane rabatu' });
+      return;
+    }
+    console.error('Create discount error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się dodać rabatu' });
+  }
+});
+
+router.put('/discounts/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const data = discountSchema.parse(req.body);
+    const discount = await queries.updateDiscount(Number(req.params.id), data);
+    if (!discount) {
+      res.status(404).json({ success: false, message: 'Rabat nie istnieje' });
+      return;
+    }
+    res.json({ success: true, data: discount, message: 'Rabat został zapisany' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane rabatu' });
+      return;
+    }
+    console.error('Update discount error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać rabatu' });
+  }
+});
+
+router.delete('/discounts/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await queries.deleteDiscount(Number(req.params.id));
+    if (!deleted) {
+      res.status(404).json({ success: false, message: 'Rabat nie istnieje' });
+      return;
+    }
+    res.json({ success: true, message: 'Rabat został usunięty' });
+  } catch (error) {
+    console.error('Delete discount error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się usunąć rabatu' });
+  }
+});
+
+// === COUPONS ===
+
+const addDaysLocal = (days: number): string => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+const buildCouponPdf = async (coupon: any) => {
+  const settings = await loadBusinessSettings();
+  return generateCouponPdf({
+    code: coupon.code,
+    discountType: coupon.discount_type,
+    value: Number(coupon.value),
+    minTotal: Number(coupon.min_total),
+    expiresOn: coupon.expires_on ? String(coupon.expires_on).slice(0, 10) : null,
+    customerName: coupon.customer_name || '',
+    termsText: settings.coupons.termsText,
+  });
+};
+
+router.get('/coupons', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
+    const [data, stats] = await Promise.all([queries.getCoupons(status), queries.getCouponStats()]);
+    res.json({ success: true, data, stats });
+  } catch (error) {
+    console.error('Get coupons error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać kuponów' });
+  }
+});
+
+router.post('/coupons', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const data = couponCreateSchema.parse(req.body);
+
+    // Retry on the (astronomically unlikely) unique-code collision.
+    let coupon: any = null;
+    for (let attempt = 0; attempt < 5 && !coupon; attempt += 1) {
+      try {
+        coupon = await queries.insertCoupon({
+          code: generateCouponCode(),
+          discountType: data.discountType,
+          value: data.value,
+          customerEmail: data.customerEmail,
+          customerName: data.customerName,
+          minTotal: data.minTotal,
+          expiresOn: addDaysLocal(data.validDays),
+          issuedForReservationId: data.issuedForReservationId,
+          issuedBy: 'admin',
+          note: data.note,
+        });
+      } catch (error: any) {
+        if (error?.code !== '23505') throw error;
+      }
+    }
+    if (!coupon) {
+      res.status(500).json({ success: false, message: 'Nie udało się wygenerować unikalnego kodu' });
+      return;
+    }
+
+    let emailed = false;
+    if (data.sendEmail && data.customerEmail) {
+      const settings = await loadBusinessSettings();
+      const pdf = await buildCouponPdf(coupon);
+      const result = await sendCouponEmail(data.customerEmail, {
+        code: coupon.code,
+        customerName: coupon.customer_name,
+        valueLabel: formatCouponValue(coupon.discount_type, Number(coupon.value)),
+        minTotal: Number(coupon.min_total),
+        expiresOn: String(coupon.expires_on).slice(0, 10),
+        termsText: settings.coupons.termsText,
+      }, pdf);
+      emailed = result.delivered;
+      if (emailed) await queries.markCouponEmailSent(coupon.id);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: coupon,
+      emailed,
+      message: emailed ? 'Kupon wygenerowany i wysłany mailem' : 'Kupon został wygenerowany',
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane kuponu' });
+      return;
+    }
+    console.error('Create coupon error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wygenerować kuponu' });
+  }
+});
+
+router.get('/coupons/:id/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const coupon = await queries.getCouponById(Number(req.params.id));
+    if (!coupon) {
+      res.status(404).json({ success: false, message: 'Kupon nie istnieje' });
+      return;
+    }
+    const pdf = await buildCouponPdf(coupon);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="kupon-${coupon.code}.pdf"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(pdf);
+  } catch (error) {
+    console.error('Coupon PDF error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wygenerować PDF kuponu' });
+  }
+});
+
+router.post('/coupons/:id/send-email', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const coupon = await queries.getCouponById(Number(req.params.id));
+    if (!coupon) {
+      res.status(404).json({ success: false, message: 'Kupon nie istnieje' });
+      return;
+    }
+    const recipient = String(req.body?.email || coupon.customer_email || '').trim();
+    if (!recipient) {
+      res.status(400).json({ success: false, message: 'Podaj adres email odbiorcy' });
+      return;
+    }
+
+    const settings = await loadBusinessSettings();
+    const pdf = await buildCouponPdf(coupon);
+    const result = await sendCouponEmail(recipient, {
+      code: coupon.code,
+      customerName: coupon.customer_name || '',
+      valueLabel: formatCouponValue(coupon.discount_type, Number(coupon.value)),
+      minTotal: Number(coupon.min_total),
+      expiresOn: coupon.expires_on ? String(coupon.expires_on).slice(0, 10) : null,
+      termsText: settings.coupons.termsText,
+    }, pdf);
+
+    if (!result.delivered) {
+      res.status(502).json({ success: false, message: 'Nie udało się wysłać kuponu mailem' });
+      return;
+    }
+    await queries.markCouponEmailSent(coupon.id);
+    res.json({ success: true, message: `Kupon wysłany na ${recipient}` });
+  } catch (error) {
+    console.error('Send coupon email error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wysłać kuponu' });
+  }
+});
+
+router.post('/coupons/:id/cancel', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const coupon = await queries.cancelCoupon(Number(req.params.id));
+    if (!coupon) {
+      res.status(409).json({ success: false, message: 'Można anulować tylko aktywny kupon' });
+      return;
+    }
+    res.json({ success: true, data: coupon, message: 'Kupon został anulowany' });
+  } catch (error) {
+    console.error('Cancel coupon error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się anulować kuponu' });
+  }
+});
+
+// === BUSINESS SETTINGS ===
+
+router.get('/settings', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await loadBusinessSettings() });
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać ustawień' });
+  }
+});
+
+router.put('/settings', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const settings = businessSettingsSchema.parse(req.body ?? {});
+    await queries.setSetting(BUSINESS_SETTINGS_KEY, JSON.stringify(settings));
+    res.json({ success: true, data: settings, message: 'Ustawienia zostały zapisane' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe ustawienia' });
+      return;
+    }
+    console.error('Update settings error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać ustawień' });
   }
 });
 

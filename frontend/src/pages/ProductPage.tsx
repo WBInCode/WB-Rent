@@ -12,7 +12,8 @@ import {
   Star,
   Info,
   MapPin,
-  Phone
+  Phone,
+  ChevronRight,
 } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { Navbar } from '@/components/Navbar';
@@ -22,10 +23,12 @@ import { getProductById, getCategoryById, getProductImages } from '@/data/produc
 import { formatPrice } from '@/lib/utils';
 import { revealVariants, staggerContainerVariants, staggerItemVariants } from '@/lib/motion';
 import { getProductsAvailability } from '@/services/api';
+import { useReservationContext } from '@/context/ReservationContext';
 
 export function ProductPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { setPreFillData } = useReservationContext();
   const product = id ? getProductById(id) : undefined;
   const category = product ? getCategoryById(product.categoryId) : undefined;
   const [isAvailable, setIsAvailable] = useState<boolean>(product?.available ?? false);
@@ -41,6 +44,12 @@ export function ProductPage() {
 
     const prevTitle = document.title;
     document.title = `${product.name} — wynajem | WB-Rent`;
+    const productUrl = `https://wb-rent.pl/produkt/${product.id}`;
+
+    // Point the canonical at this product instead of leaving the homepage value.
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    const prevCanonical = canonical?.href;
+    if (canonical) canonical.href = productUrl;
 
     const script = document.createElement('script');
     script.type = 'application/ld+json';
@@ -49,22 +58,38 @@ export function ProductPage() {
       '@type': 'Product',
       name: product.name,
       description: product.description,
-      image: `https://wb-rent.pl${product.image}`,
+      image: getProductImages(product).map((image) => image.startsWith('http') ? image : `https://wb-rent.pl${image}`),
       brand: { '@type': 'Brand', name: product.name.includes('Kärcher') ? 'Kärcher' : 'WB-Rent' },
       offers: {
         '@type': 'Offer',
-        url: `https://wb-rent.pl/produkt/${product.id}`,
+        url: productUrl,
         priceCurrency: 'PLN',
         price: product.pricePerDay,
         availability: isAvailable ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
         businessFunction: 'http://purl.org/goodrelations/v1#LeaseOut',
+        seller: { '@id': 'https://wb-rent.pl/#business' },
       },
     });
     document.head.appendChild(script);
 
+    const breadcrumb = document.createElement('script');
+    breadcrumb.type = 'application/ld+json';
+    breadcrumb.text = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Start', item: 'https://wb-rent.pl/' },
+        { '@type': 'ListItem', position: 2, name: 'Sprzęt', item: 'https://wb-rent.pl/sprzet' },
+        { '@type': 'ListItem', position: 3, name: product.name, item: productUrl },
+      ],
+    });
+    document.head.appendChild(breadcrumb);
+
     return () => {
       document.title = prevTitle;
+      if (canonical && prevCanonical) canonical.href = prevCanonical;
       script.remove();
+      breadcrumb.remove();
     };
   }, [product, isAvailable]);
 
@@ -107,16 +132,17 @@ export function ProductPage() {
   }
 
   const handleReservation = () => {
-    // Navigate to home and scroll to reservation with product preselected
-    navigate('/#rezerwacja', { state: { productId: product.id, categoryId: product.categoryId } });
-    
-    // Delay scroll to ensure navigation completes
-    setTimeout(() => {
-      const element = document.getElementById('rezerwacja');
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 100);
+    // The reservation form reads its prefill from the shared context, which
+    // lives above the router - route state would be ignored.
+    setPreFillData({
+      productId: product.id,
+      categoryId: product.categoryId,
+      startDate: '',
+      endDate: '',
+      city: '',
+      delivery: false,
+    });
+    navigate('/rezerwacja');
   };
 
   return (
@@ -136,15 +162,15 @@ export function ProductPage() {
               <li>
                 <Link to="/" className="hover:text-gold transition-colors">Strona główna</Link>
               </li>
-              <li>/</li>
+              <li><ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></li>
               <li>
-                <Link to="/#produkty" className="hover:text-gold transition-colors">Produkty</Link>
+                <Link to="/sprzet" className="hover:text-gold transition-colors">Produkty</Link>
               </li>
-              <li>/</li>
+              <li><ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></li>
               {category && (
                 <>
                   <li className="text-text-secondary">{category.name}</li>
-                  <li>/</li>
+                  <li><ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></li>
                 </>
               )}
               <li className="text-gold font-medium truncate max-w-[200px]">{product.name}</li>

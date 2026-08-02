@@ -27,13 +27,13 @@ export function ContactPage() {
             animate="visible"
             className="max-w-3xl mb-12 md:mb-16"
           >
-            <div className="inline-flex items-center gap-2 text-gold text-sm font-medium uppercase tracking-wider mb-4">
+            <div className="section-kicker">
               <MessageCircle className="w-4 h-4" /> Kontakt
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary">
+            <h1 className="section-title max-w-3xl">
               Porozmawiajmy o Twoim wynajmie
             </h1>
-            <p className="text-lg md:text-xl text-text-secondary mt-5 max-w-2xl">
+            <p className="section-copy max-w-2xl">
               Doradzimy urządzenie, sprawdzimy termin i odpowiemy na pytania dotyczące odbioru,
               dostawy oraz obsługi sprzętu.
             </p>

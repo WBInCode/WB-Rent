@@ -1,5 +1,6 @@
 import { forwardRef } from 'react';
 import { motion, type HTMLMotionProps } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buttonHoverVariants, transitions } from '@/lib/motion';
 
@@ -30,7 +31,7 @@ const variantStyles: Record<ButtonVariant, string> = {
   `,
   ghost: `
     bg-transparent text-text-secondary font-medium
-    hover:text-text-primary hover:bg-white/5
+    hover:text-text-primary hover:bg-surface-soft
   `,
   outline: `
     bg-transparent text-gold font-medium
@@ -39,10 +40,12 @@ const variantStyles: Record<ButtonVariant, string> = {
   `,
 };
 
+// Fixed heights keep buttons aligned with inputs and selects of the same size
+// (40 / 48 / 56 px) instead of drifting with font metrics.
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: 'px-4 py-2 text-sm gap-1.5 rounded-[--radius-sm]',
-  md: 'px-6 py-3 text-base gap-2 rounded-[--radius-md]',
-  lg: 'px-8 py-4 text-lg gap-2.5 rounded-[--radius-lg]',
+  sm: 'h-10 px-4 text-sm gap-1.5 rounded-[--radius-sm]',
+  md: 'h-12 px-6 text-base gap-2 rounded-[--radius-md]',
+  lg: 'h-14 px-8 text-lg gap-2.5 rounded-[--radius-lg]',
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -83,26 +86,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {isLoading ? (
           <span className="inline-flex items-center gap-2">
-            <svg
-              className="animate-spin h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             Ładowanie...
           </span>
         ) : (

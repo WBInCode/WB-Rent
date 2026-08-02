@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import SignaturePad from 'signature_pad';
 import {
   ArrowLeft,
   CheckCircle2,
   CreditCard,
   Download,
-  Eraser,
   FileSignature,
   Loader2,
   ShieldCheck,
   XCircle,
 } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
+import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
 import {
   getContractPreview,
   submitContractSignature,
@@ -30,11 +29,12 @@ export function ContractSigningPage() {
   const [error, setError] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
-  const [hasSignature, setHasSignature] = useState(false);
+  const [hasLessorSignature, setHasLessorSignature] = useState(false);
+  const [hasRenterSignature, setHasRenterSignature] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignContractResponse | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const signaturePadRef = useRef<SignaturePad | null>(null);
+  const lessorSignatureRef = useRef<SignatureFieldHandle>(null);
+  const renterSignatureRef = useRef<SignatureFieldHandle>(null);
   const endMarkerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -66,54 +66,18 @@ export function ContractSigningPage() {
     return () => observer.disconnect();
   }, [preview]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !preview || preview.status === 'signed') return;
-
-    const pad = new SignaturePad(canvas, {
-      penColor: '#161616',
-      backgroundColor: '#ffffff',
-      minWidth: 1.2,
-      maxWidth: 3.2,
-      throttle: 8,
-    });
-    signaturePadRef.current = pad;
-    const updateState = () => setHasSignature(!pad.isEmpty());
-    pad.addEventListener('endStroke', updateState);
-
-    const resize = () => {
-      const data = pad.toData();
-      const ratio = Math.max(window.devicePixelRatio || 1, 1);
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * ratio;
-      canvas.height = 220 * ratio;
-      canvas.getContext('2d')?.scale(ratio, ratio);
-      pad.clear();
-      if (data.length > 0) pad.fromData(data);
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
-
-    return () => {
-      observer.disconnect();
-      pad.removeEventListener('endStroke', updateState);
-      pad.off();
-      signaturePadRef.current = null;
-    };
-  }, [preview]);
-
-  const clearSignature = () => {
-    signaturePadRef.current?.clear();
-    setHasSignature(false);
-  };
-
   const handleSign = async () => {
-    const pad = signaturePadRef.current;
-    if (!pad || pad.isEmpty() || !accepted || !hasReachedEnd) return;
+    const lessorPad = lessorSignatureRef.current;
+    const renterPad = renterSignatureRef.current;
+    if (!lessorPad || !renterPad || lessorPad.isEmpty() || renterPad.isEmpty() || !accepted || !hasReachedEnd) return;
     setSubmitting(true);
     setError('');
-    const response = await submitContractSignature(token, pad.toDataURL('image/png'), true);
+    const response = await submitContractSignature(
+      token,
+      renterPad.toDataURL(),
+      lessorPad.toDataURL(),
+      true
+    );
     if (response.success && response.data) {
       setResult(response.data);
     } else {
@@ -156,9 +120,21 @@ export function ContractSigningPage() {
           <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-5" />
           <h1 className="text-2xl font-bold mb-2">Umowa została podpisana</h1>
           <p className="text-text-secondary mb-2">{snapshot.contractNumber}</p>
-          <p className="text-sm text-text-muted mb-7">
-            Egzemplarz PDF został zapisany w systemie i wysłany na {snapshot.renter.email}.
+          <p className="text-sm text-text-muted mb-4">
+            Egzemplarz PDF został zapisany w systemie.
           </p>
+          {result && !result.emailDelivered ? (
+            <div className="mb-7 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-left">
+              <p className="text-sm font-semibold text-amber-300">E-mail nie został dostarczony</p>
+              <p className="text-xs text-text-secondary mt-1">
+                Pobierz PDF poniżej. Pracownik może ponowić wysyłkę po skonfigurowaniu poczty.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-text-muted mb-7">
+              Dokument został wysłany na {snapshot.renter.email}.
+            </p>
+          )}
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <a href={pdfUrl} download>
               <Button variant="secondary">
@@ -218,8 +194,18 @@ export function ContractSigningPage() {
           </ContractSection>
 
           <ContractSection title="2. Dane najmu">
-            <ContractRow label="Sprzęt" value={snapshot.rental.productName} />
-            <ContractRow label="Termin" value={`${snapshot.rental.startDate} ${snapshot.rental.startTime} – ${snapshot.rental.endDate} ${snapshot.rental.endTime} (${snapshot.rental.days} dni)`} />
+            <ContractRow
+              label={(snapshot.rental.items?.length || 0) > 1 ? 'Sprzęt (pozycje)' : 'Sprzęt'}
+              value={(snapshot.rental.items?.length
+                ? snapshot.rental.items.map((item, index) => `${index + 1}. ${item.productName} — ${money(item.itemPrice)}`)
+                : [snapshot.rental.productName]).join('\n')}
+            />
+            <ContractRow
+              label="Termin"
+              value={snapshot.rental.isIndefinite
+                ? `${snapshot.rental.startDate} ${snapshot.rental.startTime} – bezterminowo (do odwołania)`
+                : `${snapshot.rental.startDate} ${snapshot.rental.startTime} – ${snapshot.rental.endDate} ${snapshot.rental.endTime} (${snapshot.rental.days} dni)`}
+            />
             <ContractRow label="Czynsz najmu" value={money(snapshot.rental.totalPrice)} />
             <ContractRow label="Kaucja" value={money(snapshot.rental.deposit)} />
             <ContractRow label="Akcesoria" value={snapshot.rental.accessories} />
@@ -238,23 +224,26 @@ export function ContractSigningPage() {
           </ContractSection>
 
           <div ref={endMarkerRef} className="mt-10 pt-8 border-t-2 border-[#b8972a]">
-            <h2 className="text-xl font-bold">4. Podpis Najemcy</h2>
+            <h2 className="text-xl font-bold">4. Podpisy stron</h2>
             <p className="text-sm text-neutral-600 leading-6 mt-2">
               Potwierdzam, że przeczytałem(-am) pełną treść powyższej umowy, dane są prawidłowe,
               a sprzęt i akcesoria są zgodne z opisem. Akceptuję wszystkie postanowienia.
             </p>
 
-            <div className="mt-6 border-2 border-neutral-300 bg-white rounded-lg overflow-hidden">
-              <div className="px-4 py-2 bg-neutral-100 border-b text-xs text-neutral-500 flex justify-between">
-                <span>Podpisz w polu poniżej palcem, rysikiem lub myszką</span>
-                <button type="button" onClick={clearSignature} className="inline-flex items-center gap-1 text-red-600 font-medium">
-                  <Eraser className="w-4 h-4" /> Wyczyść
-                </button>
-              </div>
-              <canvas
-                ref={canvasRef}
-                className="block w-full h-[220px] touch-none cursor-crosshair"
-                aria-label="Pole podpisu odręcznego"
+            <div className="mt-6 grid lg:grid-cols-2 gap-5">
+              <SignatureField
+                ref={lessorSignatureRef}
+                title="Podpis Wynajmującego"
+                signerName={snapshot.lessor.representative}
+                ariaLabel="Pole podpisu Wynajmującego"
+                onStateChange={setHasLessorSignature}
+              />
+              <SignatureField
+                ref={renterSignatureRef}
+                title="Podpis Najemcy"
+                signerName={snapshot.renter.name}
+                ariaLabel="Pole podpisu Najemcy"
+                onStateChange={setHasRenterSignature}
               />
             </div>
 
@@ -278,7 +267,7 @@ export function ContractSigningPage() {
               variant="primary"
               size="lg"
               className="w-full mt-6"
-              disabled={!hasSignature || !accepted || submitting}
+              disabled={!hasLessorSignature || !hasRenterSignature || !accepted || submitting}
               onClick={handleSign}
             >
               {submitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FileSignature className="w-5 h-5 mr-2" />}
@@ -311,7 +300,7 @@ function ContractRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid sm:grid-cols-[180px_1fr] gap-1 sm:gap-4 py-1.5 text-sm border-b border-neutral-100">
       <span className="font-semibold text-neutral-500">{label}</span>
-      <span>{value || '—'}</span>
+      <span className="whitespace-pre-line">{value || '—'}</span>
     </div>
   );
 }

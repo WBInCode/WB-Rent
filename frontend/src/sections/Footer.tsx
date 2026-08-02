@@ -7,22 +7,23 @@ import {
   Clock, 
   Facebook, 
   Instagram, 
-  ChevronUp 
+  ChevronUp,
+  Code2,
 } from 'lucide-react';
 import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 
 const footerLinks = {
   uslugi: [
-    { label: 'Wynajem odkurzaczy piorących', href: '/#produkty' },
-    { label: 'Wynajem odkurzaczy przemysłowych', href: '/#produkty' },
-    { label: 'Wynajem ozonatorów', href: '/#produkty' },
-    { label: 'Transport sprzętu', href: '/#jak-to-dziala' },
+    { label: 'Wynajem odkurzaczy piorących', href: '/sprzet' },
+    { label: 'Wynajem odkurzaczy przemysłowych', href: '/sprzet' },
+    { label: 'Wynajem ozonatorów', href: '/sprzet' },
+    { label: 'Transport sprzętu', href: '/jak-to-dziala' },
   ],
   informacje: [
-    { label: 'Jak to działa', href: '/#jak-to-dziala' },
-    { label: 'Cennik', href: '/#produkty' },
+    { label: 'Jak to działa', href: '/jak-to-dziala' },
+    { label: 'Cennik', href: '/sprzet' },
     { label: 'Moje rezerwacje', href: '/moje-rezerwacje' },
-    { label: 'FAQ', href: '/#faq' },
+    { label: 'FAQ', href: '/jak-to-dziala' },
     { label: 'Kontakt', href: '/kontakt' },
   ],
   prawne: [
@@ -81,11 +82,11 @@ export function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-neutral-950 text-neutral-300 relative">
+    <footer className="bg-bg-secondary text-text-secondary relative border-t border-border">
       {/* Scroll to top button */}
       <motion.button
         onClick={scrollToTop}
-        className="absolute -top-6 left-1/2 -translate-x-1/2 w-12 h-12 bg-[var(--color-gold)] hover:bg-[var(--color-gold-light)] text-neutral-900 rounded-full flex items-center justify-center shadow-lg transition-colors"
+        className="absolute -top-6 left-1/2 -translate-x-1/2 w-12 h-12 bg-gold hover:bg-gold-light text-gold-contrast rounded-full flex items-center justify-center shadow-lg transition-colors"
         whileHover={{ y: -4 }}
         whileTap={{ scale: 0.95 }}
         aria-label="Przewiń do góry"
@@ -105,7 +106,7 @@ export function Footer() {
                 className="h-12 w-auto"
               />
             </Link>
-            <p className="text-neutral-400 mb-6 max-w-sm">
+            <p className="text-text-secondary mb-6 max-w-sm">
               Profesjonalny wynajem sprzętu czyszczącego dla domu i firmy. 
               Odkurzacze piorące, przemysłowe, ozonatory i więcej. 
               Szybka rezerwacja, dostawa pod drzwi.
@@ -117,33 +118,33 @@ export function Footer() {
                 href="https://www.facebook.com/fbwbpartners" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
+                className="w-10 h-10 bg-surface-strong hover:bg-gold rounded-full flex items-center justify-center transition-colors group"
                 aria-label="Facebook"
               >
-                <Facebook className="w-5 h-5 text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+                <Facebook className="w-5 h-5 text-text-secondary group-hover:text-gold-contrast transition-colors" />
               </a>
               <a 
                 href="https://www.instagram.com/wbrent.pl/" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-10 h-10 bg-neutral-800 hover:bg-[var(--color-gold)] rounded-full flex items-center justify-center transition-colors group"
+                className="w-10 h-10 bg-surface-strong hover:bg-gold rounded-full flex items-center justify-center transition-colors group"
                 aria-label="Instagram"
               >
-                <Instagram className="w-5 h-5 text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+                <Instagram className="w-5 h-5 text-text-secondary group-hover:text-gold-contrast transition-colors" />
               </a>
             </div>
           </div>
 
           {/* Usługi */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Usługi</h3>
-            <ul className="space-y-3">
+            <h3 className="text-text-primary font-semibold mb-4">Usługi</h3>
+            <ul className="space-y-1">
               {footerLinks.uslugi.map((link) => (
                 <li key={link.label}>
                   <a 
                     href={link.href}
                     onClick={(e) => handleLinkClick(e, link.href)}
-                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                    className="inline-flex min-h-[32px] items-center text-text-secondary hover:text-gold transition-colors text-sm"
                   >
                     {link.label}
                   </a>
@@ -154,14 +155,14 @@ export function Footer() {
 
           {/* Informacje */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Informacje</h3>
-            <ul className="space-y-3">
+            <h3 className="text-text-primary font-semibold mb-4">Informacje</h3>
+            <ul className="space-y-1">
               {footerLinks.informacje.map((link) => (
                 <li key={link.label}>
                   <a 
                     href={link.href}
                     onClick={(e) => handleLinkClick(e, link.href)}
-                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                    className="inline-flex min-h-[32px] items-center text-text-secondary hover:text-gold transition-colors text-sm"
                   >
                     {link.label}
                   </a>
@@ -170,13 +171,13 @@ export function Footer() {
             </ul>
             
             {/* Prawne */}
-            <h3 className="text-white font-semibold mb-4 mt-8">Prawne</h3>
-            <ul className="space-y-3">
+            <h3 className="text-text-primary font-semibold mb-4 mt-8">Prawne</h3>
+            <ul className="space-y-1">
               {footerLinks.prawne.map((link) => (
                 <li key={link.label}>
                   <Link 
                     to={link.href} 
-                    className="text-neutral-400 hover:text-[var(--color-gold)] transition-colors text-sm"
+                    className="inline-flex min-h-[32px] items-center text-text-secondary hover:text-gold transition-colors text-sm"
                   >
                     {link.label}
                   </Link>
@@ -187,7 +188,7 @@ export function Footer() {
 
           {/* Kontakt */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Kontakt</h3>
+            <h3 className="text-text-primary font-semibold mb-4">Kontakt</h3>
             <ul className="space-y-4">
               {contactInfo.map((item, index) => {
                 const Icon = item.icon;
@@ -203,12 +204,12 @@ export function Footer() {
                     {item.href ? (
                       <a 
                         href={item.href} 
-                        className="text-neutral-400 hover:text-white transition-colors"
+                        className="inline-flex min-h-[32px] items-center text-text-secondary hover:text-text-primary transition-colors"
                       >
                         {content}
                       </a>
                     ) : (
-                      <span className="text-neutral-400">{content}</span>
+                      <span className="text-text-secondary">{content}</span>
                     )}
                   </li>
                 );
@@ -223,22 +224,21 @@ export function Footer() {
         </div>
 
         {/* Divider */}
-        <div className="h-px bg-neutral-800 my-8" />
+        <div className="h-px bg-border my-8" />
 
         {/* Company info */}
-        <div className="text-center mb-6 text-xs text-neutral-500 space-y-1">
-          <p className="font-medium text-neutral-400">WB Partners Sp. z o.o.</p>
+        <div className="text-center mb-6 text-xs text-text-muted space-y-1">
+          <p className="font-medium text-text-secondary">WB Partners Sp. z o.o.</p>
           <p>NIP: 5170455185 | REGON: 540735769 | KRS: 0001151642</p>
           <p>ul. Słowackiego 24/11, 35-060 Rzeszów</p>
         </div>
 
         {/* Bottom bar */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-neutral-500">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-text-muted">
           <p>© {currentYear} WB-Rent. Wszelkie prawa zastrzeżone.</p>
-          <p>
-            Stworzone z{' '}
-            <span className="text-green-500">❤</span>
-            {' '}przez{' '}
+          <p className="inline-flex items-center gap-1.5">
+            <Code2 className="w-4 h-4 text-green-500" aria-hidden="true" />
+            Projekt i wdrożenie:{' '}
             <a 
               href="https://wb-incode.pl" 
               target="_blank" 

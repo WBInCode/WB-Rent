@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, FileText, Scale, Clock, Shield, AlertTriangle, Phone, Mail } from 'lucide-react';
+import { ArrowLeft, FileText, Scale, Clock, Shield, AlertTriangle, Phone, Mail, ChevronRight } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/sections/Footer';
@@ -40,7 +40,7 @@ export function RegulaminPage() {
               <li>
                 <Link to="/" className="hover:text-gold transition-colors">Strona główna</Link>
               </li>
-              <li>/</li>
+              <li><ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></li>
               <li className="text-gold font-medium">Regulamin</li>
             </ol>
           </motion.nav>
@@ -53,8 +53,8 @@ export function RegulaminPage() {
             className="mb-12"
           >
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center">
-                <FileText className="w-7 h-7 text-bg-primary" />
+              <div className="w-14 h-14 rounded-[--radius-sm] bg-gold/10 border border-gold/30 flex items-center justify-center">
+                <FileText className="w-7 h-7 text-gold" />
               </div>
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold text-text-primary">
@@ -251,7 +251,7 @@ export function RegulaminPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <a 
                     href={`tel:+48${COMPANY_INFO.phone.replace(/\s/g, '')}`}
-                    className="flex items-center gap-3 p-4 rounded-xl bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
+                    className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
                       <Phone className="w-5 h-5 text-gold" />
@@ -263,7 +263,7 @@ export function RegulaminPage() {
                   </a>
                   <a 
                     href={`mailto:${COMPANY_INFO.email}`}
-                    className="flex items-center gap-3 p-4 rounded-xl bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
+                    className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
                       <Mail className="w-5 h-5 text-gold" />

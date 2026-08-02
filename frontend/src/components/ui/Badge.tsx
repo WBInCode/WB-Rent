@@ -12,10 +12,10 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-white/10 text-text-secondary border-border',
-  success: 'bg-green-500/20 text-green-400 border-green-500/40 shadow-[0_0_10px_rgba(34,197,94,0.3)]',
+  default: 'bg-surface-strong text-text-secondary border-border',
+  success: 'bg-green-500/12 text-green-400 border-green-500/30',
   warning: 'bg-warning/20 text-warning border-warning/40',
-  error: 'bg-red-500/20 text-red-400 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.3)]',
+  error: 'bg-red-500/12 text-red-400 border-red-500/30',
   gold: 'bg-gold/20 text-gold border-gold/40',
   info: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
 };

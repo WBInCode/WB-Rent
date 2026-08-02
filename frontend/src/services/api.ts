@@ -13,6 +13,29 @@ export interface ApiResponse<T = unknown> {
   error?: ApiError;
 }
 
+export interface PublicCatalogProduct {
+  id: string;
+  name: string;
+  description: string;
+  categoryId: string;
+  image: string;
+  images: string[];
+  pricePerDay: number;
+  priceNextDay: number;
+  priceWeekend: number;
+  features?: string[];
+  includedAccessories?: string[];
+  optionalAccessories?: string[];
+  accessoryPrice?: number;
+  totalQuantity: number;
+  availableToday: number;
+  available: boolean;
+}
+
+export async function getProductCatalog(): Promise<ApiResponse<{ products: PublicCatalogProduct[] }>> {
+  return apiFetch<{ products: PublicCatalogProduct[] }>('/products');
+}
+
 // Generic fetch wrapper with error handling
 async function apiFetch<T>(
   endpoint: string,
@@ -58,10 +81,12 @@ async function apiFetch<T>(
 // Reservation API
 export interface ReservationPayload {
   productId: string;
+  productIds?: string[];
   productName: string;
   categoryId: string;
   startDate: string;
   endDate: string;
+  isIndefinite?: boolean;
   startTime: string;
   endTime: string;
   days: number;
@@ -81,6 +106,7 @@ export interface ReservationPayload {
   invoiceAddress?: string;
   // Other
   notes?: string;
+  couponCode?: string;
   totalPrice: number;
 }
 
@@ -100,6 +126,30 @@ export async function submitReservation(
   return apiFetch<ReservationResponse>('/reservations', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export interface CouponValidationResponse {
+  valid: boolean;
+  message: string;
+  discountAmount?: number;
+  coupon?: {
+    code: string;
+    discountType: 'percent' | 'amount';
+    value: number;
+    minTotal: number;
+    expiresOn: string | null;
+  };
+}
+
+/** Server-side check only - the final discount is always recomputed on submit. */
+export async function validateCoupon(
+  code: string,
+  basePrice: number
+): Promise<ApiResponse<CouponValidationResponse> & Partial<CouponValidationResponse>> {
+  return apiFetch('/coupons/validate', {
+    method: 'POST',
+    body: JSON.stringify({ code, basePrice }),
   });
 }
 
@@ -129,6 +179,8 @@ export async function submitContact(
 export interface AvailabilityResponse {
   available: boolean;
   message: string;
+  rentableQuantity?: number;
+  reservedQuantity?: number;
   conflicts?: Array<{
     startDate: string;
     endDate: string;
@@ -152,10 +204,11 @@ export async function checkAvailability(
 // Blocked (reserved) date ranges for a product
 export interface BlockedDatesResponse {
   productId: string;
+  rentableQuantity: number;
   blockedDates: Array<{
     startDate: string;
     endDate: string;
-    status: string;
+    status: 'fully_booked';
   }>;
 }
 
@@ -239,8 +292,14 @@ export interface MyReservation {
   id: number;
   product_id: string;
   productName: string;
+  items?: Array<{
+    product_id: string;
+    productName: string;
+    item_price?: number;
+  }>;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
+  is_indefinite: boolean;
   start_time?: string;
   end_time?: string;
   status: string;
@@ -302,8 +361,15 @@ export interface ContractSnapshot {
     reservationId: number;
     productId: string;
     productName: string;
+    items?: Array<{
+      productId: string;
+      productName: string;
+      categoryId: string;
+      itemPrice: number;
+    }>;
     startDate: string;
-    endDate: string;
+    endDate: string | null;
+    isIndefinite: boolean;
     startTime: string;
     endTime: string;
     days: number;
@@ -334,16 +400,19 @@ export interface SignContractResponse {
   pdfHash: string;
   pdfUrl: string;
   payment?: { redirectUrl: string; sessionId: string } | null;
+  emailDelivered: boolean;
+  emailTransport: 'resend' | 'smtp' | 'console';
 }
 
 export async function submitContractSignature(
   token: string,
-  signature: string,
+  renterSignature: string,
+  lessorSignature: string,
   accepted: boolean
 ): Promise<ApiResponse<SignContractResponse>> {
   return apiFetch<SignContractResponse>(`/contracts/sign/${encodeURIComponent(token)}`, {
     method: 'POST',
-    body: JSON.stringify({ signature, accepted }),
+    body: JSON.stringify({ renterSignature, lessorSignature, accepted }),
   });
 }
 

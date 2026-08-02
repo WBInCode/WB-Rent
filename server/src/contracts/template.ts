@@ -23,8 +23,15 @@ export interface ContractSnapshot {
     reservationId: number;
     productId: string;
     productName: string;
+    items?: Array<{
+      productId: string;
+      productName: string;
+      categoryId: string;
+      itemPrice: number;
+    }>;
     startDate: string;
-    endDate: string;
+    endDate: string | null;
+    isIndefinite: boolean;
     startTime: string;
     endTime: string;
     days: number;
@@ -40,10 +47,10 @@ export interface ContractSnapshot {
 
 export const contractClauses = [
   { number: 1, title: 'Przedmiot umowy', text: 'Wynajmujący oddaje Najemcy do czasowego używania sprzęt wskazany w umowie wraz z opisanymi akcesoriami. Najemca potwierdza zgodność danych sprzętu i jego stan przy wydaniu.' },
-  { number: 2, title: 'Okres najmu i wynagrodzenie', text: 'Najem trwa w terminie wskazanym w umowie. Najemca zobowiązuje się zapłacić czynsz najmu oraz kaucję w podanej wysokości. Przedłużenie wymaga uprzedniej zgody Wynajmującego.' },
+  { number: 2, title: 'Okres najmu i wynagrodzenie', text: 'Najem trwa w terminie wskazanym w umowie albo, dla najmu bezterminowego, do zwrotu sprzętu lub odwołania najmu. Najemca zobowiązuje się zapłacić czynsz najmu oraz kaucję w podanej wysokości. Przedłużenie wymaga uprzedniej zgody Wynajmującego.' },
   { number: 3, title: 'Zasady użytkowania', text: 'Najemca będzie używał sprzętu zgodnie z przeznaczeniem, instrukcją producenta i zasadami bezpieczeństwa. Zabronione jest oddawanie sprzętu osobom trzecim, dokonywanie napraw i ingerowanie w jego konstrukcję.' },
   { number: 4, title: 'Odpowiedzialność', text: 'Od chwili wydania do zwrotu Najemca odpowiada za utratę, kradzież i uszkodzenia wykraczające poza normalne zużycie. Najemca pokrywa uzasadnione koszty naprawy lub odtworzenia sprzętu, z uwzględnieniem jego wartości i stopnia zużycia.' },
-  { number: 5, title: 'Zwrot sprzętu', text: 'Sprzęt należy zwrócić kompletny, czysty i w terminie wskazanym w umowie. Opóźnienie może skutkować naliczeniem opłaty według aktualnej stawki dobowej za każdą rozpoczętą dobę.' },
+  { number: 5, title: 'Zwrot sprzętu', text: 'Sprzęt należy zwrócić kompletny i czysty, w terminie wskazanym w umowie albo niezwłocznie po zakończeniu najmu bezterminowego. Opóźnienie może skutkować naliczeniem opłaty według aktualnej stawki dobowej za każdą rozpoczętą dobę.' },
   { number: 6, title: 'Kaucja', text: 'Kaucja zabezpiecza roszczenia Wynajmującego. Jest zwracana po terminowym zwrocie kompletnego i nieuszkodzonego sprzętu, po potrąceniu ewentualnych należności wynikających z umowy.' },
   { number: 7, title: 'Dane osobowe', text: 'Dane są przetwarzane w celu zawarcia i wykonania umowy, rozliczeń oraz dochodzenia roszczeń, zgodnie z polityką prywatności WB-Rent. Dane dokumentu tożsamości są przechowywane w postaci zaszyfrowanej.' },
   { number: 8, title: 'Podpis elektroniczny', text: 'Strony uznają podpis odręczny złożony na ekranie urządzenia za podpis elektroniczny potwierdzający zapoznanie się z pełną treścią umowy i akceptację jej warunków. System rejestruje czas, adres IP, identyfikator urządzenia oraz skróty kryptograficzne dokumentu i podpisu.' },

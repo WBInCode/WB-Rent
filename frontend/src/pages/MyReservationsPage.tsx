@@ -4,14 +4,15 @@ import {
   Mail,
   Calendar,
   Package,
-  ArrowLeft,
   Loader2,
   CheckCircle2,
   XCircle,
   CreditCard,
   Ban,
+  Check,
 } from 'lucide-react';
 import { Button, Card, Badge, Input } from '@/components/ui';
+import { UtilityPageShell } from '@/components/UtilityPageShell';
 import {
   requestMyReservationsLink,
   getMyReservations,
@@ -139,14 +140,12 @@ export function MyReservationsPage() {
     !['rejected', 'cancelled', 'completed', 'returned'].includes(r.status);
 
   return (
-    <div className="min-h-screen py-16 px-4">
-      <div className="max-w-3xl mx-auto">
-        <Link to="/" className="inline-flex items-center gap-2 text-text-secondary hover:text-gold transition-colors mb-8">
-          <ArrowLeft className="w-4 h-4" />
-          Wróć na stronę główną
-        </Link>
-
-        <h1 className="text-3xl font-bold text-text-primary mb-2">Moje rezerwacje</h1>
+    <UtilityPageShell maxWidth="3xl">
+        <div className="mb-7">
+          <span className="section-kicker"><Calendar className="w-3.5 h-3.5" aria-hidden="true" /> Strefa klienta</span>
+          <h1 className="text-3xl sm:text-4xl font-bold text-text-primary mt-3">Moje rezerwacje</h1>
+          <p className="text-text-secondary mt-2">Bezpieczny dostęp bez zakładania konta.</p>
+        </div>
 
         {/* --- No token: request-link form --- */}
         {!token && (
@@ -237,15 +236,25 @@ export function MyReservationsPage() {
                         <Badge variant={STATUS_COLORS[r.status] || 'default'}>
                           {STATUS_LABELS[r.status] || r.status}
                         </Badge>
-                        {r.payment_status === 'paid' && <Badge variant="success">✓ Opłacona</Badge>}
+                        {r.payment_status === 'paid' && (
+                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Opłacona</Badge>
+                        )}
                         <span className="text-xs text-text-muted">#{r.id}</span>
                       </div>
-                      <h3 className="font-semibold text-text-primary">{r.productName}</h3>
+                      <h3 className="font-semibold text-text-primary">
+                        {(r.items?.length || 0) > 1 ? `Zestaw ${r.items!.length} urządzeń` : r.productName}
+                      </h3>
+                      {(r.items?.length || 0) > 1 && (
+                        <ul className="mt-2 space-y-1 text-xs text-text-secondary">
+                          {r.items!.map((item) => <li key={item.product_id}>• {item.productName}</li>)}
+                        </ul>
+                      )}
                       <div className="flex flex-wrap gap-4 mt-1 text-sm text-text-secondary">
                         <span className="inline-flex items-center gap-1">
                           <Calendar className="w-4 h-4 text-gold" />
-                          {r.start_date} → {r.end_date} ({r.days}{' '}
-                          {r.days === 1 ? 'doba' : r.days < 5 ? 'doby' : 'dób'})
+                          {r.start_date} → {r.is_indefinite
+                            ? 'bezterminowo'
+                            : `${r.end_date} (${r.days} ${r.days === 1 ? 'doba' : r.days < 5 ? 'doby' : 'dób'})`}
                         </span>
                         <span className="font-medium text-gold">{r.total_price} zł</span>
                       </div>
@@ -286,8 +295,7 @@ export function MyReservationsPage() {
             )}
           </div>
         )}
-      </div>
-    </div>
+    </UtilityPageShell>
   );
 }
 

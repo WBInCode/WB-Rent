@@ -1,4 +1,12 @@
 User-agent: *
 Allow: /
 
+# Prywatne i jednorazowe adresy - nie mogą trafić do indeksu.
+# /podpis/ zawiera token podpisu umowy, /platnosc dane transakcji.
+Disallow: /admin
+Disallow: /admin/
+Disallow: /podpis/
+Disallow: /platnosc
+Disallow: /moje-rezerwacje
+
 Sitemap: https://wb-rent.pl/sitemap.xml

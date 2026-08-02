@@ -17,6 +17,7 @@ const router = Router();
 export async function createPaymentForReservation(reservation: {
   id: number;
   product_id: string;
+  items?: Array<{ product_id: string }>;
   email: string;
   total_price: number;
 }, customerIp: string): Promise<{ redirectUrl: string; sessionId: string } | null> {
@@ -24,11 +25,15 @@ export async function createPaymentForReservation(reservation: {
   if (!provider) return null;
 
   const sessionId = `wbrent-${reservation.id}-${crypto.randomBytes(8).toString('hex')}`;
+  const productIds = reservation.items?.length
+    ? reservation.items.map((item) => item.product_id)
+    : [reservation.product_id];
+  const productDescription = productIds.map(getProductName).join(', ');
 
   const result = await provider.createPayment({
     sessionId,
     amount: reservation.total_price,
-    description: `WB-Rent: ${getProductName(reservation.product_id)} (rezerwacja #${reservation.id})`,
+    description: `WB-Rent: ${productDescription} (rezerwacja #${reservation.id})`.slice(0, 255),
     customerEmail: reservation.email,
     customerIp,
     returnUrl: `${config.siteUrl}/platnosc?sesja=${sessionId}`,

@@ -93,11 +93,6 @@ export function FAQContact() {
 
   return (
     <section id="faq" className="relative overflow-hidden py-20 md:py-28 lg:py-32">
-      <div
-        className="absolute bottom-0 left-0 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(184, 151, 42, 0.3) 0%, transparent 70%)' }}
-      />
-
       <div className="relative max-w-4xl mx-auto px-4 md:px-6 lg:px-8">
         <motion.div
           variants={revealVariants}
@@ -106,9 +101,9 @@ export function FAQContact() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-12 md:mb-16"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">Pomoc</span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">Najczęściej zadawane pytania</h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          <span className="section-kicker">Pomoc</span>
+          <h2 className="section-title">Najczęściej zadawane pytania</h2>
+          <p className="section-copy max-w-2xl mx-auto">
             Najważniejsze informacje o rezerwacji, płatności, odbiorze i zasadach wynajmu.
           </p>
         </motion.div>

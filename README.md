@@ -81,6 +81,7 @@ Hasło admina można też zmienić z panelu (zakładka **Ustawienia**) — hash 
 | `POST` | `/api/newsletter/subscribe` | zapis do newslettera |
 | `GET/POST` | `/api/newsletter/unsubscribe?email&token` | wypis (link z e-maila, token HMAC) |
 | `POST` | `/api/notifications/product` | „powiadom, gdy dostępny" |
+| `GET` | `/api/products` | aktywny katalog produktów z cenami i liczbą dostępnych sztuk |
 | `GET` | `/api/payments/config` | czy płatności aktywne + który moduł |
 | `POST` | `/api/payments/create` | utworzenie/ponowienie płatności (reservationId + email) |
 | `GET` | `/api/payments/status/:sessionId` | status płatności (polling ze strony powrotu) |
@@ -93,11 +94,22 @@ Hasło admina można też zmienić z panelu (zakładka **Ustawienia**) — hash 
 | `POST` | `/api/admin/login` | logowanie (limit 10 prób/15 min) → `{ token, expiresAt }` |
 | `POST` | `/api/admin/change-password` | zmiana hasła (hash w DB) |
 | `GET` | `/api/admin/stats` · `/revenue` | statystyki, przychody |
+| `GET/POST/PUT/DELETE` | `/api/admin/products[/:id]` | katalog, ceny, ilość, serwis, stan techniczny i widoczność produktu |
 | `GET/PATCH` | `/api/admin/reservations[/:id]` | lista/zmiana statusu (pending→confirmed→picked_up→returned→completed / rejected / cancelled) — statusy wysyłają e-maile |
 | `GET/PATCH/DELETE` | `/api/admin/contacts[/:id]` | wiadomości + `/reply`, `/delete-many` |
 | `GET/POST/PATCH/DELETE` | `/api/admin/newsletter/*` | subskrybenci, posty, wysyłka |
 | `GET/DELETE/POST` | `/api/admin/notifications*` | powiadomienia o dostępności |
 | `POST` | `/api/admin/send-reminders` | ręczne przypomnienia (odbiór/zwrot) |
+
+### Produkty i magazyn
+
+Katalog jest przechowywany w tabeli `products`. Każdy model ma stan całkowity, liczbę sztuk w serwisie,
+stan techniczny, ceny i flagę widoczności. Dostępność terminu wynika z liczby sprawnych sztuk pomniejszonej
+o równoległe aktywne rezerwacje. Ukrycie produktu blokuje nowe rezerwacje, ale zachowuje historię wynajmów
+i nie przerywa obsługi istniejących umów. Produkt użyty w rezerwacji można ukryć, ale nie można go usunąć.
+Galeria produktu przechowuje do 12 uporządkowanych zdjęć; pierwsze jest zdjęciem głównym. Panel pozwala
+wysyłać JPG/PNG/WebP (maks. 5 MB), dodawać adresy URL, zmieniać kolejność i usuwać pojedyncze zdjęcia.
+Pliki uploadowane są przechowywane w wolumenie `wbrent-product-images` i obejmowane codziennym backupem.
 
 ## Bezpieczeństwo (zaimplementowane)
 
@@ -130,7 +142,7 @@ Proces operacyjny:
 1. Pracownik tworzy lub otwiera rezerwację w panelu `/admin`.
 2. Na karcie rezerwacji wybiera **Umowa**, uzupełnia adres, dane dokumentu, kaucję, akcesoria, stan sprzętu i swoje imię/nazwisko.
 3. System tworzy niezmienny, zaszyfrowany snapshot umowy i jednorazową sesję (domyślnie 24h).
-4. Pracownik uruchamia **Ekran podpisu** na tablecie. Klient musi przewinąć pełną treść, podpisać palcem/rysikiem/myszką i zaakceptować oświadczenie.
+4. Pracownik uruchamia **Ekran podpisu** na tablecie. Po przeczytaniu pełnej treści podpis odręczny składają obie strony: pracownik reprezentujący Wynajmującego oraz klient jako Najemca. Klient dodatkowo akceptuje oświadczenie.
 5. System generuje PDF z pełną umową, podpisem i metryką dowodową (czas, IP, user-agent, SHA-256 treści i podpisu), szyfruje go AES-256-GCM, zapisuje w prywatnym wolumenie i wysyła klientowi jako załącznik.
 6. Dopiero stan `signed` odblokowuje wydanie sprzętu oraz utworzenie płatności online. Panel wykrywa podpis automatycznie co 3 sekundy.
 

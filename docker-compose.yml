@@ -65,9 +65,13 @@ services:
       CONTRACT_REQUIRED_BEFORE_PAYMENT: ${CONTRACT_REQUIRED_BEFORE_PAYMENT:-true}
       CONTRACT_ENCRYPTION_KEY: ${CONTRACT_ENCRYPTION_KEY:?set CONTRACT_ENCRYPTION_KEY in .env}
       CONTRACT_STORAGE_DIR: /app/storage/contracts
+      PRODUCT_IMAGE_STORAGE_DIR: /app/storage/product-images
+      DOCUMENT_STORAGE_DIR: /app/storage/documents
       CONTRACT_SIGNING_TTL_HOURS: ${CONTRACT_SIGNING_TTL_HOURS:-24}
     volumes:
       - wbrent-contracts:/app/storage/contracts
+      - wbrent-product-images:/app/storage/product-images
+      - wbrent-documents:/app/storage/documents
 
   web:
     build:
@@ -78,8 +82,10 @@ services:
     depends_on:
       - api
     ports:
-      - '${WEB_PORT:-5340}:80'
+      - '127.0.0.1:${WEB_PORT:-5340}:80'
 
 volumes:
   wbrent-pgdata:
   wbrent-contracts:
+  wbrent-product-images:
+  wbrent-documents:

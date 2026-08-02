@@ -1,0 +1,11 @@
+[Unit]
+Description=WB-Rent database and encrypted contracts backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/wb-rent/deploy-scripts/backup-vps.sh
+User=root
+Group=root
+Nice=10

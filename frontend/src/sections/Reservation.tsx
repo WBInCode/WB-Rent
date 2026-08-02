@@ -14,7 +14,8 @@ import {
   Send,
   Home,
   FileText,
-  ChevronDown
+  ChevronDown,
+  Info,
 } from 'lucide-react';
 import { Card, Input, Select, Button, Textarea, DatePicker } from '@/components/ui';
 import { 
@@ -36,7 +37,7 @@ const getTodayLocalDate = () => {
 };
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { useSubmitForm } from '@/hooks';
-import { submitReservation, checkAvailability, getProductBlockedDates, type ReservationPayload } from '@/services/api';
+import { submitReservation, checkAvailability, getProductBlockedDates, validateCoupon, type ReservationPayload } from '@/services/api';
 import { useReservationContext } from '@/context/ReservationContext';
 
 interface FormData {
@@ -67,6 +68,7 @@ interface FormData {
   invoiceAddress: string;
   // Additional
   notes: string;
+  couponCode: string;
   acceptTerms: boolean;
   acceptRodo: boolean;
 }
@@ -92,6 +94,7 @@ const initialFormData: FormData = {
   invoiceCompany: '',
   invoiceAddress: '',
   notes: '',
+  couponCode: '',
   acceptTerms: false,
   acceptRodo: false,
 };
@@ -132,6 +135,11 @@ export function Reservation() {
   // Stan dla sprawdzania odległości dostawy
   const [deliveryDistanceStatus, setDeliveryDistanceStatus] = useState<'idle' | 'checking' | 'ok' | 'too_far'>('idle');
   const [deliveryDistanceMessage, setDeliveryDistanceMessage] = useState<string | null>(null);
+
+  // Kupon rabatowy - podgląd; ostateczny rabat i tak liczy serwer przy wysyłce
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountAmount: number } | null>(null);
+  const [couponStatus, setCouponStatus] = useState<'idle' | 'checking' | 'invalid'>('idle');
+  const [couponMessage, setCouponMessage] = useState<string | null>(null);
 
   // Get pre-fill data from CostWidget
   const { preFillData, clearPreFillData } = useReservationContext();
@@ -225,7 +233,7 @@ export function Reservation() {
   const isWeekendRental = useMemo(() => {
     if (!formData.startDate) return false;
     const start = new Date(formData.startDate);
-    return start.getDay() === 5 && rentalDays <= 3;
+    return start.getDay() === 5 && rentalDays === 3;
   }, [formData.startDate, rentalDays]);
 
   // Check if pickup is on weekend (Saturday=6 or Sunday=0)
@@ -259,10 +267,8 @@ export function Reservation() {
     getProductBlockedDates(formData.productId, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       if (result.success && result.data?.blockedDates) {
-        // Blokujemy tylko aktywne rezerwacje (pending/confirmed/picked_up)
         setBlockedRanges(
           result.data.blockedDates
-            .filter((b) => ['pending', 'confirmed', 'picked_up'].includes(b.status))
             .map((b) => ({ startDate: b.startDate, endDate: b.endDate }))
         );
       } else {
@@ -339,6 +345,11 @@ export function Reservation() {
     if (field === 'productId' || field === 'startDate' || field === 'endDate') {
       setAvailabilityStatus('idle');
       setAvailabilityMessage(null);
+      // A different cart changes the rent, so a previously priced coupon no
+      // longer reflects the real discount - force a re-check.
+      setAppliedCoupon(null);
+      setCouponStatus('idle');
+      setCouponMessage(null);
     }
 
     // Reset delivery distance when delivery is toggled off or address changes
@@ -346,6 +357,38 @@ export function Reservation() {
       setDeliveryDistanceStatus('idle');
       setDeliveryDistanceMessage(null);
     }
+  };
+
+  const applyCoupon = async () => {
+    const code = formData.couponCode.trim().toUpperCase();
+    if (!code) return;
+    if (!costSummary) {
+      setCouponStatus('invalid');
+      setCouponMessage('Najpierw wybierz sprzęt i termin najmu');
+      return;
+    }
+
+    setCouponStatus('checking');
+    setCouponMessage(null);
+    const response = await validateCoupon(code, costSummary.basePrice);
+
+    if (!response.valid) {
+      setAppliedCoupon(null);
+      setCouponStatus('invalid');
+      setCouponMessage(response.message || 'Kupon jest nieprawidłowy');
+      return;
+    }
+
+    setAppliedCoupon({ code, discountAmount: Number(response.discountAmount || 0) });
+    setCouponStatus('idle');
+    setCouponMessage(response.message || 'Kupon został naliczony');
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponStatus('idle');
+    setCouponMessage(null);
+    setFormData((prev) => ({ ...prev, couponCode: '' }));
   };
 
   // Funkcja do sprawdzania odległości adresu od Rzeszowa (używa Nominatim/OpenStreetMap)
@@ -539,7 +582,8 @@ export function Reservation() {
       invoiceCompany: formData.wantsInvoice ? formData.invoiceCompany : undefined,
       invoiceAddress: formData.wantsInvoice ? formData.invoiceAddress : undefined,
       notes: formData.notes || undefined,
-      totalPrice: costSummary.total,
+      couponCode: appliedCoupon?.code,
+      totalPrice: Math.max(costSummary.total - (appliedCoupon?.discountAmount || 0), 0),
     };
 
     // Submit to API
@@ -566,13 +610,14 @@ export function Reservation() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-12 md:mb-16"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">
+          <span className="section-kicker">
             Formularz rezerwacji
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">
+          {/* Jedyna sekcja na podstronie /rezerwacja - jej tytuł jest H1 strony. */}
+          <h1 className="section-title">
             Zarezerwuj sprzęt
-          </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          </h1>
+          <p className="section-copy max-w-2xl mx-auto">
             Wypełnij formularz, aby zarezerwować wybrany sprzęt. 
             Potwierdzenie otrzymasz na podany adres e-mail.
           </p>
@@ -711,9 +756,10 @@ export function Reservation() {
                   </div>
                   
                   {/* Info o obliczaniu doby */}
-                  <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 mb-3">
-                    <p className="text-xs text-gold">
-                      💡 Doba trwa 24h od godziny odbioru. Przykład: odbiór 21.01 o 09:00 = zwrot do 22.01 do 09:00 (1 doba). Zwrot po tej godzinie = dodatkowa doba.
+                  <div className="p-3 rounded-[--radius-sm] bg-gold/10 border border-gold/20 mb-3 flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" aria-hidden="true" />
+                    <p className="text-xs text-gold leading-relaxed">
+                      Doba trwa 24h od godziny odbioru. Przykład: odbiór 21.01 o 09:00 = zwrot do 22.01 do 09:00 (1 doba). Zwrot po tej godzinie = dodatkowa doba.
                     </p>
                   </div>
                   
@@ -931,7 +977,7 @@ export function Reservation() {
                   </div>
 
                   {/* Invoice Section */}
-                  <div className="mt-4 border border-border rounded-xl overflow-hidden">
+                  <div className="mt-4 border border-border rounded-[--radius-sm] overflow-hidden">
                     <button
                       type="button"
                       onClick={() => updateField('wantsInvoice', !formData.wantsInvoice)}
@@ -1071,11 +1117,75 @@ export function Reservation() {
                             <span className="text-text-primary">{formatPrice(costSummary.weekendPickupFee)}</span>
                           </div>
                         )}
+                        {appliedCoupon && appliedCoupon.discountAmount > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-emerald-400">Kupon {appliedCoupon.code}:</span>
+                            <span className="text-emerald-400">-{formatPrice(appliedCoupon.discountAmount)}</span>
+                          </div>
+                        )}
                         <div className="border-t border-border pt-2 mt-2">
                           <div className="flex justify-between">
                             <span className="font-medium text-text-primary">Razem:</span>
-                            <span className="text-xl font-bold text-gold">{formatPrice(costSummary.total)}</span>
+                            <span className="text-xl font-bold text-gold">
+                              {formatPrice(Math.max(costSummary.total - (appliedCoupon?.discountAmount || 0), 0))}
+                            </span>
                           </div>
+                        </div>
+
+                        {/* Coupon code */}
+                        <div className="pt-3 mt-1 border-t border-border">
+                          {appliedCoupon ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-emerald-400">
+                                Kupon {appliedCoupon.code} został naliczony
+                              </span>
+                              <button
+                                type="button"
+                                onClick={removeCoupon}
+                                className="text-xs text-text-muted hover:text-text-primary underline"
+                              >
+                                Usuń
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <label htmlFor="couponCode" className="block text-xs text-text-secondary mb-1.5">
+                                Masz kupon rabatowy?
+                              </label>
+                              <div className="flex gap-2">
+                                <input
+                                  id="couponCode"
+                                  value={formData.couponCode}
+                                  onChange={(event) => updateField('couponCode', event.target.value.toUpperCase())}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+                                      void applyCoupon();
+                                    }
+                                  }}
+                                  placeholder="WBR-XXXX-XXXX"
+                                  autoComplete="off"
+                                  className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-bg-card border border-border text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-gold uppercase"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void applyCoupon()}
+                                  disabled={couponStatus === 'checking' || !formData.couponCode.trim()}
+                                  className="h-10 px-4 rounded-lg border border-gold/40 text-sm font-medium text-gold hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  {couponStatus === 'checking' ? 'Sprawdzam…' : 'Zastosuj'}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                          {couponMessage && (
+                            <p
+                              role="status"
+                              className={`mt-2 text-xs ${couponStatus === 'invalid' ? 'text-red-400' : 'text-emerald-400'}`}
+                            >
+                              {couponMessage}
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}

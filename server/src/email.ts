@@ -76,8 +76,21 @@ interface EmailAttachment {
   contentType?: string;
 }
 
+export interface EmailSendResult {
+  success: boolean;
+  delivered: boolean;
+  transport: 'resend' | 'smtp' | 'console';
+  messageId?: string;
+  error?: unknown;
+}
+
 // Send email (tries Resend first, then SMTP, then console)
-const sendEmail = async (to: string, subject: string, html: string, attachments: EmailAttachment[] = []) => {
+const sendEmail = async (
+  to: string,
+  subject: string,
+  html: string,
+  attachments: EmailAttachment[] = []
+): Promise<EmailSendResult> => {
   const fromEmail = process.env.RESEND_FROM || config.smtp.from || 'WB-Rent <noreply@wb-rent.pl>';
   
   // Try Resend first
@@ -96,14 +109,14 @@ const sendEmail = async (to: string, subject: string, html: string, attachments:
       
       if (error) {
         console.error('❌ Resend error:', error);
-        return { success: false, error };
+        return { success: false, delivered: false, transport: 'resend', error };
       }
       
       console.log(`📧 Email sent via Resend to ${to}`);
-      return { success: true, messageId: data?.id };
+      return { success: true, delivered: true, transport: 'resend', messageId: data?.id };
     } catch (error) {
       console.error('❌ Resend error:', error);
-      return { success: false, error };
+      return { success: false, delivered: false, transport: 'resend', error };
     }
   }
   
@@ -118,16 +131,23 @@ const sendEmail = async (to: string, subject: string, html: string, attachments:
         attachments,
       });
       console.log(`📧 Email sent via SMTP to ${to}`);
-      return { success: true, messageId: info.messageId };
+      return { success: true, delivered: true, transport: 'smtp', messageId: info.messageId };
     } catch (error) {
       console.error('❌ Email send error:', error);
-      return { success: false, error };
+      return { success: false, delivered: false, transport: 'smtp', error };
     }
   }
   
   // Fallback to console
   logEmail(to, subject, html);
-  return { success: true, messageId: 'console-log' };
+  console.warn(`📧 Email NOT delivered to ${to}: no SMTP/Resend transport configured`);
+  return {
+    success: false,
+    delivered: false,
+    transport: 'console',
+    messageId: 'console-preview',
+    error: new Error('Email transport is not configured'),
+  };
 };
 
 // === EMAIL TEMPLATES ===
@@ -404,6 +424,7 @@ export const sendReservationStatusEmail = async (
     productName: string;
     startDate: string;
     endDate: string;
+    isIndefinite?: boolean;
     totalPrice: number;
   },
   status: 'confirmed' | 'rejected'
@@ -486,6 +507,7 @@ export const sendPickedUpEmail = async (
     productName: string;
     startDate: string;
     endDate: string;
+    isIndefinite?: boolean;
     totalPrice: number;
   }
 ) => {
@@ -502,7 +524,7 @@ export const sendPickedUpEmail = async (
       
       <div style="background: #1e3a5f; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
         <h3 style="color: #3b82f6; margin: 0 0 10px 0;">📦 Sprzęt został wydany!</h3>
-        <p style="margin: 0; color: #bfdbfe;">Dziękujemy za odbiór. Pamiętaj o terminie zwrotu.</p>
+        <p style="margin: 0; color: #bfdbfe;">${reservation.isIndefinite ? 'Dziękujemy za odbiór. Wynajem trwa do odwołania.' : 'Dziękujemy za odbiór. Pamiętaj o terminie zwrotu.'}</p>
       </div>
       
       <div style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -513,18 +535,18 @@ export const sendPickedUpEmail = async (
             <td style="padding: 8px 0;">${reservation.productName}</td>
           </tr>
           <tr>
-            <td style="padding: 8px 0; color: #a1a1aa;">Data zwrotu:</td>
-            <td style="padding: 8px 0; font-weight: bold; color: #ef4444;">${reservation.endDate}</td>
+            <td style="padding: 8px 0; color: #a1a1aa;">${reservation.isIndefinite ? 'Okres najmu:' : 'Data zwrotu:'}</td>
+            <td style="padding: 8px 0; font-weight: bold; color: ${reservation.isIndefinite ? '#b8972a' : '#ef4444'};">${reservation.endDate}</td>
           </tr>
         </table>
       </div>
       
-      <div style="background: #422006; padding: 15px; border-radius: 8px; margin: 20px 0;">
+      ${reservation.isIndefinite ? '' : `<div style="background: #422006; padding: 15px; border-radius: 8px; margin: 20px 0;">
         <p style="margin: 0; color: #fef3c7; font-size: 14px;">
           ⚠️ <strong>Ważne:</strong> Prosimy o zwrot sprzętu w stanie nienaruszonym do dnia ${reservation.endDate}. 
           Opóźnienia mogą wiązać się z dodatkowymi opłatami.
         </p>
-      </div>
+      </div>`}
       
       <p style="color: #a1a1aa; font-size: 14px; margin-top: 20px;">
         Pytania? Zadzwoń: <strong style="color: #ffffff;">570 038 828</strong>
@@ -540,6 +562,38 @@ export const sendPickedUpEmail = async (
     </div>
   `;
 
+  return sendEmail(reservation.email, subject, html);
+};
+
+export const sendRentalTermChangedEmail = async (reservation: {
+  email: string;
+  name: string;
+  productName: string;
+  endDate: string;
+  totalPrice: number;
+  priceDelta: number;
+  note: string;
+}) => {
+  reservation = escFields(reservation, ['name', 'productName', 'endDate', 'note']);
+  const subject = 'Zmiana okresu wynajmu - WB-Rent';
+  const priceChange = reservation.priceDelta > 0
+    ? `<p style="color: #fbbf24; margin: 8px 0 0;">Dopłata za zmianę: <strong>${reservation.priceDelta.toFixed(2)} PLN</strong></p>`
+    : '';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <h2 style="color: #b8972a; margin-top: 0;">WB-Rent</h2>
+      <p>Cześć <strong style="color: #b8972a;">${reservation.name}</strong>,</p>
+      <p>Okres wynajmu urządzenia <strong>${reservation.productName}</strong> został zmieniony.</p>
+      <div style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="color: #a1a1aa; margin: 0;">Aktualny termin zwrotu</p>
+        <p style="font-size: 20px; font-weight: bold; color: #b8972a; margin: 6px 0 0;">${reservation.endDate}</p>
+        <p style="color: #a1a1aa; margin: 14px 0 0;">Aktualna wartość wynajmu: <strong style="color: #ffffff;">${reservation.totalPrice.toFixed(2)} PLN</strong></p>
+        ${priceChange}
+      </div>
+      <p style="color: #a1a1aa; font-size: 14px;">Uzgodnienie: ${reservation.note}</p>
+      <p style="color: #71717a; font-size: 12px; margin-top: 24px;">Ta wiadomość potwierdza zmianę w formie dokumentowej. Pytania: 570 038 828.</p>
+    </div>
+  `;
   return sendEmail(reservation.email, subject, html);
 };
 
@@ -927,6 +981,66 @@ export const sendSignedContractEmail = async (
   return sendEmail(email, subject, html, [
     {
       filename: `umowa-${contractNumber.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+      content: pdf,
+      contentType: 'application/pdf',
+    },
+  ]);
+};
+
+export const sendCouponEmail = async (
+  email: string,
+  coupon: {
+    code: string;
+    customerName: string;
+    valueLabel: string;
+    minTotal: number;
+    expiresOn: string | null;
+    termsText: string;
+  },
+  pdf: Buffer
+) => {
+  const safeName = esc(coupon.customerName || 'Kliencie');
+  const safeCode = esc(coupon.code);
+  const safeValue = esc(coupon.valueLabel);
+  const safeTerms = esc(
+    coupon.termsText
+      || 'Kupon jednorazowy, nie łączy się z innymi promocjami i nie podlega wymianie na gotówkę.'
+  );
+  const conditions = [
+    coupon.minTotal > 0
+      ? `Minimalna kwota najmu: <strong>${coupon.minTotal.toFixed(2).replace('.', ',')} zł</strong>`
+      : null,
+    coupon.expiresOn ? `Ważny do: <strong>${esc(coupon.expiresOn)}</strong>` : 'Bez terminu ważności',
+  ].filter(Boolean).join(' &nbsp;•&nbsp; ');
+
+  const subject = `Twój kupon rabatowy ${coupon.code} - WB-Rent`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Kupon rabatowy na kolejny najem</p>
+      </div>
+      <p>Cześć <strong style="color: #b8972a;">${safeName}</strong>,</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Dziękujemy za skorzystanie z naszych usług. W podziękowaniu przygotowaliśmy dla Ciebie
+        rabat <strong style="color: #b8972a;">${safeValue}</strong> na kolejny najem sprzętu.
+      </p>
+      <div style="background: #1a1a1a; padding: 24px; border-radius: 8px; margin: 24px 0; text-align: center; border: 1px dashed #b8972a;">
+        <p style="margin: 0 0 8px; color: #a1a1aa; font-size: 13px;">Twój kod rabatowy</p>
+        <p style="margin: 0; color: #ffffff; font-size: 26px; font-weight: bold; letter-spacing: 3px;">${safeCode}</p>
+      </div>
+      <p style="color: #a1a1aa; font-size: 13px; text-align: center;">${conditions}</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Kod wpisz w formularzu rezerwacji na <a href="https://wb-rent.pl" style="color: #b8972a;">wb-rent.pl</a>
+        lub podaj go przy telefonicznym zamówieniu. Kupon do druku znajdziesz w załączniku.
+      </p>
+      <p style="color: #71717a; font-size: 12px; line-height: 1.5;">${safeTerms}</p>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html, [
+    {
+      filename: `kupon-${coupon.code.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
       content: pdf,
       contentType: 'application/pdf',
     },
