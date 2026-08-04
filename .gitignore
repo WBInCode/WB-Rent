@@ -54,8 +54,3 @@ server/storage/contracts/
 # Misc
 *.local
 .cache/
-
-# Dokumenty firmowe i materiały producenta - do dodania dopiero po przełączeniu
-# repozytorium na prywatne (wzory umów WB Partners, instrukcje Kärcher).
-Dokumenty wynajem/
-server/assets/manuals/
