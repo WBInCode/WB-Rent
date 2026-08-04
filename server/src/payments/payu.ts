@@ -8,7 +8,7 @@
 
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import type { PaymentProvider, CreatePaymentInput, CreatePaymentResult, WebhookResult, PaymentStatus } from './types.js';
+import type { PaymentProvider, CreatePaymentInput, CreatePaymentResult, WebhookResult, PaymentStatus, RefundInput } from './types.js';
 
 const baseUrl = () =>
   config.payments.payu.sandbox ? 'https://secure.snd.payu.com' : 'https://secure.payu.com';
@@ -87,6 +87,20 @@ function mapStatus(payuStatus: string): PaymentStatus {
   }
 }
 
+const grosze = (amount: number) => String(Math.round(amount * 100));
+
+async function payuFetch(path: string, init: RequestInit): Promise<Response> {
+  const token = await getAccessToken();
+  return fetch(`${baseUrl()}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init.headers || {}),
+    },
+  });
+}
+
 export const payuProvider: PaymentProvider = {
   name: 'payu',
 
@@ -110,7 +124,7 @@ export const payuProvider: PaymentProvider = {
         extOrderId: input.sessionId,
         description: input.description,
         currencyCode: 'PLN',
-        totalAmount: String(Math.round(input.amount * 100)), // grosze
+        totalAmount: grosze(input.amount),
         customerIp: input.customerIp || '127.0.0.1',
         notifyUrl: input.notifyUrl,
         continueUrl: input.returnUrl,
@@ -118,7 +132,7 @@ export const payuProvider: PaymentProvider = {
         products: [
           {
             name: input.description.slice(0, 255),
-            unitPrice: String(Math.round(input.amount * 100)),
+            unitPrice: grosze(input.amount),
             quantity: '1',
           },
         ],
@@ -164,6 +178,53 @@ export const payuProvider: PaymentProvider = {
       sessionId: order.extOrderId,
       externalId: order.orderId,
       status: mapStatus(order.status),
+      // Punkt bez automatycznego odbioru zatrzymuje zamowienie na tym statusie.
+      needsCapture: order.status === 'WAITING_FOR_CONFIRMATION',
     };
+  },
+
+  async fetchStatus(externalId: string): Promise<PaymentStatus | null> {
+    const res = await payuFetch(`/api/v2_1/orders/${encodeURIComponent(externalId)}`, {
+      method: 'GET',
+      redirect: 'manual',
+    });
+    const body = (await res.json().catch(() => null)) as {
+      orders?: Array<{ status?: string }>;
+    } | null;
+
+    const status = body?.orders?.[0]?.status;
+    return status ? mapStatus(status) : null;
+  },
+
+  async capture(externalId: string): Promise<void> {
+    const res = await payuFetch(`/api/v2_1/orders/${encodeURIComponent(externalId)}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ orderId: externalId, orderStatus: 'COMPLETED' }),
+    });
+    if (!res.ok) {
+      throw new Error(`PayU capture failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  },
+
+  async refund(input: RefundInput): Promise<{ refundId?: string }> {
+    const res = await payuFetch(`/api/v2_1/orders/${encodeURIComponent(input.externalId)}/refunds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        refund: {
+          description: input.reason.slice(0, 128),
+          ...(input.amount ? { amount: grosze(input.amount) } : {}),
+        },
+      }),
+    });
+
+    const body = (await res.json().catch(() => null)) as {
+      status?: { statusCode?: string };
+      refund?: { refundId?: string };
+    } | null;
+
+    if (!res.ok || (body?.status?.statusCode && body.status.statusCode !== 'SUCCESS')) {
+      throw new Error(`PayU refund failed: HTTP ${res.status} ${JSON.stringify(body)}`);
+    }
+    return { refundId: body?.refund?.refundId };
   },
 };

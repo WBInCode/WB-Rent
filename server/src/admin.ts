@@ -18,6 +18,7 @@ import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema,
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
+import { getProviderByName } from './payments/index.js';
 
 const router = Router();
 
@@ -1879,6 +1880,96 @@ router.put('/settings', adminAuth, async (req: Request, res: Response) => {
     }
     console.error('Update settings error:', error);
     res.status(500).json({ success: false, message: 'Nie udało się zapisać ustawień' });
+  }
+});
+
+// === PŁATNOŚCI ===
+router.get('/reservations/:id/payment', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const payment = await queries.getLatestPaymentForReservation(Number(req.params.id));
+    if (!payment) {
+      res.json({ success: true, data: null });
+      return;
+    }
+    res.json({
+      success: true,
+      data: {
+        sessionId: payment.session_id,
+        provider: payment.provider,
+        status: payment.status,
+        amount: Number(payment.amount),
+        createdAt: payment.created_at,
+        paidAt: payment.paid_at,
+        refundedAt: payment.refunded_at,
+        refundAmount: payment.refund_amount === null ? null : Number(payment.refund_amount),
+        refundReason: payment.refund_reason || '',
+      },
+    });
+  } catch (error) {
+    console.error('Get reservation payment error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać płatności' });
+  }
+});
+
+const refundSchema = z.object({
+  amount: z.number().positive('Kwota zwrotu musi być dodatnia').optional(),
+  reason: z.string().trim()
+    .min(3, 'Podaj powód zwrotu')
+    .max(200, 'Powód zwrotu może mieć maksymalnie 200 znaków'),
+});
+
+router.post('/payments/:sessionId/refund', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { amount, reason } = refundSchema.parse(req.body ?? {});
+    const sessionId = String(req.params.sessionId);
+
+    const payment = await queries.getPaymentBySessionId(sessionId);
+    if (!payment) {
+      res.status(404).json({ success: false, message: 'Płatność nie istnieje' });
+      return;
+    }
+    if (payment.status !== 'paid') {
+      res.status(409).json({ success: false, message: 'Zwrot jest możliwy tylko dla opłaconej rezerwacji' });
+      return;
+    }
+    if (amount && amount > Number(payment.amount)) {
+      res.status(400).json({ success: false, message: 'Zwrot nie może przekraczać wpłaconej kwoty' });
+      return;
+    }
+
+    const provider = getProviderByName(payment.provider);
+    if (!provider?.isConfigured() || !provider.refund) {
+      res.status(503).json({ success: false, message: 'Ten operator nie obsługuje zwrotów przez system' });
+      return;
+    }
+    if (!payment.external_id) {
+      res.status(409).json({ success: false, message: 'Brak identyfikatora zamówienia u operatora' });
+      return;
+    }
+
+    const result = await provider.refund({ externalId: payment.external_id, amount, reason });
+    const kwota = amount ?? Number(payment.amount);
+    await queries.markPaymentRefunded({
+      sessionId,
+      amount: kwota,
+      reason,
+      refundExternalId: result.refundId,
+    });
+
+    res.json({
+      success: true,
+      message: `Zwrot ${kwota.toFixed(2)} zł został zlecony operatorowi`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zwrotu' });
+      return;
+    }
+    console.error('Refund payment error:', error);
+    res.status(502).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Operator odrzucił zwrot',
+    });
   }
 });
 
