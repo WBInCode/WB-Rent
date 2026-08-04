@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Shield, UserCheck, Eye, Lock, FileText, Phone, Mail, Check, ChevronRight } from 'lucide-react';
 import { Button, Card } from '@/components/ui';

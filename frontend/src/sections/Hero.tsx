@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ArrowRight, PackageCheck, ShieldCheck, Sparkles, Truck } from 'lucide-react';
 import { CostWidget } from '@/components/CostWidget';
 import { HeroSpotlight } from '@/components/HeroSpotlight';

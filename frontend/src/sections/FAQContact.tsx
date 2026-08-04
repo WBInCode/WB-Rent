@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, MessageCircle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Button, Card } from '@/components/ui';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 

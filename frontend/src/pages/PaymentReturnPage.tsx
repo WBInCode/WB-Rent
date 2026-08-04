@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { CheckCircle2, XCircle, Clock, Loader2, RefreshCw, ReceiptText } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { getPaymentStatus, type PaymentStatusResponse } from '@/services/api';

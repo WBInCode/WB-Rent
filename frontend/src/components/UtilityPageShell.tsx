@@ -1,5 +1,5 @@
 import { Home, Phone } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 interface UtilityPageShellProps {
   children: React.ReactNode;

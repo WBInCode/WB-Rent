@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Check, X, Eye, Bell, Loader2, Package } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Button, Input } from '@/components/ui';
 import { type Product } from '@/data/products';
 import { hoverLiftVariants, transitions } from '@/lib/motion';

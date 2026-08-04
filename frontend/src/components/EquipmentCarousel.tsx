@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getProductImages, type Product } from '@/data/products';
 import { formatPrice } from '@/lib/utils';

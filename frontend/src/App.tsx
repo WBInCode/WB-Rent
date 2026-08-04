@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router';
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
 import { ReservationProvider } from '@/context/ReservationContext';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { EquipmentCarousel } from '@/components/EquipmentCarousel';
