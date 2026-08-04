@@ -49,7 +49,8 @@ router.post('/sign/:token', signLimiter, async (req: Request, res: Response) => 
       || req.socket.remoteAddress || 'unknown';
     const result = await signContract({
       token: String(req.params.token),
-      signatureDataUrl: String(req.body?.signature || ''),
+      renterSignatureDataUrl: String(req.body?.renterSignature || ''),
+      lessorSignatureDataUrl: String(req.body?.lessorSignature || ''),
       accepted: req.body?.accepted === true,
       ip,
       userAgent: String(req.headers['user-agent'] || 'unknown'),
@@ -67,11 +68,15 @@ router.post('/sign/:token', signLimiter, async (req: Request, res: Response) => 
 
     res.json({
       success: true,
-      message: 'Umowa została podpisana, zapisana i wysłana na e-mail.',
+      message: result.emailDelivered
+        ? 'Umowa została podpisana, zapisana i wysłana na e-mail.'
+        : 'Umowa została podpisana i zapisana, ale e-mail nie został dostarczony. Pobierz PDF lub poproś pracownika o ponowną wysyłkę.',
       contractNumber: result.contractNumber,
       pdfHash: result.pdfHash,
       pdfUrl: `/api/contracts/sign/${encodeURIComponent(String(req.params.token))}/pdf`,
       payment,
+      emailDelivered: result.emailDelivered,
+      emailTransport: result.emailTransport,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Nie udało się podpisać umowy';

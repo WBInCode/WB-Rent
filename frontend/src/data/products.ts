@@ -1,3 +1,5 @@
+import { getProductCatalog } from '@/services/api';
+
 // WB-Rent - Real product data based on actual pricing
 export interface Product {
   id: string;
@@ -16,6 +18,8 @@ export interface Product {
   weekendPickupFee: number;
   features: string[];
   available: boolean;
+  totalQuantity?: number;
+  availableToday?: number;
 }
 
 // Helper to get all images for a product (gallery or fallback to single image)
@@ -251,6 +255,47 @@ export const products: Product[] = [
 export const DELIVERY_FEE = 20; // PLN - transport każdą stronę
 export const WEEKEND_PICKUP_FEE = 30; // PLN - odbiór w sobotę lub niedzielę
 
+export async function loadProductCatalog(): Promise<void> {
+  const response = await getProductCatalog();
+  if (!response.success || !response.data?.products?.length) return;
+
+  const hydrated = response.data.products.map((row) => {
+    const fallback = products.find((product) => product.id === row.id);
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || fallback?.description || '',
+      categoryId: row.categoryId,
+      image: row.image && row.image !== '/favicon.svg'
+        ? row.image
+        : fallback?.image || '/favicon.svg',
+      images: row.images?.length
+        ? row.images
+        : fallback?.images?.length
+          ? fallback.images
+          : [fallback?.image || row.image],
+      pricePerDay: row.pricePerDay,
+      priceNextDay: row.priceNextDay,
+      priceWeekend: row.priceWeekend,
+      includedAccessories: row.includedAccessories?.length
+        ? row.includedAccessories
+        : fallback?.includedAccessories || [],
+      optionalAccessories: row.optionalAccessories?.length
+        ? row.optionalAccessories
+        : fallback?.optionalAccessories || [],
+      accessoryPrice: row.accessoryPrice || fallback?.accessoryPrice,
+      transportPrice: fallback?.transportPrice ?? DELIVERY_FEE,
+      weekendPickupFee: fallback?.weekendPickupFee ?? WEEKEND_PICKUP_FEE,
+      features: row.features?.length ? row.features : fallback?.features || [],
+      available: row.available,
+      totalQuantity: row.totalQuantity,
+      availableToday: row.availableToday,
+    } satisfies Product;
+  });
+
+  products.splice(0, products.length, ...hydrated);
+}
+
 // Helper functions
 export function getProductsByCategory(categoryId: string): Product[] {
   return products.filter((p) => p.categoryId === categoryId);
@@ -281,7 +326,7 @@ export function calculateRentalCost(
 
   let basePrice: number;
   
-  if (isWeekend && days <= 3) {
+  if (isWeekend && days === 3) {
     // Weekend pricing (Pt-Pon)
     basePrice = product.priceWeekend;
   } else if (days === 1) {

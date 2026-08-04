@@ -145,6 +145,7 @@
 - [x] AES-256-GCM: dane dokumentu, podpis i PDF zaszyfrowane w bazie / na dysku
 - [x] Jednorazowa sesja podpisu 256-bit (hash tokenu w DB, TTL 24h)
 - [x] Pełnoekranowy ekran tabletowy (palec / rysik / mysz)
+- [x] Dwa obowiązkowe podpisy odręczne: Wynajmujący (pracownik) i Najemca (klient)
 - [x] Wymuszenie przewinięcia pełnej umowy przed zgodą
 - [x] Generator PDF z polskimi znakami, podpisem i metryką dowodową
 - [x] E-mail do klienta z podpisaną umową PDF

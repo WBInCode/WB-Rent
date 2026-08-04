@@ -3,6 +3,13 @@ import { queries } from './db.js';
 import { getProductName } from './products.js';
 import { sendPickupReminderEmail, sendReturnReminderEmail } from './email.js';
 
+const reservationProductNames = (reservation: any) => {
+  const productIds = Array.isArray(reservation.items) && reservation.items.length > 0
+    ? reservation.items.map((item: any) => String(item.product_id))
+    : [String(reservation.product_id)];
+  return productIds.map(getProductName).join(', ');
+};
+
 async function sendDailyReminders() {
   console.log('📧 Running daily reminder job...');
   
@@ -18,7 +25,7 @@ async function sendDailyReminders() {
         await sendPickupReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });
@@ -34,7 +41,7 @@ async function sendDailyReminders() {
         await sendReturnReminderEmail({
           email: reservation.email,
           name: reservation.name,
-          productName: getProductName(reservation.product_id),
+          productName: reservationProductNames(reservation),
           startDate: reservation.start_date,
           endDate: reservation.end_date,
         });

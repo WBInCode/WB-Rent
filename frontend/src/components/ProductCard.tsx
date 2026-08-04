@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { Check, X, Eye, Bell, Loader2 } from 'lucide-react';
+import { Check, X, Eye, Bell, Loader2, Package } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button, Input } from '@/components/ui';
 import { type Product } from '@/data/products';
@@ -82,7 +82,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <span className="text-4xl opacity-30">📦</span>
+                <Package className="w-14 h-14 text-neutral-300" strokeWidth={1.25} aria-hidden="true" />
               </div>
             )}
             
@@ -112,9 +112,9 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
         {/* Content */}
         <div className="flex flex-col flex-1 p-5">
           <Link to={`/produkt/${product.id}`}>
-            <h3 className="text-base font-semibold text-text-primary mb-2 line-clamp-2 hover:text-gold transition-colors">
+            <h2 className="text-base font-semibold text-text-primary mb-2 line-clamp-2 hover:text-gold transition-colors">
               {product.name}
-            </h3>
+            </h2>
           </Link>
           
           <p className="text-sm text-text-muted mb-4 line-clamp-2 leading-relaxed">

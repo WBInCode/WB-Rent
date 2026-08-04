@@ -70,7 +70,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        className={`bg-gradient-to-br from-bg-card to-bg-primary border border-gold/20 rounded-2xl p-6 ${className}`}
+        className={`bg-bg-card border border-gold/20 rounded-[--radius-sm] p-6 ${className}`}
       >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-gold/10">

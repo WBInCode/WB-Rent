@@ -1,0 +1,23 @@
+name: wb-rent
+
+services:
+  web:
+    networks:
+      - default
+      - wb-net
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=wb-net
+      - traefik.http.routers.wbrent.rule=Host(`wb-rent.pl`)
+      - traefik.http.routers.wbrent.entrypoints=websecure
+      - traefik.http.routers.wbrent.tls.certresolver=le
+      - traefik.http.routers.wbrent.service=wbrent
+      - traefik.http.routers.wbrent-www.rule=Host(`www.wb-rent.pl`)
+      - traefik.http.routers.wbrent-www.entrypoints=websecure
+      - traefik.http.routers.wbrent-www.tls.certresolver=le
+      - traefik.http.routers.wbrent-www.service=wbrent
+      - traefik.http.services.wbrent.loadbalancer.server.port=80
+
+networks:
+  wb-net:
+    external: true

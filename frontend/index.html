@@ -34,6 +34,12 @@
     
     <!-- Canonical URL -->
     <link rel="canonical" href="https://wb-rent.pl/" />
+
+    <!-- Local/GEO signals for regional search -->
+    <meta name="geo.region" content="PL-18" />
+    <meta name="geo.placename" content="Rzeszów" />
+    <meta name="geo.position" content="50.0412;21.9991" />
+    <meta name="ICBM" content="50.0412, 21.9991" />
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -45,9 +51,9 @@
     <!-- Preconnect to external resources -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Fonts: Inter (body) + Sora (display/headings) -->
+    <!-- Fonts: Manrope (body) + Space Grotesk (display/headings) -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap"
       rel="stylesheet"
     />
 
@@ -56,26 +62,73 @@
     {
       "@context": "https://schema.org",
       "@type": "LocalBusiness",
+      "@id": "https://wb-rent.pl/#business",
       "name": "WB-Rent",
       "description": "Wypożyczalnia sprzętu czyszczącego i ozonatorów — odkurzacze piorące Kärcher, ozonatory, parownice. Rezerwacja online, dostawa do 30 km.",
       "url": "https://wb-rent.pl",
       "image": "https://wb-rent.pl/og-image.png",
       "telephone": "+48570038828",
       "priceRange": "25-150 PLN",
+      "currenciesAccepted": "PLN",
+      "paymentAccepted": "Gotówka, Przelew, Karta płatnicza, BLIK",
       "address": {
         "@type": "PostalAddress",
         "streetAddress": "ul. Juliusza Słowackiego 24/11",
         "addressLocality": "Rzeszów",
+        "addressRegion": "podkarpackie",
         "postalCode": "35-060",
         "addressCountry": "PL"
       },
       "geo": { "@type": "GeoCoordinates", "latitude": 50.0412, "longitude": 21.9991 },
+      "areaServed": [
+        { "@type": "City", "name": "Rzeszów" },
+        {
+          "@type": "GeoCircle",
+          "geoMidpoint": { "@type": "GeoCoordinates", "latitude": 50.0412, "longitude": 21.9991 },
+          "geoRadius": 30000
+        }
+      ],
       "openingHours": "Mo-Su 08:00-20:00",
+      "openingHoursSpecification": [{
+        "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "opens": "08:00",
+        "closes": "20:00"
+      }],
       "sameAs": [
         "https://www.facebook.com/fbwbpartners",
         "https://www.instagram.com/wbrent.pl/"
       ]
     }
+    </script>
+
+    <!-- Structured data: WebSite -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": "https://wb-rent.pl/#website",
+      "url": "https://wb-rent.pl",
+      "name": "WB-Rent",
+      "inLanguage": "pl-PL",
+      "publisher": { "@id": "https://wb-rent.pl/#business" }
+    }
+    </script>
+
+    <!-- Theme bootstrap: runs before first paint so the page never flashes
+         the wrong palette. Falls back to the OS preference. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('wb-rent-theme');
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
     </script>
   </head>
   <body>
@@ -88,10 +141,10 @@
         <p style="font-size:1.25rem;color:#d1d5db;margin-bottom:2rem;">Wypożyczalnia sprzętu czyszczącego i ozonatorów</p>
         <p style="color:#9ca3af;">Profesjonalna wypożyczalnia odkurzaczy piorących Kärcher Puzzi, ozonatorów i sprzętu czyszczącego. Konkurencyjne ceny, szybka rezerwacja online, dostawa pod drzwi.</p>
         <ul style="list-style:none;padding:0;margin:2rem 0;color:#fbbf24;">
-          <li>✓ Odkurzacze piorące Kärcher Puzzi</li>
-          <li>✓ Ozonatory do dezynfekcji</li>
-          <li>✓ Dostawa pod drzwi</li>
-          <li>✓ Rezerwacja online 24/7</li>
+          <li>Odkurzacze piorące Kärcher Puzzi</li>
+          <li>Ozonatory do dezynfekcji</li>
+          <li>Dostawa pod drzwi</li>
+          <li>Rezerwacja online 24/7</li>
         </ul>
         <p style="color:#6b7280;">Kontakt: kontakt@wb-rent.pl</p>
       </div>

@@ -5,8 +5,10 @@ import { Button, Card, Badge } from '@/components/ui';
 interface CalendarReservation {
   id: number;
   product_id: string;
+  items?: Array<{ product_id: string }>;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
+  is_indefinite: boolean;
   start_time?: string;
   end_time?: string;
   name: string;
@@ -42,7 +44,14 @@ export function AdminAvailabilityCalendar({ reservations, productNames }: Props)
   });
 
   const active = useMemo(
-    () => reservations.filter((reservation) => ACTIVE_STATUSES.includes(reservation.status)),
+    () => reservations
+      .filter((reservation) => ACTIVE_STATUSES.includes(reservation.status))
+      .flatMap((reservation) => {
+        const productIds = reservation.items?.length
+          ? reservation.items.map((item) => item.product_id)
+          : [reservation.product_id];
+        return productIds.map((productId) => ({ ...reservation, product_id: productId }));
+      }),
     [reservations]
   );
 
@@ -59,7 +68,9 @@ export function AdminAvailabilityCalendar({ reservations, productNames }: Props)
         date,
         iso,
         currentMonth: date.getMonth() === month.getMonth(),
-        reservations: active.filter((reservation) => reservation.start_date <= iso && reservation.end_date >= iso),
+        reservations: active.filter((reservation) =>
+          reservation.start_date <= iso && (!reservation.end_date || reservation.end_date >= iso)
+        ),
       };
     });
   }, [active, month]);
@@ -124,7 +135,7 @@ export function AdminAvailabilityCalendar({ reservations, productNames }: Props)
                   {cell.reservations.slice(0, 3).map((reservation) => (
                     <div
                       key={`${cell.iso}-${reservation.id}`}
-                      title={`${productNames[reservation.product_id] || reservation.product_id} • ${reservation.name} • ${reservation.start_time || '09:00'}-${reservation.end_time || '09:00'}`}
+                      title={`${productNames[reservation.product_id] || reservation.product_id} • ${reservation.name} • ${reservation.is_indefinite ? 'bezterminowo' : `${reservation.start_time || '09:00'}-${reservation.end_time || '09:00'}`}`}
                       className="p-1.5 rounded bg-bg-secondary border border-border text-[10px] leading-tight"
                     >
                       <div className="flex items-center gap-1 mb-1">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search } from 'lucide-react';
+import { Search, SearchX } from 'lucide-react';
 import { Input, Button } from '@/components/ui';
 import { ProductCard } from '@/components/ProductCard';
 import { products, categories, getProductsByCategory } from '@/data/products';
@@ -8,9 +9,25 @@ import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@
 import { getProductsAvailability } from '@/services/api';
 
 export function Products() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const categoryFromUrl = searchParams.get('kategoria');
+  const activeCategory = categories.some((category) => category.id === categoryFromUrl)
+    ? categoryFromUrl
+    : null;
   const [searchQuery, setSearchQuery] = useState('');
   const [availability, setAvailability] = useState<Record<string, boolean>>({});
+
+  // The filter lives in the URL so category links and the back button both work.
+  const setActiveCategory = (categoryId: string | null) => {
+    setSearchParams(
+      (params) => {
+        if (categoryId) params.set('kategoria', categoryId);
+        else params.delete('kategoria');
+        return params;
+      },
+      { replace: true }
+    );
+  };
 
   // Fetch real-time availability
   useEffect(() => {
@@ -59,13 +76,14 @@ export function Products() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-12 md:mb-16"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">
+          <span className="section-kicker">
             Katalog
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">
+          {/* Jedyna sekcja na podstronie /sprzet - jej tytuł jest H1 strony. */}
+          <h1 className="section-title">
             Nasze produkty
-          </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          </h1>
+          <p className="section-copy max-w-2xl mx-auto">
             Przeglądaj naszą ofertę profesjonalnego sprzętu. 
             Wszystkie urządzenia są regularnie serwisowane i gotowe do pracy.
           </p>
@@ -79,15 +97,15 @@ export function Products() {
           viewport={{ once: true, margin: '-50px' }}
           className="mb-8"
         >
-          <div className="flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             {/* Category Tabs */}
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filtry kategorii">
+            <div className="flex min-w-0 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:overflow-visible" role="tablist" aria-label="Filtry kategorii">
               <button
                 role="tab"
                 aria-selected={activeCategory === null}
                 aria-controls="products-grid"
                 onClick={() => setActiveCategory(null)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
+                className={`h-10 shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
                   activeCategory === null
                     ? 'bg-gold text-bg-primary'
                     : 'bg-bg-card text-text-secondary hover:text-text-primary border border-border hover:border-gold/30'
@@ -103,7 +121,7 @@ export function Products() {
                   aria-selected={activeCategory === category.id}
                   aria-controls="products-grid"
                   onClick={() => setActiveCategory(category.id)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
+                  className={`h-10 shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 ${
                     activeCategory === category.id
                       ? 'bg-gold text-bg-primary'
                       : 'bg-bg-card text-text-secondary hover:text-text-primary border border-border hover:border-gold/30'
@@ -116,14 +134,16 @@ export function Products() {
             </div>
 
             {/* Search */}
-            <div className="relative flex-1 lg:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <div className="w-full self-end sm:max-w-sm xl:w-56 xl:max-w-none xl:flex-none">
               <Input
                 type="text"
+                size="sm"
+                aria-label="Szukaj produktu"
                 placeholder="Szukaj produktu..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                leftIcon={<Search className="w-4 h-4" aria-hidden="true" />}
+                className="rounded-lg"
               />
             </div>
           </div>
@@ -160,7 +180,9 @@ export function Products() {
                 variants={staggerItemVariants}
                 className="col-span-full text-center py-16"
               >
-                <div className="text-6xl mb-4">🔍</div>
+                <div className="w-14 h-14 mx-auto mb-4 rounded-[--radius-sm] bg-surface-soft border border-border flex items-center justify-center">
+                  <SearchX className="w-7 h-7 text-text-muted" aria-hidden="true" />
+                </div>
                 <h3 className="text-xl font-semibold text-text-primary mb-2">
                   Brak wyników
                 </h3>

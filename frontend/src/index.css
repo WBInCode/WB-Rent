@@ -2,62 +2,156 @@
 
 /* ============================================
    WB-RENT Design System - CSS Custom Properties
+
+   Every colour token points at a runtime `--wb-*` variable so the whole
+   palette can be swapped by setting `data-theme` on <html>. Tailwind
+   utilities (bg-bg-card, text-text-primary, ...) therefore follow the
+   active theme without touching a single component class.
    ============================================ */
 
 @theme {
-  /* === COLORS === */
+  /* === COLORS (theme-aware) === */
   /* Background */
-  --color-bg-primary: #0a0a0a;
-  --color-bg-secondary: #111111;
-  --color-bg-card: #1a1a1a;
-  --color-bg-card-hover: #222222;
-  
-  /* Gold/Bronze Accent - exact WB-Rent logo gradient */
-  --color-gold: #b8972a;
-  --color-gold-light: #d4a84b;
-  --color-gold-dark: #8b6914;
-  --color-gold-muted: rgba(184, 151, 42, 0.1);
-  --color-gold-glow: rgba(212, 168, 75, 0.25);
-  
+  --color-bg-primary: var(--wb-bg-primary);
+  --color-bg-secondary: var(--wb-bg-secondary);
+  --color-bg-card: var(--wb-bg-card);
+  --color-bg-card-hover: var(--wb-bg-card-hover);
+
+  /* Neutral surfaces - replaces hardcoded white/black alpha overlays */
+  --color-surface-soft: var(--wb-surface-soft);
+  --color-surface-strong: var(--wb-surface-strong);
+
+  /* Gold/Bronze Accent - WB-Rent logo gradient */
+  --color-gold: var(--wb-gold);
+  --color-gold-light: var(--wb-gold-light);
+  --color-gold-dark: var(--wb-gold-dark);
+  --color-gold-muted: var(--wb-gold-muted);
+  --color-gold-glow: var(--wb-gold-glow);
+  /* Text colour that sits on a solid gold fill */
+  --color-gold-contrast: var(--wb-gold-contrast);
+
   /* Text */
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #9a9a9a;
-  --color-text-muted: #5a5a5a;
-  
+  --color-text-primary: var(--wb-text-primary);
+  --color-text-secondary: var(--wb-text-secondary);
+  --color-text-muted: var(--wb-text-muted);
+
   /* Borders */
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-hover: rgba(255, 255, 255, 0.15);
-  --color-border-gold: rgba(184, 151, 42, 0.3);
-  
+  --color-border: var(--wb-border);
+  --color-border-hover: var(--wb-border-hover);
+  --color-border-gold: var(--wb-border-gold);
+
   /* Status */
-  --color-success: #22c55e;
-  --color-error: #ef4444;
-  --color-warning: #b8972a;
-  
+  --color-success: var(--wb-success);
+  --color-error: var(--wb-error);
+  --color-warning: var(--wb-warning);
+
   /* === TYPOGRAPHY === */
-  --font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-family-display: 'Sora', 'Inter', system-ui, sans-serif;
-  
+  --font-family-sans: 'Manrope', system-ui, sans-serif;
+  --font-family-display: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
+
   /* === SPACING & RADIUS === */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 24px;
   --radius-full: 9999px;
-  
-  /* === SHADOWS === */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
-  --shadow-gold: 0 0 30px rgba(212, 168, 75, 0.2);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
-  
+
+  /* === SHADOWS (theme-aware) === */
+  --shadow-sm: var(--wb-shadow-sm);
+  --shadow-md: var(--wb-shadow-md);
+  --shadow-lg: var(--wb-shadow-lg);
+  --shadow-gold: var(--wb-shadow-gold);
+  --shadow-card: var(--wb-shadow-card);
+
   /* === MOTION TOKENS === */
   --duration-fast: 150ms;
   --duration-normal: 300ms;
   --duration-slow: 500ms;
   --ease-out: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* === DARK THEME (default) === */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --wb-bg-primary: #0a0a0a;
+  --wb-bg-secondary: #111111;
+  --wb-bg-card: #1a1a1a;
+  --wb-bg-card-hover: #222222;
+
+  --wb-surface-soft: rgba(255, 255, 255, 0.05);
+  --wb-surface-strong: rgba(255, 255, 255, 0.1);
+
+  --wb-gold: #b8972a;
+  --wb-gold-light: #d4a84b;
+  --wb-gold-dark: #8b6914;
+  --wb-gold-muted: rgba(184, 151, 42, 0.1);
+  --wb-gold-glow: rgba(212, 168, 75, 0.25);
+  --wb-gold-contrast: #0a0a0a;
+
+  --wb-text-primary: #ffffff;
+  --wb-text-secondary: #9a9a9a;
+  --wb-text-muted: #5a5a5a;
+
+  --wb-border: rgba(255, 255, 255, 0.08);
+  --wb-border-hover: rgba(255, 255, 255, 0.15);
+  --wb-border-gold: rgba(184, 151, 42, 0.3);
+
+  --wb-success: #22c55e;
+  --wb-error: #ef4444;
+  --wb-warning: #b8972a;
+
+  --wb-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --wb-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --wb-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  --wb-shadow-gold: 0 0 30px rgba(212, 168, 75, 0.2);
+  --wb-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
+
+  --wb-root-bg: #09090b;
+}
+
+/* === LIGHT THEME ===
+   Warm off-white rather than pure white - keeps the industrial feel and
+   avoids glare. Gold is darkened so it still passes contrast on light. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --wb-bg-primary: #f6f5f2;
+  --wb-bg-secondary: #edebe5;
+  --wb-bg-card: #ffffff;
+  --wb-bg-card-hover: #faf9f6;
+
+  --wb-surface-soft: rgba(23, 22, 26, 0.04);
+  --wb-surface-strong: rgba(23, 22, 26, 0.09);
+
+  --wb-gold: #7c6112;
+  --wb-gold-light: #9c7d1c;
+  --wb-gold-dark: #5f4c0e;
+  --wb-gold-muted: rgba(124, 97, 18, 0.1);
+  --wb-gold-glow: rgba(124, 97, 18, 0.18);
+  --wb-gold-contrast: #ffffff;
+
+  --wb-text-primary: #16151a;
+  --wb-text-secondary: #56534c;
+  --wb-text-muted: #6b675f;
+
+  --wb-border: rgba(23, 22, 26, 0.1);
+  --wb-border-hover: rgba(23, 22, 26, 0.2);
+  --wb-border-gold: rgba(124, 97, 18, 0.35);
+
+  --wb-success: #15803d;
+  --wb-error: #b91c1c;
+  --wb-warning: #7c6112;
+
+  --wb-shadow-sm: 0 1px 2px rgba(23, 22, 26, 0.06);
+  --wb-shadow-md: 0 4px 10px rgba(23, 22, 26, 0.08);
+  --wb-shadow-lg: 0 12px 28px rgba(23, 22, 26, 0.12);
+  --wb-shadow-gold: 0 0 24px rgba(124, 97, 18, 0.16);
+  --wb-shadow-card: 0 4px 18px rgba(23, 22, 26, 0.08);
+
+  --wb-root-bg: #f2f0ec;
 }
 
 /* === BASE STYLES === */
@@ -84,11 +178,38 @@ body {
 /* Display font for headings (typographic contrast) */
 h1, h2, h3 {
   font-family: var(--font-family-display);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+}
+
+.section-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-gold);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.section-title {
+  margin-top: 0.9rem;
+  color: var(--color-text-primary);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.section-copy {
+  margin-top: 1rem;
+  color: var(--color-text-secondary);
+  font-size: 1.05rem;
+  line-height: 1.75;
 }
 
 html {
-  background-color: #0a0a0c;
+  background-color: var(--wb-root-bg);
 }
 
 /* === SCROLLBAR STYLING === */
@@ -143,7 +264,7 @@ html {
 }
 
 .bg-glass {
-  background: rgba(26, 26, 26, 0.8);
+  background: color-mix(in srgb, var(--wb-bg-card) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -154,6 +275,115 @@ html {
 
 .glow-gold {
   box-shadow: var(--shadow-gold);
+}
+
+/* Carousel: arrows drive the scroll, so the native bar would only add noise. */
+.carousel-track {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* Navbar shell: theme-aware so the scrolled state is not locked to dark. */
+.nav-shell {
+  background-color: transparent;
+  box-shadow: none;
+  transition:
+    background-color var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out),
+    backdrop-filter var(--duration-normal) var(--ease-out);
+}
+
+.nav-shell-scrolled {
+  background-color: color-mix(in srgb, var(--wb-root-bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--wb-shadow-md);
+  border-bottom: 1px solid var(--wb-border);
+}
+
+/* Technical background: layered depth instead of one flat colour.
+   Base gradient + two soft accent glows + workshop grid + sweeping band. */
+.site-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 50% at 78% 8%, rgba(184, 151, 42, 0.1) 0%, transparent 60%),
+    radial-gradient(52% 44% at 12% 32%, rgba(96, 118, 150, 0.09) 0%, transparent 62%),
+    radial-gradient(70% 55% at 50% 108%, rgba(184, 151, 42, 0.07) 0%, transparent 66%),
+    linear-gradient(180deg, #09090b 0%, #101014 42%, #0b0b0e 74%, #09090b 100%);
+  pointer-events: none;
+}
+
+[data-theme='light'] .site-backdrop {
+  background:
+    radial-gradient(60% 50% at 78% 8%, rgba(184, 151, 42, 0.16) 0%, transparent 60%),
+    radial-gradient(52% 44% at 12% 32%, rgba(96, 118, 150, 0.12) 0%, transparent 62%),
+    radial-gradient(70% 55% at 50% 108%, rgba(184, 151, 42, 0.1) 0%, transparent 66%),
+    linear-gradient(180deg, #f7f6f3 0%, #eeece6 44%, #f4f2ee 76%, #ebe8e1 100%);
+}
+
+.site-backdrop-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 84%);
+}
+
+[data-theme='light'] .site-backdrop-grid {
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(23, 22, 26, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 22, 26, 0.045) 1px, transparent 1px);
+}
+
+.site-backdrop-band {
+  position: absolute;
+  inset: -20% -10%;
+  background: linear-gradient(
+    118deg,
+    transparent 26%,
+    rgba(184, 151, 42, 0.018) 38%,
+    rgba(184, 151, 42, 0.055) 48%,
+    rgba(184, 151, 42, 0.018) 58%,
+    transparent 70%
+  );
+  transform: translateX(-10%);
+  animation: backdrop-sweep 24s ease-in-out infinite alternate;
+}
+
+.site-backdrop-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(184, 151, 42, 0.18), transparent);
+}
+
+.site-backdrop-line-top { top: 34%; }
+.site-backdrop-line-bottom { top: 72%; opacity: 0.55; }
+
+[data-theme='light'] .site-backdrop-line {
+  background: linear-gradient(90deg, transparent, rgba(124, 97, 18, 0.3), transparent);
+}
+
+@keyframes backdrop-sweep {
+  from { transform: translateX(-10%); }
+  to { transform: translateX(10%); }
+}
+
+@media (max-width: 640px) {
+  .site-backdrop-grid { background-size: 48px 48px; }
+  .site-backdrop-band { animation: none; transform: none; }
 }
 
 /* === INPUT AUTOFILL FIX === */

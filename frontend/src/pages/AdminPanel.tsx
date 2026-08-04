@@ -6,6 +6,9 @@ import {
   getStats, 
   getReservations, 
   updateReservationStatus,
+  getReservationStatusChanges,
+  changeReservationTerm,
+  getReservationTermChanges,
   getContacts,
   updateContactStatus,
   replyToContact,
@@ -26,11 +29,24 @@ import {
   createContractSession,
   getReservationContract,
   downloadContractPdf,
+  resendContractEmail,
+  getAdminProducts,
+  createAdminProduct,
+  updateAdminProduct,
+  deleteAdminProduct,
+  type AdminProduct,
+  type ProductInventoryPayload,
   type CreateContractPayload,
 } from '@/services/adminApi';
 import { products } from '@/data/products';
 import { Button, Card, Badge, Input, Select, Textarea } from '@/components/ui';
 import { AdminAvailabilityCalendar } from '@/components/AdminAvailabilityCalendar';
+import { ProductInventoryPanel } from '@/components/ProductInventoryPanel';
+import DocumentsPanel from '@/components/DocumentsPanel';
+import DiscountsPanel from '@/components/DiscountsPanel';
+import CouponsPanel from '@/components/CouponsPanel';
+import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
+import { HandoverPhotos } from '@/components/HandoverPhotos';
 import {
   BarChart,
   Bar,
@@ -73,14 +89,51 @@ import {
   ExternalLink,
   Loader2,
   CalendarDays,
+  Menu,
+  ChevronRight,
+  ShieldCheck,
+  RotateCcw,
+  CalendarPlus,
+  History,
+  Infinity as InfinityIcon,
+  Check,
+  BadgePercent,
+  Ticket,
+  FolderArchive,
+  Building2,
 } from 'lucide-react';
+
+type AdminTab = 'reservations' | 'products' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'documents' | 'discounts' | 'coupons' | 'business' | 'settings';
+
+const VIEW_META: Record<AdminTab, { title: string; description: string }> = {
+  reservations: { title: 'Rezerwacje', description: 'Obsługa wynajmów, umów, płatności i wydań sprzętu.' },
+  products: { title: 'Produkty i magazyn', description: 'Oferta, ilości, dostępność oraz stan techniczny floty.' },
+  calendar: { title: 'Kalendarz zajętości', description: 'Miesięczny widok wykorzystania całej floty.' },
+  contacts: { title: 'Wiadomości', description: 'Kontakt z klientami i historia odpowiedzi.' },
+  revenue: { title: 'Przychody', description: 'Wyniki sprzedaży, płatności oczekujące i trendy.' },
+  reminders: { title: 'Przypomnienia', description: 'Powiadomienia o odbiorach i zwrotach sprzętu.' },
+  newsletter: { title: 'Newsletter', description: 'Subskrybenci, publikacje i wysyłki.' },
+  notifications: { title: 'Dostępność', description: 'Klienci oczekujący na zwolnienie urządzeń.' },
+  documents: { title: 'Dokumenty', description: 'Archiwum umów, faktur i protokołów. Pliki są szyfrowane.' },
+  discounts: { title: 'Rabaty', description: 'Promocje naliczane automatycznie przy rezerwacji.' },
+  coupons: { title: 'Kupony', description: 'Kody rabatowe na kolejny najem — mail i wydruk.' },
+  business: { title: 'Dane firmy', description: 'Dane kontaktowe, zasady najmu i wartości domyślne.' },
+  settings: { title: 'Ustawienia', description: 'Bezpieczeństwo konta i konfiguracja panelu.' },
+};
 
 interface Reservation {
   id: number;
   product_id: string;
+  items?: Array<{
+    product_id: string;
+    category_id: string;
+    item_price: number;
+    position: number;
+  }>;
   category_id: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
+  is_indefinite: boolean;
   start_time?: string;
   end_time?: string;
   name: string;
@@ -106,6 +159,39 @@ interface Reservation {
   contract_status?: 'not_prepared' | 'ready' | 'signed';
   created_at: string;
 }
+
+interface ReservationTermChange {
+  id: number;
+  previous_end_date: string | null;
+  new_end_date: string | null;
+  previous_is_indefinite: boolean;
+  new_is_indefinite: boolean;
+  previous_total_price: number;
+  new_total_price: number;
+  price_delta: number;
+  note: string;
+  changed_by: string;
+  created_at: string;
+}
+
+interface ReservationStatusChange {
+  id: number;
+  previous_status: string;
+  new_status: string;
+  note: string;
+  changed_by: string;
+  notify_customer: boolean;
+  created_at: string;
+}
+
+const formatLocalDate = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const nextDay = (value?: string | null) => {
+  const date = value ? new Date(`${value.slice(0, 10)}T12:00:00`) : new Date();
+  date.setDate(date.getDate() + 1);
+  return formatLocalDate(date);
+};
 
 interface Contact {
   id: number;
@@ -204,10 +290,46 @@ const STATUS_COLORS: Record<string, 'warning' | 'success' | 'error' | 'default' 
   archived: 'default',
 };
 
+const RESERVATION_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Oczekuje' },
+  { value: 'confirmed', label: 'Potwierdzona' },
+  { value: 'picked_up', label: 'Wydane' },
+  { value: 'returned', label: 'Zwrócone' },
+  { value: 'completed', label: 'Zakończona' },
+  { value: 'rejected', label: 'Odrzucona' },
+  { value: 'cancelled', label: 'Anulowana' },
+];
+
+const STATUS_DESCRIPTIONS: Record<string, string> = {
+  pending: 'Przywraca rezerwację do kolejki oczekujących.',
+  confirmed: 'Potwierdza termin i gotowość realizacji rezerwacji.',
+  picked_up: 'Oznacza sprzęt jako wydany. Wymaga podpisanej umowy.',
+  returned: 'Potwierdza fizyczny zwrot sprzętu i zwalnia termin.',
+  completed: 'Kończy proces po zwrocie i rozliczeniu wynajmu.',
+  rejected: 'Odrzuca rezerwację i zwalnia sprzęt dla innych klientów.',
+  cancelled: 'Anuluje rezerwację i zwalnia zajęty termin.',
+};
+
+const CUSTOMER_STATUS_EMAILS = ['confirmed', 'rejected', 'picked_up', 'returned'];
+
 // Product id -> display name (from the shared catalog)
 const PRODUCT_NAMES: Record<string, string> = Object.fromEntries(
   products.map((p) => [p.id, p.name])
 );
+
+const reservationItems = (reservation: Reservation) => reservation.items?.length
+  ? reservation.items
+  : [{
+      product_id: reservation.product_id,
+      category_id: reservation.category_id,
+      item_price: reservation.base_price,
+      position: 0,
+    }];
+
+const reservationProductLabel = (reservation: Reservation) =>
+  reservationItems(reservation)
+    .map((item) => PRODUCT_NAMES[item.product_id] || item.product_id)
+    .join(', ');
 
 // CSV export (Excel-friendly: BOM + semicolon separator for PL locale)
 function exportToCsv(filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) {
@@ -233,7 +355,8 @@ export function AdminPanel() {
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'reservations' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'settings'>('reservations');
+  const [activeTab, setActiveTab] = useState<AdminTab>('reservations');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Change password form state
   const [pwdCurrent, setPwdCurrent] = useState('');
   const [pwdNew, setPwdNew] = useState('');
@@ -241,9 +364,32 @@ export function AdminPanel() {
   const [pwdSaving, setPwdSaving] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<AdminProduct[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const [statusFor, setStatusFor] = useState<Reservation | null>(null);
+  const [statusHistoryOnly, setStatusHistoryOnly] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusHistory, setStatusHistory] = useState<ReservationStatusChange[]>([]);
+  const [statusForm, setStatusForm] = useState({
+    targetStatus: 'pending',
+    note: '',
+    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    notifyCustomer: false,
+  });
+
+  const [termFor, setTermFor] = useState<Reservation | null>(null);
+  const [termSaving, setTermSaving] = useState(false);
+  const [termHistory, setTermHistory] = useState<ReservationTermChange[]>([]);
+  const [termForm, setTermForm] = useState({
+    endDate: formatLocalDate(new Date()),
+    endTime: '09:00',
+    isIndefinite: false,
+    note: '',
+    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+  });
 
   // Employee-assisted rental contract / kiosk flow
   const [contractFor, setContractFor] = useState<Reservation | null>(null);
@@ -298,8 +444,11 @@ export function AdminPanel() {
 
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  };
+    setTimeout(() => setToast(null), 3000);  };
+
+  /** Toast bridge for the standalone module panels. */
+  const notifyPanel = (message: string, tone: 'success' | 'error' = 'success') =>
+    showToast(tone, message);
 
   const showConfirm = (message: string, onConfirm: () => void) => {
     setConfirmModal({ message, onConfirm });
@@ -318,6 +467,102 @@ export function AdminPanel() {
       accessories: product?.includedAccessories.join(', ') || 'Urządzenie wraz ze standardowym wyposażeniem',
       conditionNotes: 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
     }));
+  };
+
+  const openStatusModal = async (reservation: Reservation, targetStatus: string) => {
+    if (targetStatus === reservation.status) return;
+    setStatusHistoryOnly(false);
+    setStatusFor(reservation);
+    setStatusHistory([]);
+    setStatusForm({
+      targetStatus,
+      note: '',
+      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+      notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(targetStatus),
+    });
+    const response = await getReservationStatusChanges(reservation.id);
+    if (response.success && Array.isArray(response.data)) {
+      setStatusHistory(response.data);
+    }
+  };
+
+  const openStatusHistory = async (reservation: Reservation) => {
+    setStatusHistoryOnly(true);
+    setStatusFor(reservation);
+    setStatusHistory([]);
+    const response = await getReservationStatusChanges(reservation.id);
+    if (response.success && Array.isArray(response.data)) {
+      setStatusHistory(response.data);
+    }
+  };
+
+  const handleManualStatusChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!statusFor) return;
+    setStatusSaving(true);
+    const response = await updateReservationStatus(statusFor.id, statusForm.targetStatus, {
+      note: statusForm.note.trim(),
+      changedBy: statusForm.changedBy.trim(),
+      notifyCustomer: statusForm.notifyCustomer,
+    });
+    if (response.success) {
+      localStorage.setItem('wb-rent-employee-name', statusForm.changedBy.trim());
+      setReservations((current) => current.map((reservation) =>
+        reservation.id === statusFor.id
+          ? { ...reservation, status: statusForm.targetStatus }
+          : reservation
+      ));
+      showToast('success', `${response.message}${statusForm.notifyCustomer ? ' • klient powiadomiony' : ''}`);
+      setStatusFor(null);
+      void loadData();
+    } else {
+      showToast('error', response.message || 'Nie udało się zmienić statusu');
+    }
+    setStatusSaving(false);
+  };
+
+  const openTermModal = async (reservation: Reservation) => {
+    setTermFor(reservation);
+    setTermHistory([]);
+    setTermForm({
+      endDate: reservation.is_indefinite
+        ? formatLocalDate(new Date())
+        : nextDay(reservation.end_date),
+      endTime: reservation.end_time || '09:00',
+      isIndefinite: false,
+      note: '',
+      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    });
+    const response = await getReservationTermChanges(reservation.id);
+    if (response.success && Array.isArray(response.data)) {
+      setTermHistory(response.data);
+    }
+  };
+
+  const handleTermChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!termFor) return;
+    setTermSaving(true);
+    const response = await changeReservationTerm(termFor.id, {
+      endDate: termForm.isIndefinite ? null : termForm.endDate,
+      endTime: termForm.endTime,
+      isIndefinite: termForm.isIndefinite,
+      note: termForm.note.trim(),
+      changedBy: termForm.changedBy.trim(),
+    });
+    if (response.success) {
+      localStorage.setItem('wb-rent-employee-name', termForm.changedBy.trim());
+      const delta = Number(response.data?.priceDelta || 0);
+      showToast(
+        'success',
+        `${response.message}${delta > 0 ? ` • dopłata ${delta.toFixed(2)} zł` : ''}${response.data?.emailDelivered ? ' • klient powiadomiony' : ''}`
+      );
+      setTermFor(null);
+      void loadData();
+    } else {
+      showToast('error', response.message || 'Nie udało się zmienić terminu');
+    }
+    setTermSaving(false);
   };
 
   useEffect(() => {
@@ -370,6 +615,19 @@ export function AdminPanel() {
     }
   };
 
+  const handleResendReservationContract = async (reservationId: number) => {
+    try {
+      const response = await getReservationContract(reservationId);
+      if (!response.success || !response.data?.id) throw new Error(response.message);
+      const result = await resendContractEmail(response.data.id);
+      if (!result.success) throw new Error(result.message);
+      showToast('success', result.message || 'Umowa została wysłana ponownie');
+      void loadData();
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : 'Nie udało się wysłać umowy');
+    }
+  };
+
   const [newPostTitle, setNewPostTitle] = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [sendingNewsletter, setSendingNewsletter] = useState(false);
@@ -400,9 +658,10 @@ export function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [statsRes, reservationsRes, contactsRes, revenueRes, subscribersRes, postsRes, notificationsRes] = await Promise.all([
+      const [statsRes, reservationsRes, productsRes, contactsRes, revenueRes, subscribersRes, postsRes, notificationsRes] = await Promise.all([
         getStats(),
         getReservations(statusFilter !== 'all' ? statusFilter : undefined),
+        getAdminProducts(),
         getContacts(),
         getRevenue(),
         getNewsletterSubscribers(),
@@ -412,6 +671,7 @@ export function AdminPanel() {
       
       if (statsRes.success) setStats(statsRes.data);
       if (reservationsRes.success) setReservations(reservationsRes.data);
+      if (productsRes.success) setInventoryProducts(productsRes.data);
       if (contactsRes.success) setContacts(contactsRes.data);
       if (revenueRes.success) setRevenueData(revenueRes.data);
       if (subscribersRes.success) setNewsletterSubscribers(subscribersRes.data);
@@ -441,7 +701,33 @@ export function AdminPanel() {
     setIsLoggedIn(false);
     setStats(null);
     setReservations([]);
+    setInventoryProducts([]);
     setContacts([]);
+  };
+
+  const handleSaveProduct = async (payload: ProductInventoryPayload, editingId?: string) => {
+    const result = editingId
+      ? await updateAdminProduct(editingId, payload)
+      : await createAdminProduct(payload);
+    if (!result.success) {
+      showToast('error', result.message || 'Nie udało się zapisać produktu');
+      return false;
+    }
+    showToast('success', result.message || 'Produkt został zapisany');
+    await loadData();
+    return true;
+  };
+
+  const handleDeleteProduct = (product: AdminProduct) => {
+    showConfirm(`Usunąć produkt „${product.name}”?`, async () => {
+      const result = await deleteAdminProduct(product.id);
+      if (!result.success) {
+        showToast('error', result.message || 'Nie udało się usunąć produktu');
+        return;
+      }
+      showToast('success', result.message || 'Produkt został usunięty');
+      await loadData();
+    });
   };
 
   // Toggle contact selection
@@ -542,12 +828,18 @@ export function AdminPanel() {
 
   const handleStatusChange = async (id: number, newStatus: string, type: 'reservation' | 'contact') => {
     if (type === 'reservation') {
-      const result = await updateReservationStatus(id, newStatus);
+      const result = await updateReservationStatus(id, newStatus, {
+        note: `Szybka akcja: ${STATUS_LABELS[newStatus] || newStatus}`,
+        changedBy: localStorage.getItem('wb-rent-employee-name') || 'Panel administratora',
+      });
       if (result.success) {
         setReservations(prev => 
           prev.map(r => r.id === id ? { ...r, status: newStatus } : r)
         );
-        loadData(); // Refresh stats
+        showToast('success', result.message || 'Status został zmieniony');
+        void loadData(); // Refresh stats
+      } else {
+        showToast('error', result.message || 'Nie udało się zmienić statusu');
       }
     } else {
       const result = await updateContactStatus(id, newStatus);
@@ -555,193 +847,226 @@ export function AdminPanel() {
         setContacts(prev => 
           prev.map(c => c.id === id ? { ...c, status: newStatus } : c)
         );
-        loadData();
+        void loadData();
+      } else {
+        showToast('error', result.message || 'Nie udało się zmienić statusu');
       }
     }
   };
 
+  const navigationGroups = [
+    {
+      label: 'Operacje',
+      items: [
+        { id: 'reservations' as const, label: 'Rezerwacje', icon: Calendar, badge: reservations.length },
+        { id: 'products' as const, label: 'Produkty i magazyn', icon: Package, badge: inventoryProducts.filter((product) => Number(product.available_today) === 0).length || undefined },
+        { id: 'calendar' as const, label: 'Kalendarz', icon: CalendarDays, badge: undefined },
+        { id: 'revenue' as const, label: 'Przychody', icon: TrendingUp, badge: undefined },
+      ],
+    },
+    {
+      label: 'Komunikacja',
+      items: [
+        { id: 'contacts' as const, label: 'Wiadomości', icon: MessageSquare, badge: stats?.contacts.new || undefined },
+        { id: 'reminders' as const, label: 'Przypomnienia', icon: Clock, badge: undefined },
+        { id: 'newsletter' as const, label: 'Newsletter', icon: Mail, badge: newsletterSubscribers.filter((item) => item.status === 'active').length || undefined },
+        { id: 'notifications' as const, label: 'Dostępność', icon: Bell, badge: productNotifications.filter((item) => item.status === 'waiting').length || undefined },
+      ],
+    },
+    {
+      label: 'Sprzedaż',
+      items: [
+        { id: 'discounts' as const, label: 'Rabaty', icon: BadgePercent, badge: undefined },
+        { id: 'coupons' as const, label: 'Kupony', icon: Ticket, badge: undefined },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { id: 'documents' as const, label: 'Dokumenty', icon: FolderArchive, badge: undefined },
+        { id: 'business' as const, label: 'Dane firmy', icon: Building2, badge: undefined },
+        { id: 'settings' as const, label: 'Ustawienia', icon: Settings, badge: undefined },
+      ],
+    },
+  ];
+
+  const selectTab = (tab: AdminTab) => {
+    setActiveTab(tab);
+    setSidebarOpen(false);
+  };
+
+  const currentView = VIEW_META[activeTab];
+
   // Login form
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-bg-primary flex items-center justify-center p-4">
-        <Card variant="glass" className="w-full max-w-md p-8">
-          <h1 className="text-2xl font-bold text-gold mb-6 text-center">
-            WB-Rent Admin
-          </h1>
-          
-          <form onSubmit={handleLogin} className="space-y-4">
-            <Input
-              type="password"
-              label="Hasło"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Wprowadź hasło admina"
-              error={loginError}
-            />
-            
-            <Button type="submit" className="w-full">
-              Zaloguj się
-            </Button>
-          </form>
-        </Card>
+      <div className="min-h-screen bg-[#090909] flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-[--radius-sm] overflow-hidden border border-white/10 shadow-2xl bg-[#101010]">
+          <div className="relative p-8 sm:p-10 bg-[#0d0d0d] border-b md:border-b-0 md:border-r border-white/10 overflow-hidden">
+            <div className="absolute -right-20 -bottom-20 w-64 h-64 rounded-full bg-gold/10 blur-3xl" aria-hidden="true" />
+            <img src="/logo.png" alt="WB-Rent" className="h-14 w-auto relative" />
+            <div className="relative mt-12">
+              <p className="text-xs uppercase tracking-[0.18em] text-gold font-semibold">Panel operacyjny</p>
+              <h1 className="text-2xl sm:text-3xl font-bold mt-3 leading-tight">Obsługa wynajmów w jednym miejscu</h1>
+              <p className="text-sm text-text-secondary mt-4 leading-relaxed">
+                Rezerwacje, umowy elektroniczne, płatności, wydania i kontakt z klientem.
+              </p>
+            </div>
+            <div className="relative mt-10 space-y-3 text-xs text-text-muted">
+              <div className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-green-400" /> Szyfrowana sesja pracownika</div>
+              <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gold" /> Automatyczne wylogowanie po 8 godzinach</div>
+            </div>
+          </div>
+
+          <div className="p-8 sm:p-12 flex flex-col justify-center">
+            <div className="max-w-sm w-full mx-auto">
+              <p className="text-xs text-text-muted uppercase tracking-wider">Dostęp pracownika</p>
+              <h2 className="text-2xl font-bold mt-2">Zaloguj się</h2>
+              <p className="text-sm text-text-secondary mt-2 mb-7">Wprowadź hasło panelu, aby rozpocząć pracę.</p>
+              <form onSubmit={handleLogin} className="space-y-5">
+                <Input
+                  type="password"
+                  label="Hasło"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Wprowadź hasło admina"
+                  error={loginError}
+                  autoFocus
+                />
+                <Button type="submit" className="w-full" size="lg">
+                  Zaloguj się
+                </Button>
+              </form>
+              <p className="text-[11px] text-text-muted text-center mt-6">
+                Dostęp wyłącznie dla upoważnionych pracowników WB-Rent.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   // Admin dashboard
   return (
-    <div className="min-h-screen bg-bg-primary">
-      {/* Header */}
-      <header className="bg-bg-card border-b border-border sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gold">WB-Rent Admin</h1>
-          
-          <div className="flex items-center gap-4">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => window.location.assign('/admin/nowy-wynajem')}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Nowy wynajem
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={loadData}
-              disabled={loading}
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Odśwież
-            </Button>
-            
-            <Button variant="secondary" size="sm" onClick={handleLogout}>
-              <LogOut className="w-4 h-4 mr-2" />
-              Wyloguj
-            </Button>
+    <div className="min-h-screen bg-[#090909] text-text-primary">
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Zamknij menu"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[258px] bg-[#0d0d0d] border-r border-white/10 flex flex-col transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-[82px] px-5 border-b border-white/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="WB-Rent" className="h-10 w-auto" />
+            <div className="border-l border-white/15 pl-3">
+              <p className="text-xs font-semibold text-white">Panel</p>
+              <p className="text-[10px] text-text-muted uppercase tracking-wider">Operacyjny</p>
+            </div>
           </div>
+          <button type="button" className="lg:hidden p-2 text-text-muted hover:text-white" onClick={() => setSidebarOpen(false)} aria-label="Zamknij menu">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <Card variant="glass" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-gold/10">
-                  <Calendar className="w-5 h-5 text-gold" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-text-primary">{stats.reservations.total}</p>
-                  <p className="text-sm text-text-muted">Rezerwacji</p>
-                </div>
-              </div>
-            </Card>
-            
-            <Card variant="glass" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-yellow-500/10">
-                  <Clock className="w-5 h-5 text-yellow-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-text-primary">{stats.reservations.pending}</p>
-                  <p className="text-sm text-text-muted">Oczekujących</p>
-                </div>
-              </div>
-            </Card>
-            
-            <Card variant="glass" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-green-500/10">
-                  <DollarSign className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-text-primary">{stats.revenue.today} zł</p>
-                  <p className="text-sm text-text-muted">Dzisiejszy przychód</p>
-                </div>
-              </div>
-            </Card>
-            
-            <Card variant="glass" className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/10">
-                  <Mail className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-text-primary">{stats.contacts.new}</p>
-                  <p className="text-sm text-text-muted">Nowych wiadomości</p>
-                </div>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 flex-wrap">
-          <Button
-            variant={activeTab === 'reservations' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('reservations')}
-          >
-            <Calendar className="w-4 h-4 mr-2" />
-            Rezerwacje ({reservations.length})
-          </Button>
-          <Button
-            variant={activeTab === 'contacts' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('contacts')}
-          >
-            <Mail className="w-4 h-4 mr-2" />
-            Wiadomości ({contacts.length})
-          </Button>
-          <Button
-            variant={activeTab === 'calendar' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('calendar')}
-          >
-            <CalendarDays className="w-4 h-4 mr-2" />
-            Kalendarz
-          </Button>
-          <Button
-            variant={activeTab === 'revenue' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('revenue')}
-          >
-            <DollarSign className="w-4 h-4 mr-2" />
-            Przychody
-          </Button>
-          <Button
-            variant={activeTab === 'reminders' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('reminders')}
-          >
-            <Clock className="w-4 h-4 mr-2" />
-            Przypomnienia
-          </Button>
-          <Button
-            variant={activeTab === 'newsletter' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('newsletter')}
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            Nowości ({newsletterSubscribers.filter(s => s.status === 'active').length})
-          </Button>
-          <Button
-            variant={activeTab === 'notifications' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('notifications')}
-          >
-            <Bell className="w-4 h-4 mr-2" />
-            Powiadomienia ({productNotifications.filter(n => n.status === 'waiting').length})
-          </Button>
-          <Button
-            variant={activeTab === 'settings' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('settings')}
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            Ustawienia
+        <div className="px-4 py-5">
+          <Button variant="primary" className="w-full" onClick={() => window.location.assign('/admin/nowy-wynajem')}>
+            <Plus className="w-4 h-4 mr-2" /> Nowy wynajem
           </Button>
         </div>
+
+        <nav className="flex-1 px-3 pb-5 overflow-y-auto" aria-label="Moduły panelu">
+          {navigationGroups.map((group) => (
+            <div key={group.label} className="mb-5">
+              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/70">{group.label}</p>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => selectTab(item.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                        active ? 'bg-gold/12 text-gold border border-gold/20' : 'text-text-secondary border border-transparent hover:text-white hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                      <span className="font-medium">{item.label}</span>
+                      {item.badge !== undefined && (
+                        <span className={`ml-auto min-w-5 h-5 px-1.5 rounded-md text-[10px] font-bold flex items-center justify-center ${active ? 'bg-gold text-black' : 'bg-white/[0.07] text-text-muted'}`}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {active && <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-white/10">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.025]">
+            <div className="w-8 h-8 rounded-lg bg-green-500/10 text-green-400 flex items-center justify-center">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium">System aktywny</p>
+              <p className="text-[10px] text-text-muted">Bezpieczna sesja admina</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="min-h-screen lg:pl-[258px]">
+        <header className="sticky top-0 z-30 h-[82px] bg-[#0b0b0b]/95 backdrop-blur-xl border-b border-white/10">
+          <div className="h-full px-4 sm:px-6 xl:px-8 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <button type="button" className="lg:hidden p-2 rounded-lg border border-border text-text-secondary" onClick={() => setSidebarOpen(true)} aria-label="Otwórz menu">
+                <Menu className="w-5 h-5" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold truncate">{currentView.title}</h1>
+                <p className="hidden sm:block text-xs text-text-muted mt-0.5 truncate">{currentView.description}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Button variant="ghost" size="sm" onClick={loadData} disabled={loading} aria-label="Odśwież dane">
+                <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Odśwież</span>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleLogout} aria-label="Wyloguj">
+                <LogOut className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Wyloguj</span>
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <main className="px-4 sm:px-6 xl:px-8 py-6 xl:py-8 max-w-[1600px] mx-auto">
+          {stats && activeTab !== 'products' && (
+            <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden mb-7 divide-x divide-y xl:divide-y-0 divide-white/10">
+              <Metric icon={<Calendar className="w-5 h-5" />} label="Wszystkie rezerwacje" value={stats.reservations.total} tone="gold" />
+              <Metric icon={<Clock className="w-5 h-5" />} label="Wymagają decyzji" value={stats.reservations.pending} tone="amber" />
+              <Metric icon={<DollarSign className="w-5 h-5" />} label="Przychód dzisiaj" value={`${stats.revenue.today} zł`} tone="green" />
+              <Metric icon={<MessageSquare className="w-5 h-5" />} label="Nowe wiadomości" value={stats.contacts.new} tone="blue" />
+            </div>
+          )}
 
         {/* Reservations Tab */}
         {activeTab === 'reservations' && (
           <div className="space-y-4">
             {/* Filter */}
-            <div className="flex gap-2 flex-wrap items-center">
+            <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-x-auto">
+              <div className="flex gap-1.5 items-center min-w-max">
               {['all', 'pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected'].map((status) => (
                 <Button
                   key={status}
@@ -763,7 +1088,8 @@ export function AdminPanel() {
                   {status === 'all' ? 'Wszystkie' : STATUS_LABELS[status]}
                 </Button>
               ))}
-              <div className="ml-auto">
+              </div>
+              <div className="ml-auto shrink-0 pl-2 border-l border-white/10">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -772,7 +1098,7 @@ export function AdminPanel() {
                       `rezerwacje-${new Date().toISOString().slice(0, 10)}.csv`,
                       ['ID', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
                       reservations.map(r => [
-                        r.id, STATUS_LABELS[r.status] || r.status, PRODUCT_NAMES[r.product_id] || r.product_id,
+                        r.id, STATUS_LABELS[r.status] || r.status, reservationProductLabel(r),
                         r.start_date, r.end_date, r.start_time || '', r.end_time || '',
                         r.name, r.email, r.phone, r.city, r.delivery ? 'tak' : 'nie',
                         r.days, r.base_price, r.delivery_fee, r.total_price,
@@ -790,8 +1116,12 @@ export function AdminPanel() {
 
             {/* Reservations list */}
             {reservations.length === 0 ? (
-              <Card variant="glass" className="p-8 text-center">
-                <p className="text-text-muted">Brak rezerwacji</p>
+              <Card variant="glass" className="p-12 text-center border-dashed">
+                <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold flex items-center justify-center mx-auto mb-4">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <h3 className="font-semibold">Brak rezerwacji w tym widoku</h3>
+                <p className="text-sm text-text-muted mt-1">Zmień filtr lub utwórz nowy wynajem.</p>
               </Card>
             ) : (
               reservations
@@ -803,16 +1133,24 @@ export function AdminPanel() {
                   return true;
                 })
                 .map((reservation) => (
-                <Card key={reservation.id} variant="glass" className="p-4">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-white/10 bg-[#101010]">
+                  <div className="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
                     {/* Main info */}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
+                      <div className="hidden sm:flex w-20 h-20 rounded-lg bg-white border border-border overflow-hidden shrink-0">
+                        <img
+                          src={products.find((product) => product.id === reservation.product_id)?.image || '/favicon.svg'}
+                          alt={PRODUCT_NAMES[reservation.product_id] || reservation.product_id}
+                          className="w-full h-full object-contain p-2"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                      <div className="flex items-center flex-wrap gap-2 mb-2">
                         <Badge variant={STATUS_COLORS[reservation.status] || 'default'}>
                           {STATUS_LABELS[reservation.status] || reservation.status}
                         </Badge>
                         {reservation.payment_status === 'paid' && (
-                          <Badge variant="success">✓ Opłacona{reservation.payment_provider ? ` (${reservation.payment_provider})` : ''}</Badge>
+                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Opłacona{reservation.payment_provider ? ` (${reservation.payment_provider})` : ''}</Badge>
                         )}
                         {reservation.payment_status === 'pending' && (
                           <Badge variant="warning">Płatność w toku</Badge>
@@ -824,46 +1162,77 @@ export function AdminPanel() {
                           <Badge variant="warning">Umowa czeka na podpis</Badge>
                         )}
                         {reservation.contract_status === 'signed' && (
-                          <Badge variant="success">✓ Umowa podpisana</Badge>
+                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Umowa podpisana</Badge>
                         )}
-                        <span className="text-sm text-text-muted">
-                          #{reservation.id}
-                        </span>
-                        <span className="text-sm text-text-muted">
+                        {reservation.status === 'picked_up' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void openTermModal(reservation)}
+                            title="Przedłuż wynajem lub zmień go na bezterminowy"
+                          >
+                            <CalendarPlus className="w-4 h-4 mr-1.5" /> {reservation.is_indefinite ? 'Ustal zwrot' : 'Termin'}
+                          </Button>
+                        )}
+                        <span className="text-xs text-text-muted ml-auto sm:ml-1">#{reservation.id}</span>
+                        <span className="text-xs text-text-muted">
                           {new Date(reservation.created_at).toLocaleDateString('pl-PL')}
                         </span>
                       </div>
                       
-                      <h3 className="text-lg font-semibold text-text-primary mb-1">
+                      <h3 className="text-base sm:text-lg font-semibold text-text-primary truncate">
                         {reservation.name}
                       </h3>
+                      {reservationItems(reservation).length === 1 ? (
+                        <p className="text-sm text-gold/90 mt-0.5 truncate">
+                          {reservationProductLabel(reservation)}
+                        </p>
+                      ) : (
+                        <div className="mt-1.5">
+                          <p className="text-sm font-semibold text-gold">Zestaw {reservationItems(reservation).length} urządzeń</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            {reservationItems(reservation).map((item) => (
+                              <span key={item.product_id} className="px-2 py-1 rounded-[--radius-sm] bg-white/[0.04] border border-white/[0.08] text-[11px] text-text-secondary">
+                                {PRODUCT_NAMES[item.product_id] || item.product_id}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       
-                      <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
-                        <span className="flex items-center gap-1">
-                          <Package className="w-4 h-4" />
-                          {reservation.product_id}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs sm:text-sm text-text-secondary mt-2">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-text-muted" />
+                          {reservation.start_date} {reservation.start_time || '09:00'} → {reservation.is_indefinite ? 'bezterminowo' : `${reservation.end_date} ${reservation.end_time || '09:00'} (${reservation.days} ${reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'})`}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          {reservation.start_date} {reservation.start_time || '09:00'} → {reservation.end_date} {reservation.end_time || '09:00'} ({reservation.days} {reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'})
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Phone className="w-4 h-4" />
+                        <span className="flex items-center gap-1.5">
+                          <Phone className="w-3.5 h-3.5 text-text-muted" />
                           {reservation.phone}
                         </span>
+                      </div>
                       </div>
                     </div>
 
                     {/* Price & actions */}
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-gold">{reservation.total_price} zł</p>
-                        <p className="text-sm text-text-muted">
-                          {reservation.delivery ? 'z dostawą' : 'odbiór osobisty'}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 xl:pl-4 xl:border-l xl:border-white/10">
+                      <div className="sm:text-right min-w-[110px]">
+                        <p className="text-xl sm:text-2xl font-bold text-gold">{reservation.total_price} zł</p>
+                        <p className="text-xs text-text-muted">
+                          {reservation.is_indefinite ? 'kwota bieżąca' : reservation.delivery ? 'z dostawą' : 'odbiór osobisty'}
                         </p>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="w-full sm:w-[190px] shrink-0">
+                        <Select
+                          id={`reservation-status-${reservation.id}`}
+                          label="Status wynajmu"
+                          value={reservation.status}
+                          options={RESERVATION_STATUS_OPTIONS}
+                          onChange={(event) => void openStatusModal(reservation, event.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
                             variant="outline"
@@ -875,21 +1244,40 @@ export function AdminPanel() {
                           </Button>
                         )}
                         {reservation.contract_status === 'signed' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDownloadReservationContract(reservation.id)}
-                            title="Pobierz podpisaną umowę PDF"
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleResendReservationContract(reservation.id)}
+                              title="Wyślij podpisaną umowę ponownie na e-mail klienta"
+                            >
+                              <Mail className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownloadReservationContract(reservation.id)}
+                              title="Pobierz podpisaną umowę PDF"
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setExpandedId(expandedId === reservation.id ? null : reservation.id)}
+                          title={expandedId === reservation.id ? 'Ukryj szczegóły' : 'Pokaż szczegóły'}
                         >
                           <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void openStatusHistory(reservation)}
+                          title="Historia zmian statusu"
+                        >
+                          <History className="w-4 h-4" />
                         </Button>
                         
                         {/* Pending: Potwierdź lub Odrzuć */}
@@ -923,19 +1311,19 @@ export function AdminPanel() {
                             title="Oznacz jako wydane"
                             disabled={reservation.contract_status !== 'signed'}
                           >
-                            📦 Wydaj
+                            <Package className="w-4 h-4 mr-1.5" /> Wydaj
                           </Button>
                         )}
                         
                         {/* Picked up: Oznacz jako zwrócone */}
-                        {reservation.status === 'picked_up' && (
+                        {reservation.status === 'picked_up' && !reservation.is_indefinite && (
                           <Button
                             variant="primary"
                             size="sm"
                             onClick={() => handleStatusChange(reservation.id, 'returned', 'reservation')}
                             title="Oznacz jako zwrócone"
                           >
-                            ↩️ Zwrot
+                            <RotateCcw className="w-4 h-4 mr-1.5" /> Zwrot
                           </Button>
                         )}
                         
@@ -947,7 +1335,7 @@ export function AdminPanel() {
                             onClick={() => handleStatusChange(reservation.id, 'completed', 'reservation')}
                             title="Zakończ i rozlicz"
                           >
-                            ✅ Zakończ
+                            <CheckCircle className="w-4 h-4 mr-1.5" /> Zakończ
                           </Button>
                         )}
                       </div>
@@ -987,6 +1375,23 @@ export function AdminPanel() {
                         <div className="md:col-span-2">
                           <p className="text-text-muted mb-1">Notatki:</p>
                           <p className="text-text-primary">{reservation.notes}</p>
+                        </div>
+                      )}
+                      <div className="md:col-span-2">
+                        <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
+                        <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
+                      </div>
+                      {reservationItems(reservation).length > 1 && (
+                        <div className="md:col-span-2 p-4 bg-white/[0.025] border border-white/[0.08] rounded-[--radius-sm]">
+                          <p className="text-text-muted mb-3">Pozycje na umowie:</p>
+                          <div className="space-y-2">
+                            {reservationItems(reservation).map((item, index) => (
+                              <div key={item.product_id} className="flex justify-between gap-4 text-sm">
+                                <span>{index + 1}. {PRODUCT_NAMES[item.product_id] || item.product_id}</span>
+                                <span className="text-gold whitespace-nowrap">{Number(item.item_price).toFixed(2)} zł</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                       {reservation.wants_invoice === 1 && (
@@ -1177,70 +1582,17 @@ export function AdminPanel() {
         {/* Revenue Tab */}
         {activeTab === 'revenue' && (
           <div className="space-y-8">
-            {/* Revenue Stats Grid - Enhanced */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card variant="glass" className="p-6 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-green-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-                <div className="relative text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-500/20 mb-3">
-                    <DollarSign className="w-6 h-6 text-green-400" />
-                  </div>
-                  <p className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
-                    {revenueData?.today || 0} zł
-                  </p>
-                  <p className="text-text-muted mt-2 text-sm uppercase tracking-wide">Dzisiaj</p>
-                </div>
-              </Card>
-              
-              <Card variant="glass" className="p-6 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-                <div className="relative text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-500/20 mb-3">
-                    <Calendar className="w-6 h-6 text-blue-400" />
-                  </div>
-                  <p className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-500 bg-clip-text text-transparent">
-                    {revenueData?.month || 0} zł
-                  </p>
-                  <p className="text-text-muted mt-2 text-sm uppercase tracking-wide">Ten miesiąc</p>
-                </div>
-              </Card>
-              
-              <Card variant="glass" className="p-6 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-yellow-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-                <div className="relative text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 mb-3">
-                    <TrendingUp className="w-6 h-6 text-amber-400" />
-                  </div>
-                  <p className="text-4xl font-bold bg-gradient-to-r from-amber-400 to-yellow-500 bg-clip-text text-transparent">
-                    {revenueData?.total || 0} zł
-                  </p>
-                  <p className="text-text-muted mt-2 text-sm uppercase tracking-wide">Całkowity przychód</p>
-                </div>
-              </Card>
-              
-              <Card variant="glass" className="p-6 relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
-                <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-orange-600/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="absolute top-0 right-0 w-24 h-24 bg-orange-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-                <div className="relative text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-orange-500/20 mb-3">
-                    <Clock className="w-6 h-6 text-orange-400" />
-                  </div>
-                  <p className="text-4xl font-bold bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent">
-                    {revenueData?.pending || 0} zł
-                  </p>
-                  <p className="text-text-muted mt-2 text-sm uppercase tracking-wide">Oczekujące</p>
-                </div>
-              </Card>
+            <div className="grid grid-cols-2 xl:grid-cols-4 border border-white/10 rounded-[--radius-sm] overflow-hidden bg-[#101010] divide-x divide-y xl:divide-y-0 divide-white/10">
+              <RevenueMetric icon={<DollarSign className="w-5 h-5" />} label="Dzisiaj" value={revenueData?.today || 0} tone="green" />
+              <RevenueMetric icon={<Calendar className="w-5 h-5" />} label="Ten miesiąc" value={revenueData?.month || 0} tone="blue" />
+              <RevenueMetric icon={<TrendingUp className="w-5 h-5" />} label="Całkowity przychód" value={revenueData?.total || 0} tone="gold" />
+              <RevenueMetric icon={<Clock className="w-5 h-5" />} label="Oczekujące" value={revenueData?.pending || 0} tone="amber" />
             </div>
             
             {/* Charts Grid - Side by Side */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 min-w-0">
               {/* Area Chart - Revenue */}
-              <Card variant="glass" className="p-6 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500" />
+              <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
                 <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-green-500/20">
                     <TrendingUp className="w-5 h-5 text-green-400" />
@@ -1248,8 +1600,8 @@ export function AdminPanel() {
                   Przychody miesięczne
                 </h3>
                 {revenueData?.byMonth && revenueData.byMonth.length > 0 ? (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-72 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288} initialDimension={{ width: 520, height: 288 }}>
                       <AreaChart
                         data={[...revenueData.byMonth].reverse().map(item => ({
                           name: new Date(item.month + '-01').toLocaleDateString('pl-PL', { month: 'short', year: '2-digit' }),
@@ -1293,7 +1645,7 @@ export function AdminPanel() {
                           contentStyle={{
                             backgroundColor: 'rgba(17, 17, 17, 0.95)',
                             border: '1px solid rgba(255,255,255,0.1)',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
                             padding: '12px 16px',
                           }}
@@ -1333,8 +1685,7 @@ export function AdminPanel() {
               </Card>
               
               {/* Bar Chart - Reservations */}
-              <Card variant="glass" className="p-6 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500" />
+              <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
                 <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-amber-500/20">
                     <Package className="w-5 h-5 text-amber-400" />
@@ -1342,8 +1693,8 @@ export function AdminPanel() {
                   Liczba rezerwacji
                 </h3>
                 {revenueData?.byMonth && revenueData.byMonth.length > 0 ? (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-72 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={288} initialDimension={{ width: 520, height: 288 }}>
                       <BarChart
                         data={[...revenueData.byMonth].reverse().map(item => ({
                           name: new Date(item.month + '-01').toLocaleDateString('pl-PL', { month: 'short', year: '2-digit' }),
@@ -1385,7 +1736,7 @@ export function AdminPanel() {
                           contentStyle={{
                             backgroundColor: 'rgba(17, 17, 17, 0.95)',
                             border: '1px solid rgba(255,255,255,0.1)',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
                             padding: '12px 16px',
                           }}
@@ -1403,7 +1754,7 @@ export function AdminPanel() {
                         <Bar 
                           dataKey="rezerwacje" 
                           fill="url(#colorBar)"
-                          radius={[8, 8, 0, 0]}
+                          radius={[4, 4, 0, 0]}
                           name="rezerwacje"
                           animationDuration={1000}
                           animationEasing="ease-out"
@@ -1422,12 +1773,10 @@ export function AdminPanel() {
               </Card>
             </div>
 
-            {/* Monthly breakdown list - Enhanced */}
             <Card variant="glass" className="p-6 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-rose-500" />
               <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-purple-500/20">
-                  <Calendar className="w-5 h-5 text-purple-400" />
+                <div className="p-2 rounded-[--radius-sm] bg-gold/10">
+                  <Calendar className="w-5 h-5 text-gold" />
                 </div>
                 Szczegóły miesięczne
               </h3>
@@ -1436,9 +1785,9 @@ export function AdminPanel() {
                   {revenueData.byMonth.map((item, index) => (
                     <div 
                       key={item.month} 
-                      className="relative p-5 bg-gradient-to-br from-white/5 to-white/[0.02] rounded-xl border border-white/10 hover:border-white/20 transition-all duration-300 group hover:scale-[1.02]"
+                      className="relative p-5 bg-white/[0.025] rounded-[--radius-sm] border border-white/10 hover:border-gold/25 transition-colors"
                     >
-                      <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-xs text-purple-400 font-bold">
+                      <div className="absolute top-3 right-3 w-8 h-8 rounded-[--radius-sm] bg-white/5 flex items-center justify-center text-xs text-text-muted font-bold">
                         {index + 1}
                       </div>
                       <p className="font-semibold text-white text-lg capitalize mb-1">
@@ -1448,7 +1797,7 @@ export function AdminPanel() {
                         <Package className="w-3 h-3" />
                         {item.count} {item.count === 1 ? 'rezerwacja' : item.count < 5 ? 'rezerwacje' : 'rezerwacji'}
                       </p>
-                      <p className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+                      <p className="text-2xl font-bold text-green-400">
                         {item.revenue.toLocaleString('pl-PL')} zł
                       </p>
                     </div>
@@ -1470,7 +1819,7 @@ export function AdminPanel() {
             <Card variant="glass" className="p-6">
               <h3 className="text-lg font-semibold text-gold mb-4">Automatyczne przypomnienia</h3>
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
-                <p className="text-green-400 font-medium mb-1">✅ Automatyczne przypomnienia włączone</p>
+                <p className="text-green-400 font-medium mb-1 flex items-center gap-2"><CheckCircle className="w-4 h-4" aria-hidden="true" /> Automatyczne przypomnienia włączone</p>
                 <p className="text-text-muted text-sm">
                   System automatycznie wysyła przypomnienia codziennie o 9:00:
                 </p>
@@ -1522,13 +1871,13 @@ export function AdminPanel() {
               <h3 className="text-lg font-semibold text-gold mb-4">Typy przypomnień</h3>
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                  <h4 className="text-blue-400 font-medium mb-2">⏰ Przypomnienie o odbiorze</h4>
+                  <h4 className="text-blue-400 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o odbiorze</h4>
                   <p className="text-text-muted text-sm">
                     Wysyłane do klientów z potwierdzoną rezerwacją, którzy mają odebrać sprzęt następnego dnia.
                   </p>
                 </div>
                 <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
-                  <h4 className="text-orange-400 font-medium mb-2">⏰ Przypomnienie o zwrocie</h4>
+                  <h4 className="text-orange-400 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o zwrocie</h4>
                   <p className="text-text-muted text-sm">
                     Wysyłane do klientów, którzy mają zwrócić sprzęt następnego dnia.
                   </p>
@@ -1684,7 +2033,7 @@ export function AdminPanel() {
                               <span>Wysłano: {new Date(post.sent_at).toLocaleDateString('pl-PL')}</span>
                             )}
                             {post.sent_count > 0 && (
-                              <span className="text-green-400">✓ Wysłano do {post.sent_count} osób</span>
+                              <span className="text-green-400 inline-flex items-center gap-1.5"><Check className="w-3.5 h-3.5" aria-hidden="true" /> Wysłano do {post.sent_count} osób</span>
                             )}
                           </div>
                         </div>
@@ -2019,6 +2368,23 @@ export function AdminPanel() {
           </div>
         )}
 
+        {activeTab === 'products' && (
+          <ProductInventoryPanel
+            products={inventoryProducts}
+            loading={loading}
+            onSave={handleSaveProduct}
+            onDelete={handleDeleteProduct}
+          />
+        )}
+
+        {activeTab === 'documents' && <DocumentsPanel onNotify={notifyPanel} />}
+
+        {activeTab === 'discounts' && <DiscountsPanel onNotify={notifyPanel} />}
+
+        {activeTab === 'coupons' && <CouponsPanel onNotify={notifyPanel} />}
+
+        {activeTab === 'business' && <BusinessSettingsPanel onNotify={notifyPanel} />}
+
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <Card variant="glass" className="p-6 max-w-lg">
@@ -2094,6 +2460,276 @@ export function AdminPanel() {
           </Card>
         )}
       </main>
+      </div>
+
+      {statusFor && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[85] p-4">
+          <Card variant="glass" className="w-full max-w-2xl max-h-[94vh] overflow-y-auto">
+            <form onSubmit={handleManualStatusChange} className="p-6">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-xs uppercase text-gold font-semibold">{statusHistoryOnly ? 'Historia procesu' : 'Ręczna zmiana'} • rezerwacja #{statusFor.id}</p>
+                  <h2 className="text-xl font-bold mt-1">{statusHistoryOnly ? 'Historia zmian statusu' : 'Zmień status wynajmu'}</h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {statusFor.name} • {reservationProductLabel(statusFor)}
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setStatusFor(null)} aria-label="Zamknij">
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {!statusHistoryOnly && <>
+              <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-3 items-end mb-6">
+                <div className="p-4 rounded-[--radius-sm] bg-white/[0.025] border border-white/10">
+                  <p className="text-[11px] uppercase text-text-muted mb-2">Obecny status</p>
+                  <Badge variant={STATUS_COLORS[statusFor.status] || 'default'}>
+                    {STATUS_LABELS[statusFor.status] || statusFor.status}
+                  </Badge>
+                </div>
+                <ChevronRight className="hidden sm:block w-5 h-5 text-text-muted mb-5" aria-hidden="true" />
+                <div className="p-4 rounded-[--radius-sm] bg-gold/[0.05] border border-gold/20">
+                  <p className="text-[11px] uppercase text-text-muted mb-2">Nowy status</p>
+                  <Badge variant={STATUS_COLORS[statusForm.targetStatus] || 'default'}>
+                    {STATUS_LABELS[statusForm.targetStatus] || statusForm.targetStatus}
+                  </Badge>
+                </div>
+              </div>
+
+              <Select
+                id="manual-reservation-status"
+                label="Wybierz status"
+                value={statusForm.targetStatus}
+                options={RESERVATION_STATUS_OPTIONS.filter((option) => option.value !== statusFor.status)}
+                onChange={(event) => setStatusForm((current) => ({
+                  ...current,
+                  targetStatus: event.target.value,
+                  notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(event.target.value),
+                }))}
+              />
+
+              <div className="mt-4 p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
+                {STATUS_DESCRIPTIONS[statusForm.targetStatus]}
+              </div>
+
+              {statusForm.targetStatus === 'picked_up' && statusFor.contract_status !== 'signed' && (
+                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> Wydanie zostanie zablokowane, dopóki umowa nie będzie podpisana.
+                </div>
+              )}
+              {statusForm.targetStatus === 'returned' && statusFor.is_indefinite && (
+                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> Najpierw ustal faktyczny termin zwrotu wynajmu bezterminowego.
+                </div>
+              )}
+
+              <div className="grid sm:grid-cols-2 gap-4 mt-5">
+                <Input
+                  label="Pracownik zmieniający status"
+                  value={statusForm.changedBy}
+                  onChange={(event) => setStatusForm((current) => ({ ...current, changedBy: event.target.value }))}
+                  minLength={3}
+                  required
+                />
+                <Textarea
+                  label="Powód zmiany"
+                  value={statusForm.note}
+                  onChange={(event) => setStatusForm((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Np. korekta po rozmowie z klientem"
+                  rows={3}
+                  minLength={3}
+                  required
+                />
+              </div>
+
+              {CUSTOMER_STATUS_EMAILS.includes(statusForm.targetStatus) && (
+                <label className={`mt-5 flex items-center justify-between gap-4 p-4 rounded-[--radius-sm] border cursor-pointer ${statusForm.notifyCustomer ? 'border-gold/40 bg-gold/[0.06]' : 'border-white/10 bg-white/[0.02]'}`}>
+                  <span>
+                    <span className="block text-sm font-semibold">Powiadom klienta e-mailem</span>
+                    <span className="block text-xs text-text-muted mt-1">Wyśle wiadomość odpowiadającą nowemu statusowi.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={statusForm.notifyCustomer}
+                    onChange={(event) => setStatusForm((current) => ({ ...current, notifyCustomer: event.target.checked }))}
+                    className="w-5 h-5 accent-gold shrink-0"
+                  />
+                </label>
+              )}
+              </>}
+
+              {(statusHistoryOnly || statusHistory.length > 0) && (
+                <div className="mt-6 pt-5 border-t border-white/10">
+                  <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+                    <History className="w-4 h-4 text-gold" /> Ostatnie zmiany statusu
+                  </h3>
+                  {statusHistory.length === 0 ? (
+                    <div className="p-5 rounded-[--radius-sm] border border-dashed border-white/10 text-sm text-text-muted text-center">
+                      Brak zapisanych zmian statusu.
+                    </div>
+                  ) : <div className="space-y-2">
+                    {statusHistory.slice(0, 5).map((change) => (
+                      <div key={change.id} className="p-3 rounded-[--radius-sm] bg-white/[0.025] border border-white/[0.06] text-xs">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="font-medium">
+                            {STATUS_LABELS[change.previous_status] || change.previous_status}
+                            {' → '}
+                            {STATUS_LABELS[change.new_status] || change.new_status}
+                          </span>
+                          <span className="text-text-muted">{new Date(change.created_at).toLocaleString('pl-PL')}</span>
+                        </div>
+                        <p className="text-text-muted mt-1">{change.changed_by} • {change.note}</p>
+                        {change.notify_customer && <p className="text-green-400 mt-1">Klient został powiadomiony</p>}
+                      </div>
+                    ))}
+                  </div>}
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 mt-6">
+                <Button type="button" variant="ghost" onClick={() => setStatusFor(null)}>{statusHistoryOnly ? 'Zamknij' : 'Anuluj'}</Button>
+                {!statusHistoryOnly && <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={statusSaving || statusForm.changedBy.trim().length < 3 || statusForm.note.trim().length < 3}
+                >
+                  {statusSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Zapisz status
+                </Button>}
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {termFor && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+          <Card variant="glass" className="w-full max-w-2xl max-h-[94vh] overflow-y-auto">
+            <form onSubmit={handleTermChange} className="p-6">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-xs uppercase text-gold font-semibold">Wydany sprzęt • rezerwacja #{termFor.id}</p>
+                  <h2 className="text-xl font-bold mt-1">Zarządzaj okresem wynajmu</h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {termFor.name} • {reservationProductLabel(termFor)}
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setTermFor(null)} aria-label="Zamknij">
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-px rounded-lg overflow-hidden border border-white/10 bg-white/10 mb-6">
+                <div className="bg-[#111] p-4">
+                  <p className="text-[11px] uppercase text-text-muted">Obecny termin</p>
+                  <p className="font-semibold mt-1 flex items-center gap-2">
+                    {termFor.is_indefinite ? <InfinityIcon className="w-4 h-4 text-gold" /> : <Calendar className="w-4 h-4 text-gold" />}
+                    {termFor.is_indefinite ? 'Bezterminowo' : `${termFor.end_date} ${termFor.end_time || '09:00'}`}
+                  </p>
+                </div>
+                <div className="bg-[#111] p-4">
+                  <p className="text-[11px] uppercase text-text-muted">Bieżąca wartość</p>
+                  <p className="font-semibold text-gold mt-1">{Number(termFor.total_price).toFixed(2)} zł</p>
+                </div>
+              </div>
+
+              {!termFor.is_indefinite && (
+                <label className={`mb-5 flex items-center justify-between gap-4 p-4 rounded-lg border cursor-pointer transition-colors ${termForm.isIndefinite ? 'border-gold/50 bg-gold/10' : 'border-border bg-bg-primary/40'}`}>
+                  <span>
+                    <span className="block text-sm font-semibold">Zmień na wynajem bezterminowy</span>
+                    <span className="block text-xs text-text-muted mt-1">Sprzęt pozostanie zablokowany do ustalenia daty zwrotu.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={termForm.isIndefinite}
+                    onChange={(event) => setTermForm((current) => ({ ...current, isIndefinite: event.target.checked }))}
+                    className="w-5 h-5 accent-gold shrink-0"
+                  />
+                </label>
+              )}
+
+              {!termForm.isIndefinite && (
+                <div className="grid sm:grid-cols-2 gap-4 mb-5">
+                  <Input
+                    label={termFor.is_indefinite ? 'Ustalona data zwrotu' : 'Nowa data zwrotu'}
+                    type="date"
+                    min={termFor.is_indefinite ? termFor.start_date : nextDay(termFor.end_date)}
+                    value={termForm.endDate}
+                    onChange={(event) => setTermForm((current) => ({ ...current, endDate: event.target.value }))}
+                    required
+                  />
+                  <Input
+                    label="Godzina zwrotu"
+                    type="time"
+                    value={termForm.endTime}
+                    onChange={(event) => setTermForm((current) => ({ ...current, endTime: event.target.value }))}
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Input
+                  label="Pracownik zatwierdzający"
+                  value={termForm.changedBy}
+                  onChange={(event) => setTermForm((current) => ({ ...current, changedBy: event.target.value }))}
+                  minLength={3}
+                  required
+                />
+                <Textarea
+                  label="Uzgodnienie z klientem"
+                  value={termForm.note}
+                  onChange={(event) => setTermForm((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Np. uzgodniono telefonicznie 20.07"
+                  rows={3}
+                  minLength={3}
+                  required
+                />
+              </div>
+
+              <div className="mt-5 p-4 rounded-lg bg-sky-500/[0.07] border border-sky-500/20 text-xs text-text-secondary leading-relaxed">
+                System sprawdzi dostępność, przeliczy pełny okres wynajmu i wyśle klientowi potwierdzenie zmiany. Podpisany PDF pozostanie niezmieniony, a uzgodnienie trafi do historii.
+              </div>
+
+              {termHistory.length > 0 && (
+                <div className="mt-6 pt-5 border-t border-white/10">
+                  <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
+                    <History className="w-4 h-4 text-gold" /> Historia zmian
+                  </h3>
+                  <div className="space-y-2">
+                    {termHistory.map((change) => (
+                      <div key={change.id} className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span className="font-medium">
+                            {change.previous_is_indefinite ? 'bezterminowo' : change.previous_end_date}
+                            {' → '}
+                            {change.new_is_indefinite ? 'bezterminowo' : change.new_end_date}
+                          </span>
+                          <span className="text-text-muted">{new Date(change.created_at).toLocaleString('pl-PL')}</span>
+                        </div>
+                        <p className="text-text-muted mt-1">{change.changed_by} • {change.note}</p>
+                        {Number(change.price_delta) !== 0 && (
+                          <p className="text-gold mt-1">Zmiana wartości: {Number(change.price_delta).toFixed(2)} zł</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 mt-6">
+                <Button type="button" variant="ghost" onClick={() => setTermFor(null)}>Anuluj</Button>
+                <Button type="submit" variant="primary" disabled={termSaving}>
+                  {termSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CalendarPlus className="w-4 h-4 mr-2" />}
+                  {termFor.is_indefinite ? 'Ustal termin zwrotu' : termForm.isIndefinite ? 'Zmień na bezterminowy' : 'Przedłuż wynajem'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
 
       {/* Contract preparation / kiosk modal */}
       {contractFor && (
@@ -2105,7 +2741,7 @@ export function AdminPanel() {
                   <p className="text-xs uppercase tracking-wider text-gold mb-1">Rezerwacja #{contractFor.id}</p>
                   <h2 className="text-xl font-bold text-text-primary">Przygotowanie umowy najmu</h2>
                   <p className="text-sm text-text-muted mt-1">
-                    {contractFor.name} • {PRODUCT_NAMES[contractFor.product_id] || contractFor.product_id}
+                    {contractFor.name} • {reservationProductLabel(contractFor)}
                   </p>
                 </div>
                 <Button
@@ -2193,7 +2829,10 @@ export function AdminPanel() {
                         value={contractForm.documentNumber}
                         onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
                         placeholder="ABC 123456"
+                        minLength={3}
                         maxLength={30}
+                        pattern="[\p{L}\p{N} \-]{3,30}"
+                        hint="Minimum 3 znaki, np. ABC 123456"
                         required
                       />
                       <Input
@@ -2202,7 +2841,10 @@ export function AdminPanel() {
                         onChange={(event) => setContractForm((current) => ({ ...current, pesel: event.target.value.replace(/\D/g, '').slice(0, 11) }))}
                         placeholder="11 cyfr"
                         inputMode="numeric"
-                        pattern="\d{11}"
+                        minLength={11}
+                        maxLength={11}
+                        pattern="[0-9]{11}"
+                        hint="Dokładnie 11 cyfr albo pozostaw puste"
                       />
                     </div>
                   </div>
@@ -2373,7 +3015,7 @@ export function AdminPanel() {
       {/* Custom Toast */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className={`px-5 py-3 rounded-xl shadow-xl border flex items-center gap-3 ${
+          <div className={`px-5 py-3 rounded-[--radius-sm] shadow-xl border flex items-center gap-3 ${
             toast.type === 'success' 
               ? 'bg-green-500/20 border-green-500/50 text-green-400' 
               : toast.type === 'error' 
@@ -2429,6 +3071,62 @@ export function AdminPanel() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+function Metric({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  tone: 'gold' | 'amber' | 'green' | 'blue';
+}) {
+  const tones = {
+    gold: 'bg-gold/10 text-gold',
+    amber: 'bg-amber-500/10 text-amber-400',
+    green: 'bg-green-500/10 text-green-400',
+    blue: 'bg-sky-500/10 text-sky-400',
+  };
+  return (
+    <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${tones[tone]}`}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xl sm:text-2xl font-bold leading-none truncate">{value}</p>
+        <p className="text-[11px] sm:text-xs text-text-muted mt-1.5 truncate">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function RevenueMetric({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone: 'green' | 'blue' | 'gold' | 'amber';
+}) {
+  const tones = {
+    green: 'bg-green-500/10 text-green-400',
+    blue: 'bg-sky-500/10 text-sky-400',
+    gold: 'bg-gold/10 text-gold',
+    amber: 'bg-amber-500/10 text-amber-400',
+  };
+  return (
+    <div className="p-4 sm:p-5 flex items-center gap-3 min-w-0">
+      <div className={`w-10 h-10 rounded-[--radius-sm] flex items-center justify-center shrink-0 ${tones[tone]}`}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-lg sm:text-xl font-bold leading-none truncate">{Number(value).toLocaleString('pl-PL')} zł</p>
+        <p className="text-[11px] text-text-muted mt-1.5 truncate">{label}</p>
+      </div>
     </div>
   );
 }

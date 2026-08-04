@@ -1,13 +1,20 @@
 import { forwardRef, type InputHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   label?: string;
   error?: string;
   hint?: string;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  /** `sm` matches a size="sm" Button/Select (40px) for toolbars. */
+  size?: 'sm' | 'md';
 }
+
+const inputSizeStyles = {
+  sm: 'h-10 px-3 text-sm',
+  md: 'px-4 py-3',
+} as const;
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
   (
@@ -19,6 +26,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
       rightIcon,
       className,
       id,
+      size = 'md',
       ...props
     },
     ref
@@ -48,8 +56,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             className={cn(
               'w-full',
               'bg-bg-card border border-border',
-              'rounded-[--radius-md]',
-              'px-4 py-3',
+              'rounded-[--radius-sm]',
+              inputSizeStyles[size],
               'text-text-primary placeholder:text-text-muted',
               'transition-all duration-[--duration-fast]',
               'hover:border-border-hover',

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,10 +45,10 @@ export function DatePicker({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Keep the calendar inside the viewport (flip above when space below is tight)
-  const getPosition = () => {
+  const getPosition = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      const calendarWidth = 300;
+      const calendarWidth = Math.min(300, window.innerWidth - 16);
       const estimatedHeight = 390;
       const gap = 8;
       const top = rect.bottom + gap + estimatedHeight <= window.innerHeight
@@ -64,7 +64,7 @@ export function DatePicker({
       };
     }
     return { top: 0, left: 0 };
-  };
+  }, []);
 
   // Close on click outside
   useEffect(() => {
@@ -87,14 +87,26 @@ export function DatePicker({
   // Close on scroll
   useEffect(() => {
     if (!isOpen) return;
-    
-    const handleScroll = () => {
-      setIsOpen(false);
+
+    const handleReposition = (event?: Event) => {
+      const target = event?.target;
+      if (target instanceof Node && dropdownRef.current?.contains(target)) return;
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) {
+        setIsOpen(false);
+        return;
+      }
+      setDropdownPos(getPosition());
     };
 
-    window.addEventListener('scroll', handleScroll, true);
-    return () => window.removeEventListener('scroll', handleScroll, true);
-  }, [isOpen]);
+    window.addEventListener('scroll', handleReposition, true);
+    window.addEventListener('resize', handleReposition);
+    return () => {
+      window.removeEventListener('scroll', handleReposition, true);
+      window.removeEventListener('resize', handleReposition);
+    };
+  }, [isOpen, getPosition]);
 
   // Parse date strings (using local timezone)
   const selectedDate = value ? new Date(value + 'T00:00:00') : null;
@@ -293,7 +305,7 @@ export function DatePicker({
         onClick={handleToggle}
         disabled={disabled}
         className={cn(
-          'w-full px-4 py-3 rounded-xl border text-left flex items-center gap-3 transition-all duration-200',
+          'w-full px-4 py-3 rounded-[--radius-sm] border text-left flex items-center gap-3 transition-all duration-200',
           'bg-bg-card border-border focus:outline-none focus:ring-2 focus:ring-gold/50 focus:border-gold',
           disabled && 'opacity-50 cursor-not-allowed',
           error && 'border-red-500 focus:ring-red-500/50',
@@ -317,7 +329,7 @@ export function DatePicker({
       {isOpen && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed p-4 rounded-2xl bg-[#1a1a1a] border border-[#333] shadow-2xl"
+          className="fixed p-4 rounded-[--radius-sm] bg-bg-card border border-border shadow-lg"
           style={{ 
             top: dropdownPos.top,
             left: dropdownPos.left,
@@ -330,19 +342,19 @@ export function DatePicker({
             <button
               type="button"
               onClick={goToPreviousMonth}
-              className="p-2 rounded-lg hover:bg-[#d4a853]/20 text-gray-400 hover:text-[#d4a853] transition-colors"
+              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold transition-colors"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             
-            <h4 className="text-lg font-semibold text-white">
+            <h4 className="text-lg font-semibold text-text-primary">
               {MONTHS[viewDate.getMonth()]} {viewDate.getFullYear()}
             </h4>
             
             <button
               type="button"
               onClick={goToNextMonth}
-              className="p-2 rounded-lg hover:bg-[#d4a853]/20 text-gray-400 hover:text-[#d4a853] transition-colors"
+              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold transition-colors"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -355,7 +367,7 @@ export function DatePicker({
                 key={day}
                 className={cn(
                   'w-9 h-8 flex items-center justify-center text-xs font-medium',
-                  index >= 5 ? 'text-[#d4a853]/70' : 'text-gray-500'
+                  index >= 5 ? 'text-gold/70' : 'text-text-muted'
                 )}
               >
                 {day}
@@ -370,21 +382,21 @@ export function DatePicker({
 
           {/* Blocked dates legend */}
           {blockedRanges && blockedRanges.length > 0 && (
-            <div className="flex items-center gap-2 mt-3 text-xs text-gray-500">
+            <div className="flex items-center gap-2 mt-3 text-xs text-text-muted">
               <span className="inline-block w-3 h-3 rounded bg-red-500/10 border border-red-400/40" />
               <span className="text-red-400/70 line-through">termin zajęty</span>
             </div>
           )}
 
           {/* Footer */}
-          <div className="flex items-center justify-between mt-4 pt-3 border-t border-[#333]">
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
             <button
               type="button"
               onClick={() => {
                 onChange('');
                 setIsOpen(false);
               }}
-              className="text-sm text-gray-500 hover:text-white transition-colors"
+              className="text-sm text-text-muted hover:text-text-primary transition-colors"
             >
               Wyczyść
             </button>
@@ -407,8 +419,8 @@ export function DatePicker({
               className={cn(
                 'text-sm font-medium transition-colors',
                 isDateDisabled(new Date()) 
-                  ? 'text-gray-600 cursor-not-allowed' 
-                  : 'text-[#d4a853] hover:text-[#e5b964]'
+                  ? 'text-text-muted cursor-not-allowed' 
+                  : 'text-gold hover:text-gold-light'
               )}
             >
               Dzisiaj

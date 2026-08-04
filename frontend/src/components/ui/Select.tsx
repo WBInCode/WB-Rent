@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,7 @@ interface SelectOption {
 }
 
 interface SelectProps {
+  'aria-label'?: string;
   label?: string;
   error?: string;
   hint?: string;
@@ -21,7 +22,14 @@ interface SelectProps {
   required?: boolean;
   className?: string;
   id?: string;
+  /** `sm` matches a size="sm" Button (40px) for toolbars; `md` suits forms. */
+  size?: 'sm' | 'md';
 }
+
+const triggerSizeStyles = {
+  sm: 'h-10 px-3 pr-9 text-sm',
+  md: 'px-4 py-3 pr-10',
+} as const;
 
 const Select = ({
   label,
@@ -35,6 +43,8 @@ const Select = ({
   required,
   className,
   id,
+  size = 'md',
+  'aria-label': ariaLabel,
 }: SelectProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 300 });
@@ -45,7 +55,7 @@ const Select = ({
   const selectedOption = options.find(opt => opt.value === value);
 
   // Get position (event handlers only - not during render)
-  const getPosition = () => {
+  const getPosition = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const gap = 4;
@@ -53,18 +63,19 @@ const Select = ({
       const top = rect.bottom + gap + menuHeight <= window.innerHeight
         ? rect.bottom + gap
         : Math.max(8, rect.top - menuHeight - gap);
+      const width = Math.min(rect.width, window.innerWidth - 16);
       const left = Math.min(
         Math.max(8, rect.left),
-        Math.max(8, window.innerWidth - rect.width - 8)
+        Math.max(8, window.innerWidth - width - 8)
       );
       return {
         top,
         left,
-        width: rect.width
+        width
       };
     }
     return { top: 0, left: 0, width: 300 };
-  };
+  }, [options.length]);
 
   // Close on click outside
   useEffect(() => {
@@ -84,17 +95,32 @@ const Select = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Close on scroll
+  // Keep the menu glued to its trigger while the page scrolls or resizes, and
+  // only dismiss once the trigger leaves the viewport. Closing on every scroll
+  // event made the menu dismiss itself while smooth scrolling was still
+  // settling, so opening it right after an anchor jump appeared to do nothing.
   useEffect(() => {
     if (!isOpen) return;
-    
-    const handleScroll = () => {
-      setIsOpen(false);
+
+    const handleReposition = (event?: Event) => {
+      const target = event?.target;
+      if (target instanceof Node && dropdownRef.current?.contains(target)) return;
+
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) {
+        setIsOpen(false);
+        return;
+      }
+      setDropdownPos(getPosition());
     };
 
-    window.addEventListener('scroll', handleScroll, true);
-    return () => window.removeEventListener('scroll', handleScroll, true);
-  }, [isOpen]);
+    window.addEventListener('scroll', handleReposition, true);
+    window.addEventListener('resize', handleReposition);
+    return () => {
+      window.removeEventListener('scroll', handleReposition, true);
+      window.removeEventListener('resize', handleReposition);
+    };
+  }, [isOpen, getPosition]);
 
   // Close on escape
   useEffect(() => {
@@ -129,6 +155,9 @@ const Select = ({
           ref={buttonRef}
           type="button"
           id={selectId}
+          aria-label={ariaLabel}
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
           onClick={() => {
             if (disabled) return;
             if (!isOpen) setDropdownPos(getPosition());
@@ -138,8 +167,8 @@ const Select = ({
           className={cn(
             'w-full text-left',
             'bg-bg-card border border-border',
-            'rounded-xl',
-            'px-4 py-3 pr-10',
+            'rounded-[--radius-sm]',
+            triggerSizeStyles[size],
             'transition-all duration-200',
             'hover:border-gold/50',
             'focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/30',
@@ -150,7 +179,9 @@ const Select = ({
             className
           )}
         >
+          {/* Never wrap: a two-line trigger breaks alignment with sibling controls. */}
           <span className={cn(
+            'block truncate',
             selectedOption ? 'text-text-primary' : 'text-text-muted'
           )}>
             {selectedOption?.label || placeholder}
@@ -158,7 +189,8 @@ const Select = ({
         </button>
         <ChevronDown 
           className={cn(
-            'absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted pointer-events-none transition-transform duration-200',
+            'absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none transition-transform duration-200',
+            size === 'sm' ? 'w-4 h-4' : 'w-5 h-5',
             isOpen && 'rotate-180'
           )}
         />
@@ -167,7 +199,7 @@ const Select = ({
         {isOpen && createPortal(
           <div
             ref={dropdownRef}
-            className="fixed py-2 rounded-xl bg-[#1a1a1a] border border-[#333] shadow-2xl overflow-hidden"
+            className="fixed py-2 rounded-[--radius-sm] bg-bg-card border border-border shadow-lg overflow-hidden"
             style={{
               top: dropdownPos.top,
               left: dropdownPos.left,
@@ -187,14 +219,14 @@ const Select = ({
                   'w-full px-4 py-2.5 text-left flex items-center justify-between gap-2',
                   'transition-colors duration-150',
                   option.disabled && 'opacity-50 cursor-not-allowed',
-                  !option.disabled && 'hover:bg-[#d4a853]/20 cursor-pointer',
-                  option.value === value && 'bg-[#d4a853]/10 text-[#d4a853]',
-                  option.value !== value && 'text-white'
+                  !option.disabled && 'hover:bg-gold/20 cursor-pointer',
+                  option.value === value && 'bg-gold/10 text-gold',
+                  option.value !== value && 'text-text-primary'
                 )}
               >
                 <span>{option.label}</span>
                 {option.value === value && (
-                  <Check className="w-4 h-4 text-[#d4a853]" />
+                  <Check className="w-4 h-4 text-gold" />
                 )}
               </button>
             ))}

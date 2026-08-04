@@ -175,7 +175,7 @@ System realizuje pełny proces operacyjny opisany przez zarząd:
 2. Uzupełnia dane klienta i dokumentu, kaucję, akcesoria, stan sprzętu oraz dane osoby wydającej.
 3. Backend tworzy niezmienny snapshot treści umowy i zapisuje jego SHA-256.
 4. Dane dokumentu i snapshot są szyfrowane AES-256-GCM. W DB przechowywany jest wyłącznie hash losowego tokenu podpisu (256 bitów).
-5. Klient na ekranie tabletowym musi przejrzeć pełną umowę, złożyć podpis palcem/rysikiem/myszką i zaznaczyć oświadczenie.
+5. Na ekranie tabletowym pełną umowę przeglądają i podpisują obie strony: pracownik/Wynajmujący oraz klient/Najemca. Klient dodatkowo zaznacza oświadczenie akceptacji.
 6. Generator PDF osadza polski font Noto Sans, pełną treść, podpis oraz metrykę: czas, IP, user-agent, hash treści i podpisu.
 7. PDF ma własny SHA-256 i jest szyfrowany AES-256-GCM na prywatnym wolumenie `wbrent-contracts` (nie znajduje się w publicznym katalogu ani Git).
 8. Dokument PDF jest wysyłany klientowi jako załącznik i dostępny administratorowi do pobrania.

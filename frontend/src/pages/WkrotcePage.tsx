@@ -191,7 +191,7 @@ export default function WkrotcePage() {
             </p>
 
             <div className="flex flex-wrap justify-center gap-4">
-              <Link to="/#rezerwacja">
+              <Link to="/rezerwacja">
                 <Button size="lg" className="group">
                   Zarezerwuj teraz
                   <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
@@ -410,7 +410,7 @@ export default function WkrotcePage() {
             <p className="text-text-secondary mb-8">
               Chętnie wysłuchamy Twoich propozycji. Razem tworzymy lepszą usługę wynajmu sprzętu w Rzeszowie.
             </p>
-            <Link to="/#faq">
+            <Link to="/jak-to-dziala">
               <Button size="lg" className="group">
                 Skontaktuj się z nami
                 <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />

@@ -19,7 +19,6 @@
   "author": "WB-Rent",
   "license": "ISC",
   "dependencies": {
-    "@fontsource/noto-sans": "^5.2.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
@@ -31,6 +30,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
+    "multer": "^2.2.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
@@ -40,7 +40,9 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@types/multer": "^2.2.0",
     "@types/pdfkit": "^0.17.6",
+    "pdfjs-dist": "^6.1.200",
     "tsx": "^4.21.0",
     "vitest": "^4.1.10"
   }

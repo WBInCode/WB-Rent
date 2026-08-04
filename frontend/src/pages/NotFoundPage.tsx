@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { Home, Search } from 'lucide-react';
-import { Button, Card } from '@/components/ui';
+import { Button } from '@/components/ui';
+import { UtilityPageShell } from '@/components/UtilityPageShell';
 
 export function NotFoundPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <Card variant="glass" className="max-w-md w-full p-10 text-center">
-        <p className="text-7xl font-bold text-gradient-gold mb-2" style={{ fontFamily: 'var(--font-family-display)' }}>
+    <UtilityPageShell maxWidth="lg">
+      <section className="text-center border-y border-white/10 py-10 sm:py-14">
+        <p className="text-6xl sm:text-7xl font-bold text-gradient-gold mb-2" style={{ fontFamily: 'var(--font-family-display)' }}>
           404
         </p>
         <h1 className="text-2xl font-bold text-text-primary mb-3">Strona nie istnieje</h1>
@@ -20,15 +21,15 @@ export function NotFoundPage() {
               Strona główna
             </Button>
           </Link>
-          <Link to="/#produkty">
+          <Link to="/sprzet">
             <Button variant="secondary">
               <Search className="w-4 h-4 mr-2" />
               Zobacz produkty
             </Button>
           </Link>
         </div>
-      </Card>
-    </div>
+      </section>
+    </UtilityPageShell>
   );
 }
 

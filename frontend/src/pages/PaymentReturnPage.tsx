@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, Loader2, ArrowLeft, RefreshCw } from 'lucide-react';
-import { Card, Button } from '@/components/ui';
+import { CheckCircle2, XCircle, Clock, Loader2, RefreshCw, ReceiptText } from 'lucide-react';
+import { Button } from '@/components/ui';
 import { getPaymentStatus, type PaymentStatusResponse } from '@/services/api';
+import { UtilityPageShell } from '@/components/UtilityPageShell';
 
 type ViewState = 'loading' | 'paid' | 'pending' | 'failed' | 'cancelled' | 'notfound';
 
@@ -129,17 +130,17 @@ export function PaymentReturnPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <Card variant="glass" className="max-w-md w-full p-8 text-center">
+    <UtilityPageShell maxWidth="md">
+      <section className="w-full border-y border-white/10 py-8 sm:py-10 text-center">
+        <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-text-muted font-bold mb-6">
+          <ReceiptText className="w-4 h-4 text-gold" aria-hidden="true" /> Status płatności
+        </div>
         {content()}
         <Link to="/" className="inline-block mt-8">
-          <Button variant="ghost">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Wróć na stronę główną
-          </Button>
+          <Button variant="secondary">Wróć do oferty</Button>
         </Link>
-      </Card>
-    </div>
+      </section>
+    </UtilityPageShell>
   );
 }
 

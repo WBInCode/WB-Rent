@@ -8,24 +8,30 @@ export interface ContractAuditData {
   signedIp: string;
   signedUserAgent: string;
   contentHash: string;
-  signatureHash: string;
+  renterSignatureHash: string;
+  lessorSignatureHash?: string;
+}
+
+export interface ContractSignatures {
+  renter: Buffer;
+  lessor?: Buffer;
 }
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const regularFont = path.resolve(
   moduleDir,
-  '../../node_modules/@fontsource/noto-sans/files/noto-sans-latin-ext-400-normal.woff'
+  '../../assets/fonts/NotoSans-Regular.ttf'
 );
 const boldFont = path.resolve(
   moduleDir,
-  '../../node_modules/@fontsource/noto-sans/files/noto-sans-latin-ext-700-normal.woff'
+  '../../assets/fonts/NotoSans-Bold.ttf'
 );
 
 const money = (value: number) => `${value.toFixed(2).replace('.', ',')} zł`;
 
 export function generateContractPdf(
   snapshot: ContractSnapshot,
-  signaturePng: Buffer,
+  signatures: ContractSignatures,
   audit: ContractAuditData
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -50,11 +56,16 @@ export function generateContractPdf(
       if (doc.y + height > doc.page.height - doc.page.margins.bottom) doc.addPage();
     };
     const row = (label: string, value: string) => {
-      ensureSpace(28);
+      doc.font('NotoBold').fontSize(9);
+      const labelHeight = doc.heightOfString(label, { width: 145 });
+      doc.font('Noto');
+      const valueHeight = doc.heightOfString(value || '—', { width: pageWidth - 150 });
+      const rowHeight = Math.max(18, labelHeight, valueHeight) + 5;
+      ensureSpace(rowHeight + 5);
       const y = doc.y;
       doc.font('NotoBold').fontSize(9).fillColor('#555').text(label, doc.page.margins.left, y, { width: 145 });
       doc.font('Noto').fillColor('#111').text(value || '—', doc.page.margins.left + 150, y, { width: pageWidth - 150 });
-      doc.y = Math.max(doc.y, y + 18);
+      doc.y = Math.max(doc.y, y + rowHeight);
     };
     const heading = (text: string) => {
       ensureSpace(42);
@@ -75,20 +86,36 @@ export function generateContractPdf(
 
     heading('1. STRONY UMOWY');
     row('Wynajmujący', snapshot.lessor.name);
-    row('Adres / NIP', `${snapshot.lessor.address}, NIP: ${snapshot.lessor.nip}`);
+    row('Adres', snapshot.lessor.address);
+    row('NIP', snapshot.lessor.nip);
     row('Reprezentowany przez', snapshot.lessor.representative);
     doc.moveDown(0.4);
     row('Najemca', snapshot.renter.name);
     row('Adres', snapshot.renter.address);
-    row('E-mail / telefon', `${snapshot.renter.email} / ${snapshot.renter.phone}`);
-    row(
-      'Dokument tożsamości',
-      `${snapshot.renter.documentType === 'dowod_osobisty' ? 'dowód osobisty' : 'paszport'} ${snapshot.renter.documentNumber}${snapshot.renter.pesel ? `, PESEL: ${snapshot.renter.pesel}` : ''}`
-    );
+    row('E-mail', snapshot.renter.email);
+    row('Telefon', snapshot.renter.phone);
+    row('PESEL', snapshot.renter.pesel || 'nie podano');
+    if (snapshot.renter.documentNumber) {
+      row(
+        'Dokument tożsamości',
+        `${snapshot.renter.documentType === 'dowod_osobisty' ? 'dowód osobisty' : 'paszport'} ${snapshot.renter.documentNumber}`
+      );
+    }
 
     heading('2. DANE NAJMU');
-    row('Sprzęt', snapshot.rental.productName);
-    row('Termin', `${snapshot.rental.startDate} ${snapshot.rental.startTime} – ${snapshot.rental.endDate} ${snapshot.rental.endTime} (${snapshot.rental.days} dni)`);
+    const rentalItems = snapshot.rental.items?.length
+      ? snapshot.rental.items
+      : [{ productName: snapshot.rental.productName, itemPrice: snapshot.rental.totalPrice }];
+    row(
+      rentalItems.length === 1 ? 'Sprzęt' : 'Sprzęt (pozycje)',
+      rentalItems.map((item, index) => `${index + 1}. ${item.productName} — ${money(item.itemPrice)}`).join('\n')
+    );
+    row(
+      'Termin',
+      snapshot.rental.isIndefinite
+        ? `${snapshot.rental.startDate} ${snapshot.rental.startTime} – bezterminowo (do odwołania)`
+        : `${snapshot.rental.startDate} ${snapshot.rental.startTime} – ${snapshot.rental.endDate} ${snapshot.rental.endTime} (${snapshot.rental.days} dni)`
+    );
     row('Czynsz najmu', money(snapshot.rental.totalPrice));
     row('Kaucja', money(snapshot.rental.deposit));
     row('Odbiór / dostawa', snapshot.rental.delivery ? `dostawa: ${snapshot.rental.deliveryAddress || 'adres zlecenia'}` : 'odbiór osobisty');
@@ -99,27 +126,80 @@ export function generateContractPdf(
     for (const clause of snapshot.clauses) {
       ensureSpace(62);
       doc.font('NotoBold').fontSize(9.5).fillColor('#111').text(`§ ${clause.number}. ${clause.title}`);
-      doc.font('Noto').fontSize(8.7).fillColor('#333').text(clause.text, { align: 'justify', lineGap: 1.5 });
+      doc.font('Noto').fontSize(8.7).fillColor('#333');
+      if (clause.points?.length) {
+        clause.points.forEach((point, index) => {
+          ensureSpace(26);
+          doc.text(`${index + 1}. ${point}`, { align: 'justify', lineGap: 1.5, indent: 8 });
+        });
+      } else if (clause.text) {
+        doc.text(clause.text, { align: 'justify', lineGap: 1.5 });
+      }
       doc.moveDown(0.55);
     }
 
-    ensureSpace(230);
-    heading('4. OŚWIADCZENIE I PODPIS NAJEMCY');
+    if (snapshot.handoverItems?.length) {
+      ensureSpace(60 + snapshot.handoverItems.length * 14);
+      heading('ZAŁĄCZNIK NR 1 — PROTOKÓŁ WYDANIA SPRZĘTU');
+      doc.font('Noto').fontSize(8.7).fillColor('#333').text(
+        'Najemca potwierdza odbiór wymienionego Sprzętu zgodnie z Umową i zobowiązuje się do jego zwrotu w stanie nieuszkodzonym w terminie wskazanym w §1.',
+        { align: 'justify', lineGap: 1.5 }
+      );
+      doc.moveDown(0.4);
+      snapshot.handoverItems.forEach((item, index) => {
+        ensureSpace(16);
+        doc.font('Noto').fontSize(9).fillColor('#222').text(`${index + 1}.  ${item}`, { indent: 8 });
+      });
+      doc.moveDown(0.6);
+    }
+
+    ensureSpace(250);
+    heading('4. OŚWIADCZENIE I PODPISY STRON');
     doc.font('Noto').fontSize(9).fillColor('#222').text(
       'Najemca potwierdza, że przed złożeniem podpisu otrzymał możliwość zapoznania się z całą treścią umowy, dane w umowie są prawidłowe, sprzęt i akcesoria są zgodne z opisem oraz akceptuje wszystkie postanowienia.',
       { align: 'justify' }
     );
     doc.moveDown(0.6);
-    doc.roundedRect(doc.page.margins.left, doc.y, pageWidth, 112, 5).strokeColor('#b8972a').lineWidth(0.8).stroke();
+    const signaturesY = doc.y;
+    const gap = 14;
+    const boxWidth = (pageWidth - gap) / 2;
+    const boxHeight = 128;
+    doc.roundedRect(doc.page.margins.left, signaturesY, boxWidth, boxHeight, 5).strokeColor('#b8972a').lineWidth(0.8).stroke();
+    doc.roundedRect(doc.page.margins.left + boxWidth + gap, signaturesY, boxWidth, boxHeight, 5).strokeColor('#b8972a').lineWidth(0.8).stroke();
     try {
-      doc.image(signaturePng, doc.page.margins.left + 20, doc.y + 8, { fit: [pageWidth - 40, 72], align: 'center', valign: 'center' });
+      if (signatures.lessor) {
+        doc.image(signatures.lessor, doc.page.margins.left + 12, signaturesY + 22, {
+          fit: [boxWidth - 24, 66], align: 'center', valign: 'center',
+        });
+      } else {
+        doc.font('NotoBold').fontSize(10).fillColor('#555').text(
+          snapshot.lessor.representative,
+          doc.page.margins.left + 12,
+          signaturesY + 50,
+          { width: boxWidth - 24, align: 'center' }
+        );
+      }
+      doc.image(signatures.renter, doc.page.margins.left + boxWidth + gap + 12, signaturesY + 22, {
+        fit: [boxWidth - 24, 66], align: 'center', valign: 'center',
+      });
     } catch (error) {
       reject(error);
       return;
     }
-    doc.y += 82;
-    doc.font('Noto').fontSize(8).fillColor('#555').text(`${snapshot.renter.name} • podpisano: ${audit.signedAt}`, doc.page.margins.left + 12, doc.y, { width: pageWidth - 24, align: 'center' });
-    doc.y += 35;
+    doc.font('Noto').fontSize(7.5).fillColor('#555');
+    doc.text(
+      `${snapshot.lessor.representative}\nWynajmujący`,
+      doc.page.margins.left + 8,
+      signaturesY + 96,
+      { width: boxWidth - 16, align: 'center' }
+    );
+    doc.text(
+      `${snapshot.renter.name}\nNajemca`,
+      doc.page.margins.left + boxWidth + gap + 8,
+      signaturesY + 96,
+      { width: boxWidth - 16, align: 'center' }
+    );
+    doc.y = signaturesY + boxHeight + 16;
 
     heading('5. METRYKA DOWODOWA DOKUMENTU');
     doc.font('Noto').fontSize(7.5).fillColor('#555');
@@ -127,7 +207,8 @@ export function generateContractPdf(
     row('Adres IP', audit.signedIp);
     row('Urządzenie', audit.signedUserAgent.slice(0, 180));
     row('SHA-256 treści', audit.contentHash);
-    row('SHA-256 podpisu', audit.signatureHash);
+    row('SHA-256 podpisu Najemcy', audit.renterSignatureHash);
+    row('SHA-256 podpisu Wynajmującego', audit.lessorSignatureHash || 'podpis imienny — dokument historyczny');
     doc.moveDown(0.6);
     doc.font('Noto').fontSize(7.5).fillColor('#777').text(
       'Dokument wygenerowany automatycznie przez WB-Rent. Integralność treści i podpisu można zweryfikować za pomocą powyższych skrótów kryptograficznych.',
@@ -138,12 +219,15 @@ export function generateContractPdf(
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i += 1) {
       doc.switchToPage(i);
+      const originalBottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc.font('Noto').fontSize(7).fillColor('#888').text(
         `WB Partners Sp. z o.o. • NIP 5170455185 • ${snapshot.contractNumber} • strona ${i + 1}/${range.count}`,
         48,
-        doc.page.height - 32,
+        doc.page.height - 28,
         { width: pageWidth, align: 'center', lineBreak: false }
       );
+      doc.page.margins.bottom = originalBottomMargin;
     }
 
     doc.end();

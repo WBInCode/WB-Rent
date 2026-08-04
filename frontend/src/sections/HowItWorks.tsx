@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Search, CalendarCheck, Truck, Sparkles } from 'lucide-react';
+import { Search, CalendarCheck, Truck, Sparkles, ArrowRight } from 'lucide-react';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 
 interface Step {
@@ -54,13 +54,14 @@ export function HowItWorks() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-16 md:mb-20"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">
+          <span className="section-kicker">
             Prosty proces
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">
+          {/* Pierwsza sekcja podstrony /jak-to-dziala - jej tytuł jest H1 strony. */}
+          <h1 className="section-title">
             Jak to działa?
-          </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          </h1>
+          <p className="section-copy max-w-2xl mx-auto">
             Wynajem sprzętu w WB-Rent to prosty, 4-krokowy proces. 
             Od wyboru urządzenia do zwrotu - wszystko online.
           </p>
@@ -87,9 +88,7 @@ export function HowItWorks() {
                 {/* Connector arrow (hidden on mobile and for last item) */}
                 {!isLast && (
                   <div className="hidden lg:block absolute top-12 -right-3 w-6 h-6 text-gold/30 z-10">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
+                    <ArrowRight className="w-6 h-6" aria-hidden="true" />
                   </div>
                 )}
 
@@ -99,11 +98,11 @@ export function HowItWorks() {
                 </div>
 
                 {/* Card */}
-                <div className="relative h-full p-6 md:p-8 rounded-2xl bg-bg-card border border-border hover:border-gold/30 transition-all duration-300 group-hover:shadow-gold overflow-hidden">
+                <div className="relative h-full p-6 md:p-8 rounded-[--radius-sm] bg-bg-card border border-border hover:border-gold/30 transition-all duration-300 overflow-hidden">
                   {/* Watermark step number (brand detail) */}
                   <span
                     aria-hidden="true"
-                    className="absolute -right-2 -bottom-6 text-[7rem] leading-none font-bold text-white/[0.03] group-hover:text-gold/[0.06] transition-colors duration-500 select-none"
+                    className="absolute -right-2 -bottom-6 text-[7rem] leading-none font-bold text-text-primary/[0.04] group-hover:text-gold/[0.06] transition-colors duration-500 select-none"
                     style={{ fontFamily: 'var(--font-family-display)' }}
                   >
                     {step.number}
@@ -111,7 +110,7 @@ export function HowItWorks() {
 
                   {/* Icon - gold medallion */}
                   <div className="mt-4 mb-6">
-                    <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-gold/25 via-gold/10 to-transparent ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 group-hover:shadow-[0_0_24px_rgba(212,168,75,0.25)] transition-all duration-300">
+                    <div className="relative w-16 h-16 rounded-[--radius-sm] bg-gold/10 ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 transition-all duration-300">
                       <Icon className="w-8 h-8 text-gold-light" strokeWidth={1.75} />
                       {/* Corner sparkle */}
                       <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gold-light opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -119,9 +118,9 @@ export function HowItWorks() {
                   </div>
 
                   {/* Content */}
-                  <h3 className="text-xl font-semibold text-text-primary mb-3 group-hover:text-gold transition-colors duration-300">
+                  <h2 className="text-xl font-semibold text-text-primary mb-3 group-hover:text-gold transition-colors duration-300">
                     {step.title}
-                  </h3>
+                  </h2>
                   <p className="text-text-secondary text-sm leading-relaxed">
                     {step.description}
                   </p>
@@ -143,17 +142,15 @@ export function HowItWorks() {
             Gotowy, aby rozpocząć?
           </p>
           <a
-            href="#rezerwacja"
+            href="/rezerwacja"
             onClick={(e) => {
               e.preventDefault();
               document.getElementById('rezerwacja')?.scrollIntoView({ behavior: 'smooth' });
             }}
-            className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-gold text-bg-primary font-semibold hover:bg-gold-light transition-colors duration-300"
+            className="inline-flex items-center gap-2 px-8 py-4 rounded-[--radius-sm] bg-gold text-bg-primary font-semibold hover:bg-gold-light transition-colors duration-300"
           >
             Zarezerwuj teraz
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
+            <ArrowRight className="w-5 h-5" aria-hidden="true" />
           </a>
         </motion.div>
       </div>

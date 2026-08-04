@@ -13,7 +13,8 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
-RUN mkdir -p /app/storage/contracts && chown -R node:node /app/storage
+COPY assets ./assets
+RUN mkdir -p /app/storage/contracts /app/storage/product-images /app/storage/documents && chown -R node:node /app/storage
 EXPOSE 3001
 USER node
 CMD ["node", "dist/index.js"]

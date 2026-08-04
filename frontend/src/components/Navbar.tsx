@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui';
+import ThemeToggle from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
-import { navbarVariants, transitions } from '@/lib/motion';
+import { transitions } from '@/lib/motion';
 
 interface NavLink {
   label: string;
@@ -12,18 +13,16 @@ interface NavLink {
 }
 
 const navLinks: NavLink[] = [
-  { label: 'Start', href: '/#start' },
-  { label: 'Kategorie', href: '/#kategorie' },
-  { label: 'Produkty', href: '/#produkty' },
-  { label: 'Jak to działa', href: '/#jak-to-dziala' },
-  { label: 'Rezerwacja', href: '/#rezerwacja' },
-  { label: 'FAQ', href: '/#faq' },
+  { label: 'Start', href: '/' },
+  { label: 'Sprzęt i cennik', href: '/sprzet' },
+  { label: 'Jak to działa', href: '/jak-to-dziala' },
+  { label: 'Rezerwacja', href: '/rezerwacja' },
+  { label: 'Kontakt', href: '/kontakt' },
 ];
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('start');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -31,27 +30,6 @@ export function Navbar() {
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Handle active section detection
-  useEffect(() => {
-    const handleScroll = () => {
-      const sections = navLinks.map(link => link.href.replace('#', ''));
-      
-      for (const section of sections.reverse()) {
-        const element = document.getElementById(section);
-        if (element) {
-          const rect = element.getBoundingClientRect();
-          if (rect.top <= 100) {
-            setActiveSection(section);
-            break;
-          }
-        }
-      }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -84,48 +62,18 @@ export function Navbar() {
 
   const handleNavClick = (href: string) => {
     setIsMobileMenuOpen(false);
-    
-    // If it's an internal page link (for example /kontakt)
-    if (href.startsWith('/') && !href.startsWith('/#')) {
-      navigate(href);
-      return;
-    }
-    
-    // If it's a hash link to home page section
-    if (href.startsWith('/#')) {
-      const sectionId = href.substring(2); // Remove '/#'
-      
-      if (location.pathname === '/') {
-        // Already on home, just scroll
-        const element = document.getElementById(sectionId);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth' });
-        }
-      } else {
-        // Navigate to home, then scroll
-        navigate('/');
-        setTimeout(() => {
-          const element = document.getElementById(sectionId);
-          if (element) {
-            element.scrollIntoView({ behavior: 'smooth' });
-          }
-        }, 100);
-      }
-    }
+    navigate(href);
   };
 
   return (
     <>
       <motion.header
         role="banner"
-        variants={navbarVariants}
-        initial="top"
-        animate={isScrolled ? 'scrolled' : 'top'}
-        transition={transitions.normal}
         className={cn(
           'fixed top-0 left-0 right-0 z-50',
           'px-4 md:px-6 lg:px-8',
-          'transition-all duration-300'
+          'nav-shell',
+          isScrolled && 'nav-shell-scrolled'
         )}
       >
         <nav aria-label="Główna nawigacja" className="max-w-7xl mx-auto h-16 md:h-20 flex items-center justify-between">
@@ -149,24 +97,26 @@ export function Navbar() {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
-              <a
+              <Link
                 key={link.href}
-                href={link.href}
-                onClick={(e) => { e.preventDefault(); handleNavClick(link.href); }}
+                to={link.href}
+                onClick={() => setIsMobileMenuOpen(false)}
+                aria-current={location.pathname === link.href ? 'page' : undefined}
                 className={cn(
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                  location.pathname === '/' && activeSection === link.href.replace('/#', '')
+                  location.pathname === link.href
                     ? 'text-gold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-soft'
                 )}
               >
                 {link.label}
-              </a>
+              </Link>
             ))}
           </div>
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-3">
+            <ThemeToggle />
             <Button 
               variant="primary" 
               size="sm"
@@ -177,18 +127,21 @@ export function Navbar() {
           </div>
 
           {/* Mobile Menu Button */}
-          <button
-            type="button"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden p-2 text-text-secondary hover:text-text-primary transition-colors"
-            aria-label={isMobileMenuOpen ? 'Zamknij menu' : 'Otwórz menu'}
-          >
-            {isMobileMenuOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <Menu className="w-6 h-6" />
-            )}
-          </button>
+          <div className="md:hidden flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 text-text-secondary hover:text-text-primary transition-colors"
+              aria-label={isMobileMenuOpen ? 'Zamknij menu' : 'Otwórz menu'}
+            >
+              {isMobileMenuOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
+            </button>
+          </div>
         </nav>
       </motion.header>
 
@@ -212,9 +165,10 @@ export function Navbar() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                   transition={{ ...transitions.normal, delay: index * 0.05 }}
+                  aria-current={location.pathname === link.href ? 'page' : undefined}
                   className={cn(
                     'text-2xl font-medium transition-colors',
-                    location.pathname === '/' && activeSection === link.href.replace('/#', '')
+                    location.pathname === link.href
                       ? 'text-gold'
                       : 'text-text-secondary hover:text-text-primary'
                   )}

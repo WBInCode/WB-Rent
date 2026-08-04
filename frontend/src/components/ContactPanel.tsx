@@ -89,8 +89,8 @@ export function ContactPanel() {
           {contactInfo.map((info) => {
             const Icon = info.icon;
             const content = (
-              <div className="flex items-start gap-4 p-4 rounded-xl bg-bg-card border border-border hover:border-gold/40 transition-colors">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-gold/25 to-gold/5 ring-1 ring-gold/25 flex items-center justify-center shrink-0">
+              <div className="flex items-start gap-4 p-4 rounded-[--radius-sm] bg-bg-card border border-border hover:border-gold/40 transition-colors">
+                <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 ring-1 ring-gold/25 flex items-center justify-center shrink-0">
                   <Icon className="w-5 h-5 text-gold-light" />
                 </div>
                 <div>

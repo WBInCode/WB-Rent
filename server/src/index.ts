@@ -10,6 +10,7 @@ import paymentRoutes from './payments/routes.js';
 import { getActiveProvider } from './payments/index.js';
 import contractRoutes from './contracts/routes.js';
 import { initScheduler } from './scheduler.js';
+import { backfillContractDocuments } from './contracts/service.js';
 
 const app = express();
 
@@ -42,7 +43,7 @@ app.use(cors({
       callback(null, false); // Reject - no CORS headers, browser blocks the response
     }
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -69,6 +70,12 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // === ROUTES ===
+app.use('/api/product-images', express.static(config.productImages.storageDir, {
+  dotfiles: 'deny',
+  index: false,
+  maxAge: '1y',
+  immutable: true,
+}));
 app.use('/api', routes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -95,7 +102,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 const startServer = async () => {
   // Initialize database
   await initializeDatabase();
-  
+
+  // Signed contracts belong in the document archive - catch up on any that
+  // predate the archive. Never blocks startup.
+  await backfillContractDocuments().catch((error) =>
+    console.error('Backfill contract documents error:', error));
+
   // Initialize scheduler for automatic reminders
   initScheduler();
 

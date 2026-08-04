@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import crypto from 'node:crypto';
+import path from 'node:path';
 dotenv.config();
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -65,6 +66,10 @@ export const config = {
   // Public API base URL (for links in emails, e.g. unsubscribe)
   apiUrl: process.env.API_URL || `http://localhost:${process.env.PORT || '3001'}`,
 
+  productImages: {
+    storageDir: path.resolve(process.env.PRODUCT_IMAGE_STORAGE_DIR || 'storage/product-images'),
+  },
+
   // === PAYMENTS ===
   // Active gateway: 'payu' | 'przelewy24' | 'stripe' | 'none'
   payments: {
@@ -97,5 +102,11 @@ export const config = {
     encryptionKey: process.env.CONTRACT_ENCRYPTION_KEY || `${process.env.ADMIN_TOKEN || devAuthSecret}:contracts`,
     storageDir: process.env.CONTRACT_STORAGE_DIR || 'storage/contracts',
     signingTtlHours: parseInt(process.env.CONTRACT_SIGNING_TTL_HOURS || '24', 10),
+  },
+
+  // === DOCUMENT ARCHIVE ===
+  documents: {
+    // Private volume, encrypted at rest with the contract key.
+    storageDir: process.env.DOCUMENT_STORAGE_DIR || 'storage/documents',
   },
 };

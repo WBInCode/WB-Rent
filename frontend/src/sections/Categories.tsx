@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Wind, Sparkles, ArrowRight, Cloud, Wrench } from 'lucide-react';
-import { Button, Card } from '@/components/ui';
+import { Card } from '@/components/ui';
 import { categories, getProductsByCategory } from '@/data/products';
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { getProductsAvailability } from '@/services/api';
@@ -53,21 +54,8 @@ export function Categories() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleScrollToProducts = (categoryId: string) => {
-    // Scroll to products and potentially filter by category
-    document.getElementById('produkty')?.scrollIntoView({ behavior: 'smooth' });
-    // TODO: Implement category filtering in products section
-    console.log('Filter by category:', categoryId);
-  };
-
   return (
     <section id="kategorie" className="relative overflow-hidden py-20 md:py-28 lg:py-32">
-      {/* Background decoration */}
-      <div 
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full opacity-10 blur-3xl pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 60%)' }}
-      />
-
       <div className="relative max-w-7xl mx-auto px-4 md:px-6 lg:px-8">
         {/* Section Header */}
         <motion.div
@@ -77,13 +65,13 @@ export function Categories() {
           viewport={{ once: true, margin: '-100px' }}
           className="text-center mb-12 md:mb-16"
         >
-          <span className="inline-block text-gold text-sm font-medium tracking-wider uppercase mb-4">
+          <span className="section-kicker">
             Nasza oferta
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-text-primary mb-4">
+          <h2 className="section-title">
             Kategorie sprzętu
           </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          <p className="section-copy max-w-2xl mx-auto">
             Wybierz kategorię i odkryj nasz profesjonalny sprzęt dostępny do wynajęcia. 
             Wszystkie urządzenia są regularnie serwisowane i gotowe do pracy.
           </p>
@@ -121,7 +109,7 @@ export function Categories() {
                   <div className="p-6 md:p-8 lg:p-10">
                     {/* Icon - gold medallion */}
                     <div className="mb-6">
-                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-gold/25 via-gold/10 to-transparent ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 group-hover:shadow-[0_0_24px_rgba(212,168,75,0.25)] transition-all duration-300">
+                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-[--radius-sm] bg-gold/10 ring-1 ring-gold/30 flex items-center justify-center group-hover:ring-gold/60 transition-all duration-300">
                         <Icon className="w-7 h-7 md:w-8 md:h-8 text-gold-light" strokeWidth={1.75} />
                       </div>
                     </div>
@@ -180,15 +168,14 @@ export function Categories() {
                     </div>
 
                     {/* CTA */}
-                    <Button 
-                      variant="secondary" 
-                      size="md"
-                      className="w-full group/btn"
-                      onClick={() => handleScrollToProducts(category.id)}
+                    <Link
+                      to={`/sprzet?kategoria=${category.id}`}
+                      aria-label={`Zobacz wszystkie: ${category.name}`}
+                      className="group/btn inline-flex h-11 w-full items-center justify-center rounded-[--radius-sm] border border-border bg-bg-card font-medium text-text-primary transition-colors hover:border-gold/40 hover:bg-bg-card-hover hover:text-gold"
                     >
                       <span>Zobacz wszystkie</span>
                       <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform duration-200" />
-                    </Button>
+                    </Link>
                   </div>
                 </Card>
               </motion.div>
@@ -207,14 +194,13 @@ export function Categories() {
           <p className="text-text-muted mb-4">
             Nie wiesz, czego potrzebujesz?
           </p>
-          <Button 
-            variant="ghost" 
-            size="lg"
-            onClick={() => document.getElementById('faq')?.scrollIntoView({ behavior: 'smooth' })}
+          <Link
+            to="/kontakt"
+            className="inline-flex h-12 items-center justify-center rounded-[--radius-sm] px-7 font-medium text-text-secondary transition-colors hover:bg-surface-soft hover:text-text-primary"
           >
             Skontaktuj się z nami
             <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
+          </Link>
         </motion.div>
       </div>
     </section>

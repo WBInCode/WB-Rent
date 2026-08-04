@@ -1,10 +1,18 @@
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
-import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema } from './schemas.js';
+import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema, couponValidateSchema } from './schemas.js';
 import { queries } from './db.js';
-import { products, calculateProductRentalPrice, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from './products.js';
-import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken } from './auth.js';
+import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_FEE, getProductName, WEEKEND_PICKUP_FEE } from './products.js';
+import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
+import {
+  couponRejectionReason,
+  discountAmountFor,
+  resolveDiscount,
+  todayLocal,
+  totalWithDiscount,
+  type DiscountContext,
+} from './pricing.js';
 import { config } from './config.js';
 import { createPaymentForReservation } from './payments/routes.js';
 import {
@@ -37,6 +45,39 @@ const formatZodErrors = (error: ZodError) => {
     message: err.message,
   }));
 };
+
+// === GET /api/products ===
+router.get('/products', async (_req: Request, res: Response) => {
+  try {
+    const catalog = await queries.getProducts(false);
+    res.json({
+      success: true,
+      products: catalog.map((product: any) => ({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        categoryId: product.category_id,
+        image: product.image,
+        images: Array.isArray(product.images) && product.images.length > 0
+          ? product.images
+          : [product.image],
+        pricePerDay: Number(product.price_per_day),
+        priceNextDay: Number(product.price_next_day),
+        priceWeekend: Number(product.price_weekend),
+        features: Array.isArray(product.features) ? product.features : [],
+        includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
+        optionalAccessories: Array.isArray(product.optional_accessories) ? product.optional_accessories : [],
+        accessoryPrice: Number(product.accessory_price || 0),
+        totalQuantity: Number(product.total_quantity),
+        availableToday: Number(product.available_today),
+        available: Number(product.available_today) > 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Get products error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać produktów' });
+  }
+});
 
 // === POST /api/contact ===
 router.post('/contact', async (req: Request, res: Response) => {
@@ -84,16 +125,69 @@ router.post('/contact', async (req: Request, res: Response) => {
 });
 
 // === POST /api/reservations ===
+// Anti-abuse: coupon codes are guessable secrets - throttle enumeration attempts
+const couponValidateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Zbyt wiele prób sprawdzenia kuponu. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/coupons/validate', couponValidateLimiter, async (req: Request, res: Response) => {
+  try {
+    const data = couponValidateSchema.parse(req.body);
+    const coupon = await queries.getCouponByCode(data.code);
+    const context = { basePrice: data.basePrice, today: todayLocal() };
+    const rejection = couponRejectionReason(coupon, context);
+
+    if (rejection) {
+      res.json({ success: true, valid: false, message: rejection });
+      return;
+    }
+
+    const discountAmount = discountAmountFor(coupon.discount_type, Number(coupon.value), data.basePrice);
+    res.json({
+      success: true,
+      valid: true,
+      coupon: {
+        code: coupon.code,
+        discountType: coupon.discount_type,
+        value: Number(coupon.value),
+        minTotal: Number(coupon.min_total),
+        expiresOn: coupon.expires_on ? String(coupon.expires_on).slice(0, 10) : null,
+      },
+      discountAmount,
+      message: `Kupon aktywny: rabat ${discountAmount.toFixed(2).replace('.', ',')} zł`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({
+        success: false,
+        valid: false,
+        message: 'Nieprawidłowy kod kuponu',
+        errors: error.issues.map((issue) => ({ field: issue.path.join('.'), message: issue.message })),
+      });
+      return;
+    }
+    console.error('Coupon validate error:', error);
+    res.status(500).json({ success: false, valid: false, message: 'Błąd sprawdzania kuponu' });
+  }
+});
+
 router.post('/reservations', async (req: Request, res: Response) => {
   try {
     const data = reservationSchema.parse(req.body);
-
-    const product = products[data.productId];
-    if (!product) {
+    const productIds = data.productIds?.length ? [...data.productIds] : [data.productId];
+    if (!productIds.includes(data.productId)) productIds.unshift(data.productId);
+    const activeCatalog = await queries.getProductsByIds(productIds);
+    const activeProductIds = new Set(activeCatalog.map((product: any) => String(product.id)));
+    const invalidProductId = productIds.find((productId) => !products[productId] || !activeProductIds.has(productId));
+    if (invalidProductId) {
       res.status(400).json({
         success: false,
         message: 'Nieprawidłowy produkt',
-        errors: [{ field: 'productId', message: 'Wybrany produkt nie istnieje' }],
+        errors: [{ field: 'productIds', message: `Urządzenie ${invalidProductId} nie istnieje` }],
       });
       return;
     }
@@ -101,21 +195,72 @@ router.post('/reservations', async (req: Request, res: Response) => {
     // Recompute rental days server-side (client value is not trusted for pricing).
     // Same rule as the frontend: date difference, +1 day when return time is later
     // than pickup time (started doba), minimum 1.
+    const endDate = data.isIndefinite ? null : data.endDate;
     const msPerDay = 24 * 60 * 60 * 1000;
-    const dateDiff = Math.round(
-      (Date.parse(data.endDate) - Date.parse(data.startDate)) / msPerDay
-    );
+    const dateDiff = endDate
+      ? Math.round((Date.parse(endDate) - Date.parse(data.startDate)) / msPerDay)
+      : 0;
     const [sh, sm] = data.startTime.split(':').map(Number);
     const [eh, em] = data.endTime.split(':').map(Number);
     const extraDay = eh * 60 + em > sh * 60 + sm ? 1 : 0;
-    const days = Math.max(1, dateDiff + extraDay);
+    const days = data.isIndefinite ? 1 : Math.max(1, dateDiff + extraDay);
 
     const pickupDay = new Date(`${data.startDate}T12:00:00`).getDay();
-    const isWeekendPackage = pickupDay === 5 && days <= 3;
-    const basePrice = calculateProductRentalPrice(data.productId, days, isWeekendPackage)!;
+    const isWeekendPackage = pickupDay === 5 && days === 3;
+    const pricing = calculateRentalItemsPrice(productIds, days, isWeekendPackage);
+    if (!pricing) throw new Error('Nie udało się wyliczyć sprzętu');
+    const basePrice = pricing.basePrice;
     const deliveryFee = data.delivery ? DELIVERY_FEE : 0;
     const weekendPickupFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
-    const totalPrice = basePrice + deliveryFee + weekendPickupFee;
+
+    // Discounts are resolved server-side only - a client-supplied amount is never trusted.
+    const discountContext: DiscountContext = {
+      basePrice,
+      days,
+      productIds,
+      categoryIds: [...new Set(pricing.items.map((item) => item.categoryId))],
+      today: todayLocal(),
+    };
+    const coupon = data.couponCode ? await queries.getCouponByCode(data.couponCode) : null;
+    if (data.couponCode) {
+      const rejection = couponRejectionReason(coupon, discountContext);
+      if (rejection) {
+        res.status(400).json({
+          success: false,
+          message: rejection,
+          errors: [{ field: 'couponCode', message: rejection }],
+        });
+        return;
+      }
+    }
+    const discount = resolveDiscount({
+      rules: await queries.getActiveDiscounts(),
+      coupon,
+      context: discountContext,
+    });
+
+    // Staff may override the calculated price, but only with a valid admin
+    // token - a public caller can never set its own price.
+    const staffToken = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const isStaff = Boolean(staffToken) && verifyToken(staffToken);
+    const staffPricing = isStaff ? data.staffPricing : undefined;
+
+    const discountAmount = staffPricing?.discountAmount !== undefined
+      ? Math.min(staffPricing.discountAmount, basePrice)
+      : discount.amount;
+    const discountLabel = staffPricing?.discountAmount !== undefined
+      ? staffPricing.note || 'Rabat pracownika'
+      : discount.label;
+
+    const calculatedTotal = totalWithDiscount({
+      basePrice,
+      deliveryFee,
+      weekendPickupFee,
+      discountAmount,
+    });
+    const totalPrice = staffPricing?.priceOverride !== undefined
+      ? staffPricing.priceOverride
+      : calculatedTotal;
 
     const fullName = `${data.firstName} ${data.lastName}`;
 
@@ -123,8 +268,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
     const result = await queries.createReservationIfAvailable({
       categoryId: data.categoryId,
       productId: data.productId,
+      productItems: pricing.items,
       startDate: data.startDate,
-      endDate: data.endDate,
+      endDate,
+      isIndefinite: data.isIndefinite,
       startTime: data.startTime,
       endTime: data.endTime,
       city: data.city || 'Nie podano',
@@ -143,11 +290,29 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       totalPrice,
+      discountCode: discount.source === 'coupon' && staffPricing?.discountAmount === undefined
+        ? discount.code
+        : null,
+      discountLabel,
+      discountAmount,
+      priceOverrideNote: staffPricing?.priceOverride !== undefined ? staffPricing.note : '',
+      priceSetBy: staffPricing ? staffPricing.setBy : '',
       ipAddress: getClientIp(req),
     });
 
+    if (result.couponError) {
+      res.status(409).json({
+        success: false,
+        message: result.couponError,
+        errors: [{ field: 'couponCode', message: result.couponError }],
+      });
+      return;
+    }
+
     if (result.conflicts) {
-      const conflictInfo = result.conflicts.map((c: any) => `${c.start_date} - ${c.end_date}`).join(', ');
+      const conflictInfo = result.conflicts
+        .map((c: any) => `${getProductName(c.product_id)}: ${c.start_date} - ${c.end_date || 'bezterminowo'}`)
+        .join(', ');
       res.status(409).json({
         success: false,
         message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
@@ -158,12 +323,14 @@ router.post('/reservations', async (req: Request, res: Response) => {
 
     const emailData = {
       ...data,
+      productIds,
+      endDate: endDate || 'bezterminowo',
       name: fullName,
       days,
       basePrice,
       deliveryFee,
       totalPrice,
-      productName: product.name,
+      productName: pricing.items.map((item) => item.productName).join(', '),
       startTime: data.startTime,
       endTime: data.endTime,
     };
@@ -182,6 +349,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
           {
             id: Number(result.lastInsertRowid),
             product_id: data.productId,
+            items: pricing.items.map((item) => ({ product_id: item.productId })),
             email: data.email,
             total_price: totalPrice,
           },
@@ -202,7 +370,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
       id: result.lastInsertRowid,
       payment,
       summary: {
-        productName: product.name,
+        productName: pricing.items.map((item) => item.productName).join(', '),
+        items: pricing.items,
         days,
         basePrice,
         deliveryFee,
@@ -240,7 +409,7 @@ router.get('/reservations/check-availability', async (req: Request, res: Respons
       return;
     }
 
-    const conflicts = await queries.checkDateAvailability({
+    const availability = await queries.checkDateAvailability({
       productId: productId as string,
       startDate: startDate as string,
       endDate: endDate as string,
@@ -248,8 +417,10 @@ router.get('/reservations/check-availability', async (req: Request, res: Respons
 
     res.json({
       success: true,
-      available: conflicts.length === 0,
-      conflicts: conflicts.map((c: any) => ({
+      available: availability.available,
+      rentableQuantity: availability.rentableQuantity,
+      reservedQuantity: availability.reservedQuantity,
+      conflicts: availability.conflicts.map((c: any) => ({
         startDate: c.start_date,
         endDate: c.end_date,
         status: c.status,
@@ -268,17 +439,25 @@ router.get('/reservations/check-availability', async (req: Request, res: Respons
 router.get('/reservations/product/:productId', async (req: Request, res: Response) => {
   try {
     const productId = req.params.productId as string;
-    const reservations = await queries.getReservationsByProduct(productId);
-
-    const blockedDates = reservations.map((r: any) => ({
-      startDate: r.start_date,
-      endDate: r.end_date,
-      status: r.status,
-    }));
+    const [product, reservations] = await Promise.all([
+      queries.getProductById(productId),
+      queries.getReservationsByProduct(productId),
+    ]);
+    const rentableQuantity = product && product.is_active
+      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity), 0)
+      : 0;
+    const blockedDates = calculateFullyBookedRanges(
+      reservations.map((reservation: any) => ({
+        startDate: String(reservation.start_date),
+        endDate: reservation.end_date ? String(reservation.end_date) : null,
+      })),
+      rentableQuantity
+    );
 
     res.json({
       success: true,
       productId,
+      rentableQuantity,
       blockedDates,
     });
   } catch (error) {
@@ -538,10 +717,19 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
     res.json({
       success: true,
       email,
-      data: reservations.map((r: any) => ({
-        ...r,
-        productName: products[r.product_id]?.name || r.product_id,
-      })),
+      data: reservations.map((r: any) => {
+        const items = Array.isArray(r.items) && r.items.length > 0
+          ? r.items.map((item: any) => ({
+              ...item,
+              productName: getProductName(String(item.product_id)),
+            }))
+          : [{ product_id: r.product_id, productName: getProductName(r.product_id) }];
+        return {
+          ...r,
+          items,
+          productName: items.map((item: any) => item.productName).join(', '),
+        };
+      }),
     });
   } catch (error) {
     console.error('My reservations error:', error);

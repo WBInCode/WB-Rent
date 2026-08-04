@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { Navbar } from '@/components/Navbar';
 import { Hero } from '@/sections/Hero';
 import { ReservationProvider } from '@/context/ReservationContext';
@@ -7,11 +7,14 @@ import { AnimatedBackground } from '@/components/AnimatedBackground';
 
 // Lazy load sections below the fold
 const Categories = lazy(() => import('@/sections/Categories').then(m => ({ default: m.Categories })));
-const Products = lazy(() => import('@/sections/Products').then(m => ({ default: m.Products })));
-const HowItWorks = lazy(() => import('@/sections/HowItWorks').then(m => ({ default: m.HowItWorks })));
-const Reservation = lazy(() => import('@/sections/Reservation').then(m => ({ default: m.Reservation })));
-const FAQContact = lazy(() => import('@/sections/FAQContact').then(m => ({ default: m.FAQContact })));
+const EquipmentShowcase = lazy(() => import('@/sections/EquipmentShowcase').then(m => ({ default: m.EquipmentShowcase })));
+const HomeHighlights = lazy(() => import('@/sections/HomeHighlights').then(m => ({ default: m.HomeHighlights })));
 const Footer = lazy(() => import('@/sections/Footer').then(m => ({ default: m.Footer })));
+
+// Lazy load public subpages
+const EquipmentPage = lazy(() => import('@/pages/EquipmentPage'));
+const ReservationPage = lazy(() => import('@/pages/ReservationPage'));
+const HowItWorksPage = lazy(() => import('@/pages/HowItWorksPage'));
 
 // Lazy load admin panel
 const AdminPanel = lazy(() => import('@/pages/AdminPanel').then(m => ({ default: m.AdminPanel })));
@@ -36,15 +39,15 @@ const ContactPage = lazy(() => import('@/pages/ContactPage'));
 const SectionLoader = () => (
   <div className="py-20 max-w-7xl mx-auto px-4 md:px-6 lg:px-8" aria-hidden="true">
     <div className="animate-pulse space-y-6">
-      <div className="h-4 w-32 rounded-full bg-white/5" />
-      <div className="h-9 w-2/5 max-w-md rounded-xl bg-white/10" />
-      <div className="h-4 w-3/5 max-w-xl rounded-full bg-white/5" />
+      <div className="h-4 w-32 rounded-full bg-surface-soft" />
+      <div className="h-9 w-2/5 max-w-md rounded-xl bg-surface-strong" />
+      <div className="h-4 w-3/5 max-w-xl rounded-full bg-surface-soft" />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-2xl border border-white/5 bg-white/[0.03] p-5 space-y-4">
-            <div className="h-36 rounded-xl bg-white/5" />
-            <div className="h-5 w-3/4 rounded-full bg-white/10" />
-            <div className="h-4 w-1/2 rounded-full bg-white/5" />
+          <div key={i} className="rounded-2xl border border-border bg-surface-soft p-5 space-y-4">
+            <div className="h-36 rounded-xl bg-surface-soft" />
+            <div className="h-5 w-3/4 rounded-full bg-surface-strong" />
+            <div className="h-4 w-1/2 rounded-full bg-surface-soft" />
           </div>
         ))}
       </div>
@@ -52,56 +55,67 @@ const SectionLoader = () => (
   </div>
 );
 
+// Legacy one-page anchors still live in e-mails, the sitemap and search results.
+// Map them onto the new subpages so no existing link breaks.
+const LEGACY_ANCHORS: Record<string, string> = {
+  '#produkty': '/sprzet',
+  '#kategorie': '/sprzet',
+  '#rezerwacja': '/rezerwacja',
+  '#jak-to-dziala': '/jak-to-dziala',
+  '#faq': '/jak-to-dziala',
+};
+
+function useLegacyAnchorRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const target = LEGACY_ANCHORS[location.hash];
+    if (target) navigate(target, { replace: true });
+  }, [location.hash, navigate]);
+}
+
 // Main website layout
 function MainSite() {
+  useLegacyAnchorRedirect();
+
   return (
-    <ReservationProvider>
-      <div className="min-h-screen bg-transparent relative">
-        {/* Content wrapper - above background */}
-        <div className="relative" style={{ zIndex: 1 }}>
-          {/* Skip to main content link for keyboard users */}
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
-          >
-            Przejdź do treści głównej
-          </a>
+    <div className="min-h-screen bg-transparent relative">
+      {/* Content wrapper - above background */}
+      <div className="relative" style={{ zIndex: 1 }}>
+        {/* Skip to main content link for keyboard users */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gold focus:text-bg-primary focus:rounded-lg focus:font-medium"
+        >
+          Przejdź do treści głównej
+        </a>
 
-          <Navbar />
-      
-      <main id="main-content" role="main">
-        {/* Hero Section - not lazy, above the fold */}
-        <Hero />
+        <Navbar />
 
-        {/* Lazy loaded sections */}
+        <main id="main-content" role="main">
+          {/* Hero Section - not lazy, above the fold */}
+          <Hero />
+
+          <Suspense fallback={<SectionLoader />}>
+            <EquipmentShowcase />
+          </Suspense>
+
+          <Suspense fallback={<SectionLoader />}>
+            <Categories />
+          </Suspense>
+
+          <Suspense fallback={<SectionLoader />}>
+            <HomeHighlights />
+          </Suspense>
+        </main>
+
+        {/* Footer */}
         <Suspense fallback={<SectionLoader />}>
-          <Categories />
+          <Footer />
         </Suspense>
-
-        <Suspense fallback={<SectionLoader />}>
-          <Products />
-        </Suspense>
-
-        <Suspense fallback={<SectionLoader />}>
-          <HowItWorks />
-        </Suspense>
-
-        <Suspense fallback={<SectionLoader />}>
-          <Reservation />
-        </Suspense>
-
-        <Suspense fallback={<SectionLoader />}>
-          <FAQContact />
-        </Suspense>
-      </main>
-
-      {/* Footer */}
-      <Suspense fallback={<SectionLoader />}>
-        <Footer />
-      </Suspense>
-        </div>
       </div>
-    </ReservationProvider>
+    </div>
   );
 }
 
@@ -110,22 +124,29 @@ function App() {
     <BrowserRouter>
       {/* Global Animated Background - visible on all pages except admin */}
       <AnimatedBackground />
-      <Suspense fallback={<SectionLoader />}>
-        <Routes>
-          <Route path="/" element={<MainSite />} />
-          <Route path="/produkt/:id" element={<ProductPage />} />
-          <Route path="/regulamin" element={<RegulaminPage />} />
-          <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
-          <Route path="/rodo" element={<RodoPage />} />
-          <Route path="/platnosc" element={<PaymentReturnPage />} />
-          <Route path="/moje-rezerwacje" element={<MyReservationsPage />} />
-          <Route path="/kontakt" element={<ContactPage />} />
-          <Route path="/podpis/:token" element={<ContractSigningPage />} />
-          <Route path="/admin/nowy-wynajem" element={<StaffRentalPage />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </Suspense>
+      {/* Above the router: a selection made in the calculator or on a product
+          page must survive the navigation to /rezerwacja. */}
+      <ReservationProvider>
+        <Suspense fallback={<SectionLoader />}>
+          <Routes>
+            <Route path="/" element={<MainSite />} />
+            <Route path="/sprzet" element={<EquipmentPage />} />
+            <Route path="/rezerwacja" element={<ReservationPage />} />
+            <Route path="/jak-to-dziala" element={<HowItWorksPage />} />
+            <Route path="/produkt/:id" element={<ProductPage />} />
+            <Route path="/regulamin" element={<RegulaminPage />} />
+            <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
+            <Route path="/rodo" element={<RodoPage />} />
+            <Route path="/platnosc" element={<PaymentReturnPage />} />
+            <Route path="/moje-rezerwacje" element={<MyReservationsPage />} />
+            <Route path="/kontakt" element={<ContactPage />} />
+            <Route path="/podpis/:token" element={<ContractSigningPage />} />
+            <Route path="/admin/nowy-wynajem" element={<StaffRentalPage />} />
+            <Route path="/admin" element={<AdminPanel />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </Suspense>
+      </ReservationProvider>
     </BrowserRouter>
   );
 }
