@@ -119,9 +119,9 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 text-text-primary">
         <p className="text-sm font-semibold">{title}</p>
-        <button type="button" onClick={onClose} aria-label="Zamknij aparat" className="rounded-lg p-2 hover:bg-white/10">
+        <button type="button" onClick={onClose} aria-label="Zamknij aparat" className="rounded-lg p-2 hover:bg-surface-strong">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -129,7 +129,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
       <div className="relative flex-1 overflow-hidden">
         <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
         {error && (
-          <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-lg bg-black/80 p-4 text-center text-sm text-white">
+          <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-lg bg-black/80 p-4 text-center text-sm text-text-primary">
             {error}
           </p>
         )}
@@ -140,7 +140,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
           type="button"
           onClick={() => setFacing((current) => (current === 'environment' ? 'user' : 'environment'))}
           aria-label="Przełącz aparat"
-          className="rounded-full border border-white/25 p-3 text-white hover:bg-white/10"
+          className="rounded-full border border-border-hover p-3 text-text-primary hover:bg-surface-strong"
         >
           <SwitchCamera className="h-5 w-5" />
         </button>
@@ -149,7 +149,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
           onClick={() => void shoot()}
           disabled={!ready}
           aria-label="Zrób zdjęcie"
-          className="h-16 w-16 rounded-full border-4 border-white bg-white/20 transition-transform active:scale-95 disabled:opacity-40"
+          className="h-16 w-16 rounded-full border-4 border-white bg-surface-strong transition-transform active:scale-95 disabled:opacity-40"
         />
         <span className="w-11" />
       </div>
@@ -240,7 +240,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
     const phasePhotos = photos.filter((photo) => photo.phase === phase);
 
     return (
-      <div className="rounded-[--radius-sm] border border-white/10 bg-white/[0.02] p-4">
+      <div className="rounded-[--radius-sm] border border-border bg-surface-soft p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-text-primary">{PHASE_LABEL[phase]}</p>
@@ -263,7 +263,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={uploading !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-white/5 disabled:opacity-40"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-border-hover px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-soft disabled:opacity-40"
             >
               <ImagePlus className="h-4 w-4" />
               Z galerii
@@ -287,7 +287,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
         {phasePhotos.length > 0 && (
           <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
             {phasePhotos.map((photo) => (
-              <li key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-black/30">
+              <li key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-black/30">
                 {previews[photo.id] ? (
                   <img
                     src={previews[photo.id]}
@@ -303,7 +303,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
                   type="button"
                   onClick={() => void remove(photo)}
                   aria-label={`Usuń zdjęcie ${photo.id}`}
-                  className="absolute right-1 top-1 rounded-md bg-black/70 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  className="absolute right-1 top-1 rounded-md bg-black/70 p-1.5 text-text-primary opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

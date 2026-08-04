@@ -149,6 +149,53 @@ test('motyw jasny/ciemny: przełącza się, utrwala i nie miga przy starcie', as
   expect(card).toBe(switched === 'light' ? '#ffffff' : '#1a1a1a');
 });
 
+test('panel admina: przełącznik motywu realnie przemalowuje panel', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('wb-rent-admin-token', 'mock-admin-token');
+    localStorage.setItem('wb-rent-admin-token-exp', String(Date.now() + 60 * 60 * 1000));
+    localStorage.setItem('wb-rent-theme', 'dark');
+  });
+  await page.route('**/api/admin/**', (route) => {
+    if (new URL(route.request().url()).pathname.endsWith('/stats')) {
+      route.fulfill({ json: {
+        success: true,
+        data: {
+          reservations: { total: 0, pending: 0, confirmed: 0, picked_up: 0, returned: 0, completed: 0, rejected: 0 },
+          contacts: { total: 0, new: 0 },
+          revenue: { today: 0, month: 0, total: 0, pending: 0 },
+        },
+      } });
+      return;
+    }
+    route.fulfill({ json: { success: true, data: [] } });
+  });
+
+  await page.goto('/admin');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+  const naglowek = page.locator('header').first();
+  const sidebar = page.locator('aside').first();
+  const tloNaglowka = () => naglowek.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const tloSidebara = () => sidebar.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  const naglowekCiemny = await tloNaglowka();
+  const sidebarCiemny = await tloSidebara();
+
+  await page.getByRole('switch', { name: /motyw jasny/i }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+  // Panel byl zakodowany na sztywno na ciemno - bez tokenow te wartosci byly identyczne.
+  expect(await tloNaglowka()).not.toBe(naglowekCiemny);
+  expect(await tloSidebara()).not.toBe(sidebarCiemny);
+
+  // Tekst musi pozostac czytelny, a nie bialy na bialym.
+  const kolorTekstu = await page.locator('h1').first().evaluate((el) => getComputedStyle(el).color);
+  expect(kolorTekstu).not.toBe('rgb(255, 255, 255)');
+
+  // Wybor jest wspolny ze strona publiczna.
+  expect(await page.evaluate(() => localStorage.getItem('wb-rent-theme'))).toBe('light');
+});
+
 test('strona produktu pokazuje cennik i JSON-LD', async ({ page }) => {
   await page.goto('/produkt/puzzi-10-1');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Puzzi 10/1');

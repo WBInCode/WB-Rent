@@ -105,8 +105,8 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010]">
-        <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+        <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-text-primary">Rabaty automatyczne</h3>
             <p className="text-xs text-text-muted mt-0.5">
@@ -130,7 +130,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
         )}
 
         {!loading && discounts.length > 0 && (
-          <ul className="divide-y divide-white/10">
+          <ul className="divide-y divide-border">
             {discounts.map((discount) => (
               <li key={discount.id} className="p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center gap-3">
                 <div className="flex-1 min-w-0">
@@ -140,7 +140,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                       -{formatValue(discount.discount_type, Number(discount.value))}
                     </span>
                     {!discount.is_active && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/[0.06] text-text-muted border border-white/10">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-strong text-text-muted border border-border">
                         wyłączony
                       </span>
                     )}
@@ -166,7 +166,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                     onClick={() => openEdit(discount)}
                     title="Edytuj"
                     aria-label={`Edytuj rabat ${discount.name}`}
-                    className="p-2 rounded-md text-text-muted hover:text-gold hover:bg-white/5"
+                    className="p-2 rounded-md text-text-muted hover:text-gold hover:bg-surface-soft"
                   >
                     <Pencil size={15} />
                   </button>
@@ -175,7 +175,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                     onClick={() => void remove(discount)}
                     title="Usuń"
                     aria-label={`Usuń rabat ${discount.name}`}
-                    className="p-2 rounded-md text-text-muted hover:text-red-400 hover:bg-white/5"
+                    className="p-2 rounded-md text-text-muted hover:text-red-400 hover:bg-surface-soft"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -188,15 +188,15 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-[#101010] border-white/10">
-            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-white/10 bg-[#141414] flex items-center justify-between">
+          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-secondary border-border">
+            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-center justify-between">
               <h3 className="text-lg font-semibold text-text-primary">
                 {editingId ? 'Edytuj rabat' : 'Nowy rabat'}
               </h3>
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5"
+                className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft"
                 aria-label="Zamknij"
               >
                 <X size={16} />
@@ -298,12 +298,12 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                 placeholder="Widoczny tylko w panelu"
               />
 
-              <label className="flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
+              <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.isActive}
                   onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
-                  className="mt-1 accent-[#d4a853]"
+                  className="mt-1 accent-gold"
                 />
                 <span className="text-sm text-text-secondary">
                   Rabat aktywny — naliczany automatycznie przy spełnieniu warunków.
@@ -311,7 +311,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
               </label>
             </div>
 
-            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-white/10 bg-[#141414] flex justify-end gap-2">
+            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setModalOpen(false)}>Anuluj</Button>
               <Button variant="primary" onClick={() => void submit()} disabled={saving}>
                 {saving ? 'Zapisywanie…' : 'Zapisz rabat'}

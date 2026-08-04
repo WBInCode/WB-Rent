@@ -46,6 +46,7 @@ import DocumentsPanel from '@/components/DocumentsPanel';
 import DiscountsPanel from '@/components/DiscountsPanel';
 import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
+import ThemeToggle from '@/components/ThemeToggle';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import {
   BarChart,
@@ -900,9 +901,9 @@ export function AdminPanel() {
   // Login form
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-[#090909] flex items-center justify-center p-4 sm:p-6">
-        <div className="w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-[--radius-sm] overflow-hidden border border-white/10 shadow-2xl bg-[#101010]">
-          <div className="relative p-8 sm:p-10 bg-[#0d0d0d] border-b md:border-b-0 md:border-r border-white/10 overflow-hidden">
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-[--radius-sm] overflow-hidden border border-border shadow-2xl bg-bg-secondary">
+          <div className="relative p-8 sm:p-10 bg-bg-primary border-b md:border-b-0 md:border-r border-border overflow-hidden">
             <div className="absolute -right-20 -bottom-20 w-64 h-64 rounded-full bg-gold/10 blur-3xl" aria-hidden="true" />
             <img src="/logo.png" alt="WB-Rent" className="h-14 w-auto relative" />
             <div className="relative mt-12">
@@ -949,7 +950,7 @@ export function AdminPanel() {
 
   // Admin dashboard
   return (
-    <div className="min-h-screen bg-[#090909] text-text-primary">
+    <div className="min-h-screen bg-bg-primary text-text-primary">
       {sidebarOpen && (
         <button
           type="button"
@@ -959,16 +960,16 @@ export function AdminPanel() {
         />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[258px] bg-[#0d0d0d] border-r border-white/10 flex flex-col transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="h-[82px] px-5 border-b border-white/10 flex items-center justify-between">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[258px] bg-bg-primary border-r border-border flex flex-col transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-[82px] px-5 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="WB-Rent" className="h-10 w-auto" />
-            <div className="border-l border-white/15 pl-3">
-              <p className="text-xs font-semibold text-white">Panel</p>
+            <div className="border-l border-border-hover pl-3">
+              <p className="text-xs font-semibold text-text-primary">Panel</p>
               <p className="text-[10px] text-text-muted uppercase tracking-wider">Operacyjny</p>
             </div>
           </div>
-          <button type="button" className="lg:hidden p-2 text-text-muted hover:text-white" onClick={() => setSidebarOpen(false)} aria-label="Zamknij menu">
+          <button type="button" className="lg:hidden p-2 text-text-muted hover:text-text-primary" onClick={() => setSidebarOpen(false)} aria-label="Zamknij menu">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -993,13 +994,13 @@ export function AdminPanel() {
                       type="button"
                       onClick={() => selectTab(item.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                        active ? 'bg-gold/12 text-gold border border-gold/20' : 'text-text-secondary border border-transparent hover:text-white hover:bg-white/[0.04]'
+                        active ? 'bg-gold/12 text-gold border border-gold/20' : 'text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-soft'
                       }`}
                     >
                       <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
                       <span className="font-medium">{item.label}</span>
                       {item.badge !== undefined && (
-                        <span className={`ml-auto min-w-5 h-5 px-1.5 rounded-md text-[10px] font-bold flex items-center justify-center ${active ? 'bg-gold text-black' : 'bg-white/[0.07] text-text-muted'}`}>
+                        <span className={`ml-auto min-w-5 h-5 px-1.5 rounded-md text-[10px] font-bold flex items-center justify-center ${active ? 'bg-gold text-black' : 'bg-surface-strong text-text-muted'}`}>
                           {item.badge}
                         </span>
                       )}
@@ -1012,8 +1013,8 @@ export function AdminPanel() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-white/10">
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.025]">
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-surface-soft">
             <div className="w-8 h-8 rounded-lg bg-green-500/10 text-green-400 flex items-center justify-center">
               <ShieldCheck className="w-4 h-4" />
             </div>
@@ -1026,7 +1027,7 @@ export function AdminPanel() {
       </aside>
 
       <div className="min-h-screen lg:pl-[258px]">
-        <header className="sticky top-0 z-30 h-[82px] bg-[#0b0b0b]/95 backdrop-blur-xl border-b border-white/10">
+        <header className="sticky top-0 z-30 h-[82px] bg-bg-primary/95 backdrop-blur-xl border-b border-border">
           <div className="h-full px-4 sm:px-6 xl:px-8 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <button type="button" className="lg:hidden p-2 rounded-lg border border-border text-text-secondary" onClick={() => setSidebarOpen(true)} aria-label="Otwórz menu">
@@ -1039,6 +1040,7 @@ export function AdminPanel() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2">
+              <ThemeToggle />
               <Button variant="ghost" size="sm" onClick={loadData} disabled={loading} aria-label="Odśwież dane">
                 <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Odśwież</span>
@@ -1053,7 +1055,7 @@ export function AdminPanel() {
 
         <main className="px-4 sm:px-6 xl:px-8 py-6 xl:py-8 max-w-[1600px] mx-auto">
           {stats && activeTab !== 'products' && (
-            <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden mb-7 divide-x divide-y xl:divide-y-0 divide-white/10">
+            <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden mb-7 divide-x divide-y xl:divide-y-0 divide-border">
               <Metric icon={<Calendar className="w-5 h-5" />} label="Wszystkie rezerwacje" value={stats.reservations.total} tone="gold" />
               <Metric icon={<Clock className="w-5 h-5" />} label="Wymagają decyzji" value={stats.reservations.pending} tone="amber" />
               <Metric icon={<DollarSign className="w-5 h-5" />} label="Przychód dzisiaj" value={`${stats.revenue.today} zł`} tone="green" />
@@ -1065,7 +1067,7 @@ export function AdminPanel() {
         {activeTab === 'reservations' && (
           <div className="space-y-4">
             {/* Filter */}
-            <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-x-auto">
+            <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-x-auto">
               <div className="flex gap-1.5 items-center min-w-max">
               {['all', 'pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected'].map((status) => (
                 <Button
@@ -1089,7 +1091,7 @@ export function AdminPanel() {
                 </Button>
               ))}
               </div>
-              <div className="ml-auto shrink-0 pl-2 border-l border-white/10">
+              <div className="ml-auto shrink-0 pl-2 border-l border-border">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1133,7 +1135,7 @@ export function AdminPanel() {
                   return true;
                 })
                 .map((reservation) => (
-                <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-white/10 bg-[#101010]">
+                <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-border bg-bg-secondary">
                   <div className="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
                     {/* Main info */}
                     <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
@@ -1192,7 +1194,7 @@ export function AdminPanel() {
                           <p className="text-sm font-semibold text-gold">Zestaw {reservationItems(reservation).length} urządzeń</p>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             {reservationItems(reservation).map((item) => (
-                              <span key={item.product_id} className="px-2 py-1 rounded-[--radius-sm] bg-white/[0.04] border border-white/[0.08] text-[11px] text-text-secondary">
+                              <span key={item.product_id} className="px-2 py-1 rounded-[--radius-sm] bg-surface-soft border border-border text-[11px] text-text-secondary">
                                 {PRODUCT_NAMES[item.product_id] || item.product_id}
                               </span>
                             ))}
@@ -1214,7 +1216,7 @@ export function AdminPanel() {
                     </div>
 
                     {/* Price & actions */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 xl:pl-4 xl:border-l xl:border-white/10">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 xl:pl-4 xl:border-l xl:border-border">
                       <div className="sm:text-right min-w-[110px]">
                         <p className="text-xl sm:text-2xl font-bold text-gold">{reservation.total_price} zł</p>
                         <p className="text-xs text-text-muted">
@@ -1382,7 +1384,7 @@ export function AdminPanel() {
                         <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
                       </div>
                       {reservationItems(reservation).length > 1 && (
-                        <div className="md:col-span-2 p-4 bg-white/[0.025] border border-white/[0.08] rounded-[--radius-sm]">
+                        <div className="md:col-span-2 p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
                           <p className="text-text-muted mb-3">Pozycje na umowie:</p>
                           <div className="space-y-2">
                             {reservationItems(reservation).map((item, index) => (
@@ -1582,7 +1584,7 @@ export function AdminPanel() {
         {/* Revenue Tab */}
         {activeTab === 'revenue' && (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 xl:grid-cols-4 border border-white/10 rounded-[--radius-sm] overflow-hidden bg-[#101010] divide-x divide-y xl:divide-y-0 divide-white/10">
+            <div className="grid grid-cols-2 xl:grid-cols-4 border border-border rounded-[--radius-sm] overflow-hidden bg-bg-secondary divide-x divide-y xl:divide-y-0 divide-border">
               <RevenueMetric icon={<DollarSign className="w-5 h-5" />} label="Dzisiaj" value={revenueData?.today || 0} tone="green" />
               <RevenueMetric icon={<Calendar className="w-5 h-5" />} label="Ten miesiąc" value={revenueData?.month || 0} tone="blue" />
               <RevenueMetric icon={<TrendingUp className="w-5 h-5" />} label="Całkowity przychód" value={revenueData?.total || 0} tone="gold" />
@@ -1593,7 +1595,7 @@ export function AdminPanel() {
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 min-w-0">
               {/* Area Chart - Revenue */}
               <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
-                <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
+                <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-green-500/20">
                     <TrendingUp className="w-5 h-5 text-green-400" />
                   </div>
@@ -1686,7 +1688,7 @@ export function AdminPanel() {
               
               {/* Bar Chart - Reservations */}
               <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
-                <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
+                <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-amber-500/20">
                     <Package className="w-5 h-5 text-amber-400" />
                   </div>
@@ -1774,7 +1776,7 @@ export function AdminPanel() {
             </div>
 
             <Card variant="glass" className="p-6 relative overflow-hidden">
-              <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-3">
+              <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                 <div className="p-2 rounded-[--radius-sm] bg-gold/10">
                   <Calendar className="w-5 h-5 text-gold" />
                 </div>
@@ -1785,12 +1787,12 @@ export function AdminPanel() {
                   {revenueData.byMonth.map((item, index) => (
                     <div 
                       key={item.month} 
-                      className="relative p-5 bg-white/[0.025] rounded-[--radius-sm] border border-white/10 hover:border-gold/25 transition-colors"
+                      className="relative p-5 bg-surface-soft rounded-[--radius-sm] border border-border hover:border-gold/25 transition-colors"
                     >
-                      <div className="absolute top-3 right-3 w-8 h-8 rounded-[--radius-sm] bg-white/5 flex items-center justify-center text-xs text-text-muted font-bold">
+                      <div className="absolute top-3 right-3 w-8 h-8 rounded-[--radius-sm] bg-surface-soft flex items-center justify-center text-xs text-text-muted font-bold">
                         {index + 1}
                       </div>
-                      <p className="font-semibold text-white text-lg capitalize mb-1">
+                      <p className="font-semibold text-text-primary text-lg capitalize mb-1">
                         {new Date(item.month + '-01').toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' })}
                       </p>
                       <p className="text-sm text-text-muted mb-4 flex items-center gap-1">
@@ -2481,7 +2483,7 @@ export function AdminPanel() {
 
               {!statusHistoryOnly && <>
               <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-3 items-end mb-6">
-                <div className="p-4 rounded-[--radius-sm] bg-white/[0.025] border border-white/10">
+                <div className="p-4 rounded-[--radius-sm] bg-surface-soft border border-border">
                   <p className="text-[11px] uppercase text-text-muted mb-2">Obecny status</p>
                   <Badge variant={STATUS_COLORS[statusFor.status] || 'default'}>
                     {STATUS_LABELS[statusFor.status] || statusFor.status}
@@ -2543,7 +2545,7 @@ export function AdminPanel() {
               </div>
 
               {CUSTOMER_STATUS_EMAILS.includes(statusForm.targetStatus) && (
-                <label className={`mt-5 flex items-center justify-between gap-4 p-4 rounded-[--radius-sm] border cursor-pointer ${statusForm.notifyCustomer ? 'border-gold/40 bg-gold/[0.06]' : 'border-white/10 bg-white/[0.02]'}`}>
+                <label className={`mt-5 flex items-center justify-between gap-4 p-4 rounded-[--radius-sm] border cursor-pointer ${statusForm.notifyCustomer ? 'border-gold/40 bg-gold/[0.06]' : 'border-border bg-surface-soft'}`}>
                   <span>
                     <span className="block text-sm font-semibold">Powiadom klienta e-mailem</span>
                     <span className="block text-xs text-text-muted mt-1">Wyśle wiadomość odpowiadającą nowemu statusowi.</span>
@@ -2560,17 +2562,17 @@ export function AdminPanel() {
               </>}
 
               {(statusHistoryOnly || statusHistory.length > 0) && (
-                <div className="mt-6 pt-5 border-t border-white/10">
+                <div className="mt-6 pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
                     <History className="w-4 h-4 text-gold" /> Ostatnie zmiany statusu
                   </h3>
                   {statusHistory.length === 0 ? (
-                    <div className="p-5 rounded-[--radius-sm] border border-dashed border-white/10 text-sm text-text-muted text-center">
+                    <div className="p-5 rounded-[--radius-sm] border border-dashed border-border text-sm text-text-muted text-center">
                       Brak zapisanych zmian statusu.
                     </div>
                   ) : <div className="space-y-2">
                     {statusHistory.slice(0, 5).map((change) => (
-                      <div key={change.id} className="p-3 rounded-[--radius-sm] bg-white/[0.025] border border-white/[0.06] text-xs">
+                      <div key={change.id} className="p-3 rounded-[--radius-sm] bg-surface-soft border border-border text-xs">
                         <div className="flex flex-wrap justify-between gap-2">
                           <span className="font-medium">
                             {STATUS_LABELS[change.previous_status] || change.previous_status}
@@ -2620,15 +2622,15 @@ export function AdminPanel() {
                 </Button>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-px rounded-lg overflow-hidden border border-white/10 bg-white/10 mb-6">
-                <div className="bg-[#111] p-4">
+              <div className="grid sm:grid-cols-2 gap-px rounded-lg overflow-hidden border border-border bg-surface-strong mb-6">
+                <div className="bg-bg-secondary p-4">
                   <p className="text-[11px] uppercase text-text-muted">Obecny termin</p>
                   <p className="font-semibold mt-1 flex items-center gap-2">
                     {termFor.is_indefinite ? <InfinityIcon className="w-4 h-4 text-gold" /> : <Calendar className="w-4 h-4 text-gold" />}
                     {termFor.is_indefinite ? 'Bezterminowo' : `${termFor.end_date} ${termFor.end_time || '09:00'}`}
                   </p>
                 </div>
-                <div className="bg-[#111] p-4">
+                <div className="bg-bg-secondary p-4">
                   <p className="text-[11px] uppercase text-text-muted">Bieżąca wartość</p>
                   <p className="font-semibold text-gold mt-1">{Number(termFor.total_price).toFixed(2)} zł</p>
                 </div>
@@ -2694,13 +2696,13 @@ export function AdminPanel() {
               </div>
 
               {termHistory.length > 0 && (
-                <div className="mt-6 pt-5 border-t border-white/10">
+                <div className="mt-6 pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
                     <History className="w-4 h-4 text-gold" /> Historia zmian
                   </h3>
                   <div className="space-y-2">
                     {termHistory.map((change) => (
-                      <div key={change.id} className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs">
+                      <div key={change.id} className="p-3 rounded-lg bg-surface-soft border border-border text-xs">
                         <div className="flex flex-wrap justify-between gap-2">
                           <span className="font-medium">
                             {change.previous_is_indefinite ? 'bezterminowo' : change.previous_end_date}

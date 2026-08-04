@@ -17,7 +17,7 @@ interface CouponsPanelProps {
 const STATUS_STYLES: Record<AdminCoupon['status'], string> = {
   active: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
   used: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
-  cancelled: 'bg-white/[0.06] border-white/10 text-text-muted',
+  cancelled: 'bg-surface-strong border-border text-text-muted',
 };
 
 const STATUS_LABEL: Record<AdminCoupon['status'], string> = {
@@ -116,15 +116,15 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden divide-x divide-y xl:divide-y-0 divide-white/10">
+      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
         <Metric label="Wszystkich" value={stats.total} />
         <Metric label="Aktywnych" value={stats.active} tone="text-emerald-300" />
         <Metric label="Wykorzystanych" value={stats.used} tone="text-sky-300" />
         <Metric label="Anulowanych" value={stats.cancelled} tone="text-text-muted" />
       </div>
 
-      <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010]">
-        <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+        <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-text-primary">Kupony rabatowe</h3>
             <p className="text-xs text-text-muted mt-0.5">
@@ -163,7 +163,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
         )}
 
         {!loading && coupons.length > 0 && (
-          <ul className="divide-y divide-white/10">
+          <ul className="divide-y divide-border">
             {coupons.map((coupon) => (
               <li key={coupon.id} className="p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center gap-3">
                 <div className="flex-1 min-w-0">
@@ -176,7 +176,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
                       {STATUS_LABEL[coupon.status]}
                     </span>
                     {coupon.email_sent_at && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/[0.06] text-text-muted border border-white/10">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-strong text-text-muted border border-border">
                         wysłany
                       </span>
                     )}
@@ -213,8 +213,8 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-[#101010] border-white/10">
-            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-white/10 bg-[#141414] flex items-center justify-between">
+          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-secondary border-border">
+            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-text-primary">Generuj kupon</h3>
                 <p className="text-xs text-text-muted mt-0.5">Kod powstaje losowo i jest jednorazowy.</p>
@@ -222,7 +222,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5"
+                className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft"
                 aria-label="Zamknij"
               >
                 <X size={16} />
@@ -298,12 +298,12 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
                 placeholder="Widoczna tylko w panelu"
               />
 
-              <label className="flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
+              <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.sendEmail}
                   onChange={(event) => setForm({ ...form, sendEmail: event.target.checked })}
-                  className="mt-1 accent-[#d4a853]"
+                  className="mt-1 accent-gold"
                 />
                 <span className="text-sm text-text-secondary">
                   Wyślij kupon mailem od razu po wygenerowaniu (z kuponem PDF w załączniku).
@@ -311,7 +311,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
               </label>
             </div>
 
-            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-white/10 bg-[#141414] flex justify-end gap-2">
+            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setModalOpen(false)}>Anuluj</Button>
               <Button variant="primary" onClick={() => void submit()} disabled={saving}>
                 {saving ? 'Generowanie…' : 'Generuj kupon'}
@@ -350,7 +350,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
     >
       {children}
     </button>
