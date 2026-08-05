@@ -325,12 +325,7 @@ describe('generator podpisanej umowy PDF', () => {
 
     const pdf = await generateContractPdf(
       snapshot,
-      {
-        renter: signature,
-        lessor: signature,
-        handoverRenter: signature,
-        handoverLessor: signature,
-      },
+      { renter: signature, lessor: signature },
       {
         signedAt: '2026-08-01T08:55:00.000Z',
         signedIp: '127.0.0.1',
@@ -369,11 +364,13 @@ describe('generator podpisanej umowy PDF', () => {
     // Wersja wzoru nie należy do treści umowy.
     expect(extracted).not.toContain('wersja wzoru');
 
-    // Załącznik nr 1 zaczyna się od nowej strony i ma własne podpisy.
-    const attachmentPage = pages.findIndex((page) => page.includes('ZAŁĄCZNIK NR 1'));
-    expect(attachmentPage).toBeGreaterThan(0);
-    expect(pages[attachmentPage]).toContain('Wydający Sprzęt');
-    expect(pages[attachmentPage]).toContain('Odbierający Sprzęt');
+    // Protokół wydania jest osobnym dokumentem podpisywanym przy ladzie — klient
+    // podpisujący zdalnie nie może potwierdzać odbioru sprzętu, którego nie ma.
+    expect(extracted).not.toContain('ZAŁĄCZNIK NR 1');
+    expect(extracted).not.toContain('Odbierający Sprzęt');
+
+    // Koszty stwierdzone przy zwrocie nie wymagają aneksu — to musi wynikać z umowy.
+    expect(extracted).toContain('nie wymaga zawarcia aneksu');
 
     // Klauzula RODO jest wpisana w treść umowy, a nie dołączana osobno.
     const rodo = snapshot.clauses.find((clause) => clause.number === '8');
@@ -386,7 +383,6 @@ describe('generator podpisanej umowy PDF', () => {
     expect(extracted).toContain('ERPIX');
     expect(extracted).toContain('SPRZĘT NIE JEST UBEZPIECZONY');
     expect(extracted).toContain('4 551,00 zł');
-    expect(extracted).toContain('Protokół wydania Sprzętu');
   });
 
   it('dołącza wyłącznie instrukcje obsługi wynajętych urządzeń', async () => {

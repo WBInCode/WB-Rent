@@ -249,8 +249,6 @@ export async function signContract(data: {
   token: string;
   renterSignatureDataUrl: string;
   lessorSignatureDataUrl: string;
-  handoverRenterSignatureDataUrl: string;
-  handoverLessorSignatureDataUrl: string;
   accepted: boolean;
   ip: string;
   userAgent: string;
@@ -264,8 +262,6 @@ export async function signContract(data: {
 
   const renterSignature = decodeSignature(data.renterSignatureDataUrl);
   const lessorSignature = decodeSignature(data.lessorSignatureDataUrl);
-  const handoverRenterSignature = decodeSignature(data.handoverRenterSignatureDataUrl);
-  const handoverLessorSignature = decodeSignature(data.handoverLessorSignatureDataUrl);
   const snapshot = parseSnapshot(contract.snapshot_encrypted);
   const signedAt = new Date().toISOString();
   const renterSignatureHash = sha256(renterSignature);
@@ -280,12 +276,7 @@ export async function signContract(data: {
   };
   const pdf = await generateContractPdf(
     snapshot,
-    {
-      renter: renterSignature,
-      lessor: lessorSignature,
-      handoverRenter: handoverRenterSignature,
-      handoverLessor: handoverLessorSignature,
-    },
+    { renter: renterSignature, lessor: lessorSignature },
     audit
   );
   const pdfHash = sha256(pdf);
@@ -303,10 +294,6 @@ export async function signContract(data: {
     renterSignatureHash,
     lessorSignatureEncrypted: encryptContractData(lessorSignature),
     lessorSignatureHash,
-    handoverRenterSignatureEncrypted: encryptContractData(handoverRenterSignature),
-    handoverRenterSignatureHash: sha256(handoverRenterSignature),
-    handoverLessorSignatureEncrypted: encryptContractData(handoverLessorSignature),
-    handoverLessorSignatureHash: sha256(handoverLessorSignature),
     signedName: snapshot.renter.name,
     signedIp: audit.signedIp,
     signedUserAgent: audit.signedUserAgent,

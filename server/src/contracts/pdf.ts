@@ -349,64 +349,9 @@ export function generateContractPdf(
       return;
     }
 
-    // === Załącznik nr 1 - always a separate page, signed on its own ===
-    if (snapshot.handoverItems?.length) {
-      doc.addPage();
-      resetX();
-      sectionHeading('ZAŁĄCZNIK NR 1 DO UMOWY NAJMU');
-      doc.font('NotoBold').fontSize(10).fillColor('#111')
-        .text('Protokół wydania Sprzętu', left, doc.y, { width: contentWidth, align: 'center' });
-      doc.font('Noto').fontSize(8.5).fillColor('#666')
-        .text(pl(`nr ${snapshot.contractNumber}`), left, doc.y, { width: contentWidth, align: 'center' });
-      doc.moveDown(0.8);
-      resetX();
-      body(
-        'Najemca potwierdza odbiór wymienionego niżej Sprzętu zgodnie z Umową, jego kompletność i sprawność ' +
-        'techniczną oraz zobowiązuje się do zwrotu w stanie nieuszkodzonym w terminie wskazanym w §1.'
-      );
-      doc.moveDown(0.5);
-      // "a) <device>:" opens a group; items are numbered within their own group.
-      const handoverItems = snapshot.handoverItems;
-      const grouped = handoverItems.some((item) => /^[a-z]\)/.test(item));
-      const itemIndent = grouped ? SUBLIST_INDENT : 0;
-      let itemNumber = 0;
-      handoverItems.forEach((item, index) => {
-        const group = /^([a-z]\))\s*(.*)$/s.exec(item);
-        if (group) {
-          itemNumber = 0;
-          // A group header alone at the bottom of a page tells the reader nothing.
-          const followers = handoverItems
-            .slice(index + 1, index + 3)
-            .map((line) => ({ marker: '1.', text: line, indent: itemIndent }));
-          ensureSpace(30 + pointHeight(followers));
-          doc.moveDown(0.35);
-          doc.font('NotoBold').fontSize(BODY_SIZE).fillColor('#111')
-            .text(`${group[1]} ${pl(group[2])}`, left, doc.y, { width: contentWidth });
-          resetX();
-          return;
-        }
-        itemNumber += 1;
-        hangingLine({ marker: `${itemNumber}.`, text: item, indent: itemIndent }, true);
-      });
-      doc.moveDown(0.8);
-      body(
-        'Najemca oświadcza, że otrzymał instrukcje obsługi wymienionych urządzeń oraz odbył szkolenie ' +
-        'z zakresu ich prawidłowej i bezpiecznej eksploatacji.'
-      );
-      doc.moveDown(0.9);
-      try {
-        signatureBlock(
-          `${snapshot.lessor.representative}\nWydający Sprzęt`,
-          signatures.handoverLessor || signatures.lessor,
-          snapshot.lessor.representative,
-          `${snapshot.renter.name}\nOdbierający Sprzęt`,
-          signatures.handoverRenter || signatures.renter
-        );
-      } catch (error) {
-        reject(error);
-        return;
-      }
-    }
+    // Protokół wydania (Załącznik nr 1) jest osobnym dokumentem podpisywanym
+    // dopiero przy wydaniu sprzętu. Klient podpisujący umowę zdalnie nie może
+    // potwierdzać odbioru czegoś, czego jeszcze nie dostał.
 
     // === Evidence metadata ===
     ensureSpace(150);

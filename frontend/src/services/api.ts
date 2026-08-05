@@ -415,9 +415,6 @@ export interface SignContractResponse {
 export interface ContractSignaturePayload {
   renterSignature: string;
   lessorSignature: string;
-  /** Second signing round under Załącznik nr 1 (protokół wydania). */
-  handoverRenterSignature: string;
-  handoverLessorSignature: string;
   accepted: boolean;
 }
 

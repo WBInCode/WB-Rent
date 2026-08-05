@@ -21,6 +21,7 @@ import {
 } from '@/services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const money = (value: number) => `${value.toFixed(2).replace('.', ',')} zł`;
 
 const polishDate = (value: string) => {
   const [year, month, day] = value.slice(0, 10).split('-');
@@ -36,14 +37,10 @@ export function ContractSigningPage() {
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
   const [hasLessorSignature, setHasLessorSignature] = useState(false);
   const [hasRenterSignature, setHasRenterSignature] = useState(false);
-  const [hasHandoverLessorSignature, setHasHandoverLessorSignature] = useState(false);
-  const [hasHandoverRenterSignature, setHasHandoverRenterSignature] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignContractResponse | null>(null);
   const lessorSignatureRef = useRef<SignatureFieldHandle>(null);
   const renterSignatureRef = useRef<SignatureFieldHandle>(null);
-  const handoverLessorSignatureRef = useRef<SignatureFieldHandle>(null);
-  const handoverRenterSignatureRef = useRef<SignatureFieldHandle>(null);
   const endMarkerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,20 +78,13 @@ export function ContractSigningPage() {
   }, [preview]);
 
   const handleSign = async () => {
-    const pads = [
-      lessorSignatureRef.current,
-      renterSignatureRef.current,
-      handoverLessorSignatureRef.current,
-      handoverRenterSignatureRef.current,
-    ];
+    const pads = [lessorSignatureRef.current, renterSignatureRef.current];
     if (pads.some((pad) => !pad || pad.isEmpty()) || !accepted || !hasReachedEnd) return;
     setSubmitting(true);
     setError('');
     const response = await submitContractSignature(token, {
       renterSignature: renterSignatureRef.current!.toDataURL(),
       lessorSignature: lessorSignatureRef.current!.toDataURL(),
-      handoverRenterSignature: handoverRenterSignatureRef.current!.toDataURL(),
-      handoverLessorSignature: handoverLessorSignatureRef.current!.toDataURL(),
       accepted: true,
     });
     if (response.success && response.data) {
@@ -107,10 +97,8 @@ export function ContractSigningPage() {
 
   const brakujaceKroki = [
     !hasReachedEnd && 'przewiń umowę do końca',
-    !hasLessorSignature && 'podpis Wynajmującego pod umową',
-    !hasRenterSignature && 'podpis Najemcy pod umową',
-    !hasHandoverLessorSignature && 'podpis Wydającego pod protokołem',
-    !hasHandoverRenterSignature && 'podpis Odbierającego pod protokołem',
+    !hasLessorSignature && 'podpis Wynajmującego',
+    !hasRenterSignature && 'podpis Najemcy',
     hasReachedEnd && !accepted && 'zaznacz oświadczenie',
   ].filter((step): step is string => Boolean(step));
 
@@ -142,39 +130,84 @@ export function ContractSigningPage() {
     : `${API_BASE_URL}/contracts/sign/${encodeURIComponent(token)}/pdf`;
 
   if (result || preview.status === 'signed') {
+    const okresNajmu = snapshot.rental.isIndefinite
+      ? `od ${snapshot.rental.startDate} godz. ${snapshot.rental.startTime} — bezterminowo`
+      : `${snapshot.rental.startDate} godz. ${snapshot.rental.startTime} — ${snapshot.rental.endDate} godz. ${snapshot.rental.endTime}`;
+    const pozycje = snapshot.rental.items?.length
+      ? snapshot.rental.items
+      : [{ productId: snapshot.rental.productId, productName: snapshot.rental.productName, itemPrice: snapshot.rental.totalPrice }];
+
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 bg-[#0a0a0a]">
-        <Card variant="glass" className="max-w-lg w-full p-8 text-center">
-          <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-5" />
-          <h1 className="text-2xl font-bold mb-2">Umowa została podpisana</h1>
-          <p className="text-text-secondary mb-2">{snapshot.contractNumber}</p>
-          <p className="text-sm text-text-muted mb-4">
-            Egzemplarz PDF został zapisany w systemie.
-          </p>
-          {result && !result.emailDelivered ? (
-            <div className="mb-7 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-left">
-              <p className="text-sm font-semibold text-amber-300">E-mail nie został dostarczony</p>
-              <p className="text-xs text-text-secondary mt-1">
-                Pobierz PDF poniżej. Pracownik może ponowić wysyłkę po skonfigurowaniu poczty.
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-text-muted mb-7">
-              Dokument został wysłany na {snapshot.renter.email}.
+      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[#0a0a0a]">
+        <Card variant="glass" className="max-w-lg w-full p-8">
+          <div className="text-center">
+            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-5" />
+            <h1 className="text-2xl font-bold mb-2">Umowa została podpisana</h1>
+            <p className="text-text-secondary">{snapshot.contractNumber}</p>
+            <p className="text-sm text-text-muted mt-3">
+              {result && !result.emailDelivered
+                ? 'Pobierz dokument poniżej — wysyłka e-mail nie powiodła się.'
+                : `Dokument wysłaliśmy na ${snapshot.renter.email}.`}
             </p>
+          </div>
+
+          <div className="mt-7 p-5 rounded-[--radius-sm] bg-white/[0.03] border border-white/10 text-left">
+            <p className="text-xs uppercase tracking-wider text-gold font-semibold mb-3">Podsumowanie wynajmu</p>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-text-muted">Sprzęt</dt>
+                <dd className="text-text-primary">
+                  {pozycje.map((pozycja) => (
+                    <span key={pozycja.productId} className="block">{pozycja.productName}</span>
+                  ))}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-text-muted">Termin</dt>
+                <dd className="text-text-primary">{okresNajmu}</dd>
+              </div>
+              <div>
+                <dt className="text-text-muted">Odbiór</dt>
+                <dd className="text-text-primary">
+                  {snapshot.rental.delivery
+                    ? `dostawa: ${snapshot.rental.deliveryAddress || 'adres wskazany w zamówieniu'}`
+                    : 'odbiór osobisty — Rzeszów, ul. J. Słowackiego 24/11'}
+                </dd>
+              </div>
+              <div className="pt-2 border-t border-white/10 flex justify-between items-baseline">
+                <dt className="text-text-muted">Do zapłaty</dt>
+                <dd className="text-lg font-bold text-gold">{money(snapshot.rental.totalPrice)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {result?.payment?.redirectUrl && (
+            <Button
+              variant="primary"
+              size="lg"
+              className="w-full mt-6"
+              onClick={() => window.location.assign(result.payment!.redirectUrl)}
+            >
+              <CreditCard className="w-5 h-5 mr-2" /> Zapłać {money(snapshot.rental.totalPrice)}
+            </Button>
           )}
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a href={pdfUrl} download>
-              <Button variant="secondary">
-                <Download className="w-4 h-4 mr-2" /> Pobierz PDF
+
+          <div className="flex flex-col sm:flex-row gap-3 mt-4">
+            <a href={pdfUrl} download className="flex-1">
+              <Button variant="secondary" className="w-full">
+                <Download className="w-4 h-4 mr-2" /> Pobierz umowę
               </Button>
             </a>
-            {result?.payment?.redirectUrl && (
-              <Button variant="primary" onClick={() => window.location.assign(result.payment!.redirectUrl)}>
-                <CreditCard className="w-4 h-4 mr-2" /> Przejdź do płatności
+            <Link to="/" className="flex-1">
+              <Button variant="ghost" className="w-full">
+                <ArrowLeft className="w-4 h-4 mr-2" /> Wróć do sklepu
               </Button>
-            )}
+            </Link>
           </div>
+
+          <p className="text-xs text-text-muted text-center mt-6">
+            Sprzęt wydajemy po podpisaniu protokołu wydania na miejscu. W razie pytań: 570 038 828.
+          </p>
         </Card>
       </div>
     );
@@ -258,50 +291,6 @@ export function ContractSigningPage() {
             </div>
           </div>
         </div>
-
-        {snapshot.handoverItems && snapshot.handoverItems.length > 0 && (
-          <div className="mt-8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8 sm:py-12">
-            <div className="text-center border-b border-[#b8972a] pb-5 mb-6">
-              <h2 className="text-lg font-bold text-[#8b6914]">ZAŁĄCZNIK NR 1 DO UMOWY NAJMU</h2>
-              <p className="font-bold mt-2">Protokół wydania Sprzętu</p>
-              <p className="text-xs text-neutral-500 mt-1">nr&nbsp;{snapshot.contractNumber}</p>
-            </div>
-
-            <p className="text-sm leading-6 text-neutral-700 sm:text-justify">
-              {pl(
-                'Najemca potwierdza odbiór wymienionego niżej Sprzętu zgodnie z Umową, jego kompletność ' +
-                'i sprawność techniczną oraz zobowiązuje się do zwrotu w stanie nieuszkodzonym w terminie ' +
-                'wskazanym w §1.'
-              )}
-            </p>
-
-            <HandoverList items={snapshot.handoverItems} />
-
-            <p className="mt-6 text-sm leading-6 text-neutral-700 sm:text-justify">
-              {pl(
-                'Najemca oświadcza, że otrzymał instrukcje obsługi wymienionych urządzeń oraz odbył ' +
-                'szkolenie z zakresu ich prawidłowej i bezpiecznej eksploatacji.'
-              )}
-            </p>
-
-            <div className="mt-7 grid lg:grid-cols-2 gap-5">
-              <SignatureField
-                ref={handoverLessorSignatureRef}
-                title="Podpis Wydającego Sprzęt"
-                signerName={snapshot.lessor.representative}
-                ariaLabel="Pole podpisu Wydającego Sprzęt pod protokołem wydania"
-                onStateChange={setHasHandoverLessorSignature}
-              />
-              <SignatureField
-                ref={handoverRenterSignatureRef}
-                title="Podpis Odbierającego Sprzęt"
-                signerName={snapshot.renter.name}
-                ariaLabel="Pole podpisu Odbierającego Sprzęt pod protokołem wydania"
-                onStateChange={setHasHandoverRenterSignature}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Zero-height marker: gating on the signature block made the 60%
             threshold unreachable on small phones, blocking signing entirely. */}
@@ -413,35 +402,6 @@ function ClausePoint({ index, point }: { index: number; point: string }) {
         return <div key={lineIndex} className="pl-7 sm:text-justify">{pl(line)}</div>;
       })}
     </li>
-  );
-}
-
-/** "a) <device>:" opens a group; items are numbered within their own group. */
-function HandoverList({ items }: { items: string[] }) {
-  const grouped = items.some((item) => /^[a-z]\)/.test(item));
-  let itemNumber = 0;
-
-  return (
-    <div className="mt-4 space-y-1 text-sm text-neutral-800">
-      {items.map((item, index) => {
-        const group = /^([a-z]\))\s*(.*)$/s.exec(item);
-        if (group) {
-          itemNumber = 0;
-          return (
-            <p key={index} className="font-bold pt-2">
-              {group[1]} {pl(group[2])}
-            </p>
-          );
-        }
-        itemNumber += 1;
-        return (
-          <div key={index} className={`flex gap-2 ${grouped ? 'pl-5' : ''}`}>
-            <span className="shrink-0 w-5 tabular-nums text-neutral-500">{itemNumber}.</span>
-            <span>{pl(item)}</span>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

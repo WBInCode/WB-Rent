@@ -1,4 +1,4 @@
-export const CONTRACT_TEMPLATE_VERSION = '4.2.0';
+export const CONTRACT_TEMPLATE_VERSION = '5.0.0';
 
 export interface ContractClause {
   number: string;
@@ -221,7 +221,8 @@ export function buildContractClauses(input: ClauseInput): ContractClause[] {
       points: [
         `${rentPoint}${consumablesInRent}`,
         'Rozliczenie usługi najmu następuje w chwili zwrotu Sprzętu, po sporządzeniu Protokołu zwrotu (Załącznik nr 2). W tym momencie Wynajmujący wystawi i wyda Najemcy dowód zakupu dokumentujący najem wraz z ewentualnymi świadczeniami dodatkowymi (w tym opłatami wskazanymi w §12 Cennik).',
-        'Jeżeli w toku oględzin przy zwrocie stwierdzone zostaną uszkodzenia Sprzętu lub usterki wymagające naprawy, Wynajmujący zleci naprawę w autoryzowanym serwisie Kärcher (ERPIX Kärcher Rzeszów) lub innym autoryzowanym serwisie Kärcher. Najemca zostanie obciążony rzeczywistymi, udokumentowanymi kosztami naprawy/części wykazanymi na fakturze serwisowej, którą jest zobowiązany opłacić w terminie 7 dni.',
+        'Strony zgodnie postanawiają, że stan Sprzętu przy zwrocie oraz wynikające z niego należności – opłaty porządkowe, koszty braków lub rozkompletowania zestawu i koszty uszkodzeń – zostaną stwierdzone i wyliczone w Protokole zwrotu (Załącznik nr 2), według stawek określonych w §12 (Cennik) oraz zasad z ust. 4 niniejszego paragrafu. Protokół zwrotu podpisany przez obie Strony stanowi wystarczającą podstawę do naliczenia tych należności i nie wymaga zawarcia aneksu do niniejszej Umowy. Najemca zobowiązuje się do ich zapłaty w terminie 7 dni od doręczenia dokumentu sprzedaży.',
+        'Jeżeli w toku oględzin przy zwrocie stwierdzone zostaną uszkodzenia Sprzętu lub usterki wymagające naprawy, Wynajmujący zleci naprawę w autoryzowanym serwisie Kärcher (ERPIX Kärcher Rzeszów) lub innym autoryzowanym serwisie Kärcher. Najemca zostanie obciążony rzeczywistymi, udokumentowanymi kosztami naprawy/części wykazanymi na fakturze serwisowej, którą jest zobowiązany opłacić w terminie 7 dni. Do czasu otrzymania faktury serwisu w Protokole zwrotu odnotowuje się samą pozycję kosztu, a jego wysokość Wynajmujący wskazuje po wycenie.',
         'Za opóźnienie w zapłacie wszelkich należności z Umowy Wynajmującemu przysługują odsetki ustawowe za opóźnienie.',
       ],
     },

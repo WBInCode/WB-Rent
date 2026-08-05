@@ -51,8 +51,6 @@ router.post('/sign/:token', signLimiter, async (req: Request, res: Response) => 
       token: String(req.params.token),
       renterSignatureDataUrl: String(req.body?.renterSignature || ''),
       lessorSignatureDataUrl: String(req.body?.lessorSignature || ''),
-      handoverRenterSignatureDataUrl: String(req.body?.handoverRenterSignature || ''),
-      handoverLessorSignatureDataUrl: String(req.body?.handoverLessorSignature || ''),
       accepted: req.body?.accepted === true,
       ip,
       userAgent: String(req.headers['user-agent'] || 'unknown'),
