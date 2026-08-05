@@ -412,15 +412,22 @@ export interface SignContractResponse {
   emailTransport: 'resend' | 'smtp' | 'console';
 }
 
+export interface ContractSignaturePayload {
+  renterSignature: string;
+  lessorSignature: string;
+  /** Second signing round under Załącznik nr 1 (protokół wydania). */
+  handoverRenterSignature: string;
+  handoverLessorSignature: string;
+  accepted: boolean;
+}
+
 export async function submitContractSignature(
   token: string,
-  renterSignature: string,
-  lessorSignature: string,
-  accepted: boolean
+  payload: ContractSignaturePayload
 ): Promise<ApiResponse<SignContractResponse>> {
   return apiFetch<SignContractResponse>(`/contracts/sign/${encodeURIComponent(token)}`, {
     method: 'POST',
-    body: JSON.stringify({ renterSignature, lessorSignature, accepted }),
+    body: JSON.stringify(payload),
   });
 }
 

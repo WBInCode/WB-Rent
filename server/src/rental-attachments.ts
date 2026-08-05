@@ -18,9 +18,18 @@ const readAsset = async (fileName: string): Promise<Buffer | null> => {
   return fs.readFile(resolved).catch(() => null);
 };
 
+/** Diacritics are folded rather than dropped, so "Kärcher Puzzi 10/1" stays readable. */
+const asciiFileName = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w .,-]+/g, '-')
+    .replace(/-+/g, '-')
+    .trim();
+
 /**
- * Operating manuals (Załącznik nr 3) plus the shared RODO clause, so the
- * customer receives the same document pack that used to be handed over on paper.
+ * Operating manuals (Załącznik nr 3) for the rented devices. The RODO clause is
+ * no longer a separate file - its full wording lives in §8 of the signed contract.
  */
 export async function collectRentalAttachments(productIds: string[]): Promise<Attachment[]> {
   const attachments: Attachment[] = [];
@@ -37,17 +46,8 @@ export async function collectRentalAttachments(productIds: string[]): Promise<At
       continue;
     }
     attachments.push({
-      filename: `Instrukcja obslugi - ${terms.deviceName}.pdf`.replace(/[^\w .,-]/g, ''),
+      filename: `${asciiFileName(`Instrukcja obslugi - ${terms.deviceName}`)}.pdf`,
       content,
-      contentType: 'application/pdf',
-    });
-  }
-
-  const rodo = await readAsset('klauzula-rodo.pdf');
-  if (rodo) {
-    attachments.push({
-      filename: 'Klauzula informacyjna RODO.pdf',
-      content: rodo,
       contentType: 'application/pdf',
     });
   }

@@ -158,6 +158,19 @@ export function StaffRentalPage() {
     setHandoverItems((current) => [...current, '']);
   };
 
+  // "a) <urządzenie>:" jest nagłówkiem grupy - pozycje numerujemy w obrębie grupy.
+  const handoverMarkers = useMemo(() => {
+    let number = 0;
+    return handoverItems.map((item) => {
+      if (/^[a-z]\)/.test(item)) {
+        number = 0;
+        return '';
+      }
+      number += 1;
+      return `${number}.`;
+    });
+  }, [handoverItems]);
+
   const selectedProducts = useMemo(() => form.productIds
     .map((productId) => getProductById(productId))
     .filter((product): product is NonNullable<typeof product> => Boolean(product)), [form.productIds]);
@@ -638,13 +651,13 @@ export function StaffRentalPage() {
                     <ul className="mt-3 space-y-2">
                       {handoverItems.map((item, index) => (
                         <li key={index} className="flex items-center gap-2">
-                          <span className="w-6 shrink-0 text-xs text-text-muted tabular-nums">{index + 1}.</span>
+                          <span className="w-6 shrink-0 text-xs text-text-muted tabular-nums">{handoverMarkers[index]}</span>
                           <input
                             id={`protokol-wydania-${index + 1}`}
                             aria-label={`Pozycja ${index + 1} protokołu wydania`}
                             value={item}
                             onChange={(event) => updateHandoverItem(index, event.target.value)}
-                            className="w-full bg-bg-card border border-border rounded-[--radius-sm] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted transition-all hover:border-border-hover focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/30"
+                            className={`w-full bg-bg-card border border-border rounded-[--radius-sm] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted transition-all hover:border-border-hover focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/30 ${handoverMarkers[index] ? '' : 'font-semibold text-gold'}`}
                           />
                           <button
                             type="button"

@@ -438,6 +438,17 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         ON reservation_photos (reservation_id, phase, created_at);
     `,
   },
+  {
+    version: 13,
+    name: 'handover-protocol-signatures',
+    sql: `
+      ALTER TABLE rental_contracts
+        ADD COLUMN IF NOT EXISTS handover_signature_encrypted TEXT,
+        ADD COLUMN IF NOT EXISTS handover_signature_hash TEXT,
+        ADD COLUMN IF NOT EXISTS handover_lessor_signature_encrypted TEXT,
+        ADD COLUMN IF NOT EXISTS handover_lessor_signature_hash TEXT;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -1898,6 +1909,12 @@ export const queries = {
            signing_expires_at = EXCLUDED.signing_expires_at,
            signature_encrypted = NULL,
            signature_hash = NULL,
+           lessor_signature_encrypted = NULL,
+           lessor_signature_hash = NULL,
+           handover_signature_encrypted = NULL,
+           handover_signature_hash = NULL,
+           handover_lessor_signature_encrypted = NULL,
+           handover_lessor_signature_hash = NULL,
            signed_name = NULL,
            signed_ip = NULL,
            signed_user_agent = NULL,
@@ -1938,6 +1955,10 @@ export const queries = {
     renterSignatureHash: string;
     lessorSignatureEncrypted: string;
     lessorSignatureHash: string;
+    handoverRenterSignatureEncrypted: string;
+    handoverRenterSignatureHash: string;
+    handoverLessorSignatureEncrypted: string;
+    handoverLessorSignatureHash: string;
     signedName: string;
     signedIp: string;
     signedUserAgent: string;
@@ -1951,16 +1972,22 @@ export const queries = {
         `UPDATE rental_contracts SET
            status = 'signed', signature_encrypted = $1, signature_hash = $2,
            lessor_signature_encrypted = $3, lessor_signature_hash = $4,
-           signed_name = $5, signed_ip = $6, signed_user_agent = $7,
+           handover_signature_encrypted = $5, handover_signature_hash = $6,
+           handover_lessor_signature_encrypted = $7, handover_lessor_signature_hash = $8,
+           signed_name = $9, signed_ip = $10, signed_user_agent = $11,
            consent_at = CURRENT_TIMESTAMP, signed_at = CURRENT_TIMESTAMP,
-           pdf_path = $8, pdf_hash = $9, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $10 AND status = 'ready'
+           pdf_path = $12, pdf_hash = $13, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $14 AND status = 'ready'
          RETURNING reservation_id, signed_at`,
         [
           data.renterSignatureEncrypted,
           data.renterSignatureHash,
           data.lessorSignatureEncrypted,
           data.lessorSignatureHash,
+          data.handoverRenterSignatureEncrypted,
+          data.handoverRenterSignatureHash,
+          data.handoverLessorSignatureEncrypted,
+          data.handoverLessorSignatureHash,
           data.signedName,
           data.signedIp,
           data.signedUserAgent,

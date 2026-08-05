@@ -16,20 +16,20 @@ const createTransporter = () => {
   }
   
   // If no SMTP configured, use console logging
-  if (!config.smtp.host || !config.smtp.user || !config.smtp.pass) {
+  if (!config.smtp.host) {
     console.log('📧 Email: Using console logging (no SMTP configured)');
     return null;
   }
 
-  console.log(`📧 Email: SMTP configured (${config.smtp.host})`);
+  console.log(`📧 Email: SMTP configured (${config.smtp.host}:${config.smtp.port})`);
   return nodemailer.createTransport({
     host: config.smtp.host,
     port: config.smtp.port,
     secure: config.smtp.secure,
-    auth: {
-      user: config.smtp.user,
-      pass: config.smtp.pass,
-    },
+    // Local relays and mail catchers accept mail without credentials.
+    auth: config.smtp.user && config.smtp.pass
+      ? { user: config.smtp.user, pass: config.smtp.pass }
+      : undefined,
     connectionTimeout: 10000,
     greetingTimeout: 10000,
   });

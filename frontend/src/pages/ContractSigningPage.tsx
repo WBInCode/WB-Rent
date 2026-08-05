@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
+import { pl } from '@/utils/typography';
 import {
   getContractPreview,
   submitContractSignature,
@@ -20,7 +21,11 @@ import {
 } from '@/services/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const money = (value: number) => `${value.toFixed(2).replace('.', ',')} zł`;
+
+const polishDate = (value: string) => {
+  const [year, month, day] = value.slice(0, 10).split('-');
+  return day && month && year ? `${day}.${month}.${year}` : value;
+};
 
 export function ContractSigningPage() {
   const { token = '' } = useParams<{ token: string }>();
@@ -31,10 +36,14 @@ export function ContractSigningPage() {
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
   const [hasLessorSignature, setHasLessorSignature] = useState(false);
   const [hasRenterSignature, setHasRenterSignature] = useState(false);
+  const [hasHandoverLessorSignature, setHasHandoverLessorSignature] = useState(false);
+  const [hasHandoverRenterSignature, setHasHandoverRenterSignature] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SignContractResponse | null>(null);
   const lessorSignatureRef = useRef<SignatureFieldHandle>(null);
   const renterSignatureRef = useRef<SignatureFieldHandle>(null);
+  const handoverLessorSignatureRef = useRef<SignatureFieldHandle>(null);
+  const handoverRenterSignatureRef = useRef<SignatureFieldHandle>(null);
   const endMarkerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,17 +81,22 @@ export function ContractSigningPage() {
   }, [preview]);
 
   const handleSign = async () => {
-    const lessorPad = lessorSignatureRef.current;
-    const renterPad = renterSignatureRef.current;
-    if (!lessorPad || !renterPad || lessorPad.isEmpty() || renterPad.isEmpty() || !accepted || !hasReachedEnd) return;
+    const pads = [
+      lessorSignatureRef.current,
+      renterSignatureRef.current,
+      handoverLessorSignatureRef.current,
+      handoverRenterSignatureRef.current,
+    ];
+    if (pads.some((pad) => !pad || pad.isEmpty()) || !accepted || !hasReachedEnd) return;
     setSubmitting(true);
     setError('');
-    const response = await submitContractSignature(
-      token,
-      renterPad.toDataURL(),
-      lessorPad.toDataURL(),
-      true
-    );
+    const response = await submitContractSignature(token, {
+      renterSignature: renterSignatureRef.current!.toDataURL(),
+      lessorSignature: lessorSignatureRef.current!.toDataURL(),
+      handoverRenterSignature: handoverRenterSignatureRef.current!.toDataURL(),
+      handoverLessorSignature: handoverLessorSignatureRef.current!.toDataURL(),
+      accepted: true,
+    });
     if (response.success && response.data) {
       setResult(response.data);
     } else {
@@ -93,8 +107,10 @@ export function ContractSigningPage() {
 
   const brakujaceKroki = [
     !hasReachedEnd && 'przewiń umowę do końca',
-    !hasLessorSignature && 'podpis Wynajmującego',
-    !hasRenterSignature && 'podpis Najemcy',
+    !hasLessorSignature && 'podpis Wynajmującego pod umową',
+    !hasRenterSignature && 'podpis Najemcy pod umową',
+    !hasHandoverLessorSignature && 'podpis Wydającego pod protokołem',
+    !hasHandoverRenterSignature && 'podpis Odbierającego pod protokołem',
     hasReachedEnd && !accepted && 'zaznacz oświadczenie',
   ].filter((step): step is string => Boolean(step));
 
@@ -169,9 +185,9 @@ export function ContractSigningPage() {
       <header className="sticky top-0 z-30 bg-[#0a0a0a] text-white border-b border-gold/30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <FileSignature className="w-6 h-6 text-gold" />
+            <img src="/wb-rent-logo.svg" alt="WB-Rent" className="h-8 w-auto" />
             <div>
-              <p className="font-bold">WB-Rent • podpis umowy</p>
+              <p className="font-bold">Podpis umowy</p>
               <p className="text-xs text-white/55">{snapshot.contractNumber}</p>
             </div>
           </div>
@@ -184,99 +200,44 @@ export function ContractSigningPage() {
       <main className="max-w-5xl mx-auto px-3 sm:px-6 py-6 sm:py-10">
         <div className="bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8 sm:py-12">
           <div className="text-center border-b border-[#b8972a] pb-6 mb-7">
-            <p className="text-[#8b6914] font-bold text-xl">WB-Rent</p>
-            <h1 className="text-2xl sm:text-3xl font-bold mt-2">UMOWA NAJMU SPRZĘTU</h1>
-            <p className="text-sm text-neutral-500 mt-2">
-              nr {snapshot.contractNumber} • wersja wzoru {snapshot.templateVersion}
-            </p>
+            <img src="/wb-rent-logo.svg" alt="WB-Rent" className="h-16 sm:h-20 mx-auto" />
+            <h1 className="text-2xl sm:text-3xl font-bold mt-3">UMOWA NAJMU SPRZĘTU</h1>
+            <p className="text-sm text-neutral-500 mt-2">nr&nbsp;{snapshot.contractNumber}</p>
           </div>
 
-          <ContractSection title="1. Strony umowy">
-            <ContractRow label="Wynajmujący" value={snapshot.lessor.name} />
-            <ContractRow label="Adres" value={snapshot.lessor.address} />
-            <ContractRow label="NIP" value={snapshot.lessor.nip} />
-            <ContractRow label="Reprezentowany przez" value={snapshot.lessor.representative} />
-            <div className="h-3" />
-            <ContractRow label="Najemca" value={snapshot.renter.name} />
-            <ContractRow label="Adres" value={snapshot.renter.address} />
-            <ContractRow label="E-mail" value={snapshot.renter.email} />
-            <ContractRow label="Telefon" value={snapshot.renter.phone} />
-            <ContractRow label="PESEL" value={snapshot.renter.pesel || 'nie podano'} />
-            {snapshot.renter.documentNumber && (
-              <ContractRow
-                label="Dokument"
-                value={`${snapshot.renter.documentType === 'dowod_osobisty' ? 'dowód osobisty' : 'paszport'} ${snapshot.renter.documentNumber}`}
-              />
-            )}
-          </ContractSection>
+          <div className="space-y-4 text-sm leading-6 text-neutral-800">
+            <p>{pl(`Umowa najmu zawarta w dniu ${polishDate(snapshot.generatedAt)} r. w Rzeszowie pomiędzy:`)}</p>
+            <PartyBlock lines={lessorLines(snapshot)} />
+            <p>a</p>
+            <PartyBlock lines={renterLines(snapshot)} />
+            <p>{pl('zwanymi dalej łącznie „Stronami", o następującej treści:')}</p>
+          </div>
 
-          <ContractSection title="2. Dane najmu">
-            <ContractRow
-              label={(snapshot.rental.items?.length || 0) > 1 ? 'Sprzęt (pozycje)' : 'Sprzęt'}
-              value={(snapshot.rental.items?.length
-                ? snapshot.rental.items.map((item, index) => `${index + 1}. ${item.productName} — ${money(item.itemPrice)}`)
-                : [snapshot.rental.productName]).join('\n')}
-            />
-            <ContractRow
-              label="Termin"
-              value={snapshot.rental.isIndefinite
-                ? `${snapshot.rental.startDate} ${snapshot.rental.startTime} – bezterminowo (do odwołania)`
-                : `${snapshot.rental.startDate} ${snapshot.rental.startTime} – ${snapshot.rental.endDate} ${snapshot.rental.endTime} (${snapshot.rental.days} dni)`}
-            />
-            <ContractRow label="Czynsz najmu" value={money(snapshot.rental.totalPrice)} />
-            <ContractRow label="Kaucja" value={money(snapshot.rental.deposit)} />
-            <ContractRow label="Akcesoria" value={snapshot.rental.accessories} />
-            <ContractRow label="Stan przy wydaniu" value={snapshot.rental.conditionNotes} />
-          </ContractSection>
-
-          <ContractSection title="3. Warunki umowy">
-            <div className="space-y-5">
-              {snapshot.clauses.map((clause) => (
-                <article key={clause.number}>
-                  <h3 className="font-bold text-sm">§ {clause.number}. {clause.title}</h3>
-                  {clause.points?.length ? (
-                    <ol className="mt-1 space-y-1.5 text-sm leading-6 text-neutral-700">
-                      {clause.points.map((point, index) => (
-                        <li key={index} className="flex gap-2 text-justify">
-                          <span className="shrink-0 tabular-nums">{index + 1}.</span>
-                          <span>{point}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="text-sm leading-6 text-neutral-700 text-justify mt-1">{clause.text}</p>
-                  )}
-                </article>
-              ))}
-            </div>
-          </ContractSection>
-
-          {snapshot.handoverItems && snapshot.handoverItems.length > 0 && (
-            <ContractSection title="Załącznik nr 1 — Protokół wydania sprzętu">
-              <p className="text-sm leading-6 text-neutral-700 text-justify">
-                Najemca potwierdza odbiór wymienionego Sprzętu zgodnie z Umową i zobowiązuje się do jego zwrotu
-                w stanie nieuszkodzonym w terminie wskazanym w § 1.
-              </p>
-              <ol className="mt-3 space-y-1 text-sm text-neutral-800">
-                {snapshot.handoverItems.map((item, index) => (
-                  <li key={index} className="flex gap-2">
-                    <span className="shrink-0 tabular-nums text-neutral-500">{index + 1}.</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ol>
-            </ContractSection>
-          )}
-
-          {/* Zero-height marker: gating on the signature block made the 60%
-              threshold unreachable on small phones, blocking signing entirely. */}
-          <div ref={endMarkerRef} aria-hidden="true" className="h-px w-full" />
+          <div className="mt-7 space-y-6">
+            {snapshot.clauses.map((clause) => (
+              <article key={clause.number}>
+                <h3 className="text-center font-bold text-[15px] leading-5">§{clause.number}</h3>
+                <h4 className="text-center font-bold text-sm mb-2">{pl(clause.title)}</h4>
+                {clause.points?.length ? (
+                  <ol className="space-y-1.5 text-sm leading-6 text-neutral-700">
+                    {clause.points.map((point, index) => (
+                      <ClausePoint key={index} index={index} point={point} />
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-sm leading-6 text-neutral-700 sm:text-justify">{pl(clause.text || '')}</p>
+                )}
+              </article>
+            ))}
+          </div>
 
           <div className="mt-10 pt-8 border-t-2 border-[#b8972a]">
-            <h2 className="text-xl font-bold">4. Podpisy stron</h2>
-            <p className="text-sm text-neutral-600 leading-6 mt-2">
-              Potwierdzam, że przeczytałem(-am) pełną treść powyższej umowy, dane są prawidłowe,
-              a sprzęt i akcesoria są zgodne z opisem. Akceptuję wszystkie postanowienia.
+            <h2 className="text-lg font-bold text-[#8b6914] text-center">OŚWIADCZENIE I PODPISY STRON</h2>
+            <p className="text-sm text-neutral-600 leading-6 mt-3 sm:text-justify">
+              {pl(
+                'Potwierdzam, że przeczytałem(-am) pełną treść powyższej umowy, dane są prawidłowe, ' +
+                'a sprzęt i akcesoria są zgodne z opisem. Akceptuję wszystkie postanowienia.'
+              )}
             </p>
 
             <div className="mt-6 grid lg:grid-cols-2 gap-5">
@@ -284,54 +245,104 @@ export function ContractSigningPage() {
                 ref={lessorSignatureRef}
                 title="Podpis Wynajmującego"
                 signerName={snapshot.lessor.representative}
-                ariaLabel="Pole podpisu Wynajmującego"
+                ariaLabel="Pole podpisu Wynajmującego pod umową"
                 onStateChange={setHasLessorSignature}
               />
               <SignatureField
                 ref={renterSignatureRef}
                 title="Podpis Najemcy"
                 signerName={snapshot.renter.name}
-                ariaLabel="Pole podpisu Najemcy"
+                ariaLabel="Pole podpisu Najemcy pod umową"
                 onStateChange={setHasRenterSignature}
               />
             </div>
-
-            <label className={`mt-5 flex items-start gap-3 p-4 rounded-lg border ${hasReachedEnd ? 'border-[#b8972a]/50 bg-[#b8972a]/5' : 'border-neutral-200 bg-neutral-100'}`}>
-              <input
-                type="checkbox"
-                checked={accepted}
-                disabled={!hasReachedEnd}
-                onChange={(event) => setAccepted(event.target.checked)}
-                className="mt-1 w-5 h-5 accent-[#b8972a]"
-              />
-              <span className="text-sm leading-6">
-                Oświadczam, że zapoznałem(-am) się z całą umową, akceptuję jej warunki i składam
-                podpis elektroniczny jako <strong>{snapshot.renter.name}</strong>.
-              </span>
-            </label>
-
-            {error && <p className="mt-4 text-sm text-red-600 font-medium">{error}</p>}
-
-            {brakujaceKroki.length > 0 && (
-              <p role="status" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                Aby podpisać umowę: {brakujaceKroki.join(', ')}.
-              </p>
-            )}
-
-            <Button
-              variant="primary"
-              size="lg"
-              className="w-full mt-6"
-              disabled={!hasLessorSignature || !hasRenterSignature || !accepted || submitting}
-              onClick={handleSign}
-            >
-              {submitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FileSignature className="w-5 h-5 mr-2" />}
-              {submitting ? 'Generowanie i zapisywanie umowy…' : 'Podpisuję umowę'}
-            </Button>
-            <p className="text-xs text-neutral-500 text-center mt-3">
-              Po podpisaniu nie będzie można zmienić treści. PDF trafi na Twój e-mail.
-            </p>
           </div>
+        </div>
+
+        {snapshot.handoverItems && snapshot.handoverItems.length > 0 && (
+          <div className="mt-8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8 sm:py-12">
+            <div className="text-center border-b border-[#b8972a] pb-5 mb-6">
+              <h2 className="text-lg font-bold text-[#8b6914]">ZAŁĄCZNIK NR 1 DO UMOWY NAJMU</h2>
+              <p className="font-bold mt-2">Protokół wydania Sprzętu</p>
+              <p className="text-xs text-neutral-500 mt-1">nr&nbsp;{snapshot.contractNumber}</p>
+            </div>
+
+            <p className="text-sm leading-6 text-neutral-700 sm:text-justify">
+              {pl(
+                'Najemca potwierdza odbiór wymienionego niżej Sprzętu zgodnie z Umową, jego kompletność ' +
+                'i sprawność techniczną oraz zobowiązuje się do zwrotu w stanie nieuszkodzonym w terminie ' +
+                'wskazanym w §1.'
+              )}
+            </p>
+
+            <HandoverList items={snapshot.handoverItems} />
+
+            <p className="mt-6 text-sm leading-6 text-neutral-700 sm:text-justify">
+              {pl(
+                'Najemca oświadcza, że otrzymał instrukcje obsługi wymienionych urządzeń oraz odbył ' +
+                'szkolenie z zakresu ich prawidłowej i bezpiecznej eksploatacji.'
+              )}
+            </p>
+
+            <div className="mt-7 grid lg:grid-cols-2 gap-5">
+              <SignatureField
+                ref={handoverLessorSignatureRef}
+                title="Podpis Wydającego Sprzęt"
+                signerName={snapshot.lessor.representative}
+                ariaLabel="Pole podpisu Wydającego Sprzęt pod protokołem wydania"
+                onStateChange={setHasHandoverLessorSignature}
+              />
+              <SignatureField
+                ref={handoverRenterSignatureRef}
+                title="Podpis Odbierającego Sprzęt"
+                signerName={snapshot.renter.name}
+                ariaLabel="Pole podpisu Odbierającego Sprzęt pod protokołem wydania"
+                onStateChange={setHasHandoverRenterSignature}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Zero-height marker: gating on the signature block made the 60%
+            threshold unreachable on small phones, blocking signing entirely. */}
+        <div ref={endMarkerRef} aria-hidden="true" className="h-px w-full" />
+
+        <div className="mt-8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8">
+          <label className={`flex items-start gap-3 p-4 rounded-lg border ${hasReachedEnd ? 'border-[#b8972a]/50 bg-[#b8972a]/5' : 'border-neutral-200 bg-neutral-100'}`}>
+            <input
+              type="checkbox"
+              checked={accepted}
+              disabled={!hasReachedEnd}
+              onChange={(event) => setAccepted(event.target.checked)}
+              className="mt-1 w-5 h-5 accent-[#b8972a]"
+            />
+            <span className="text-sm leading-6">
+              Oświadczam, że zapoznałem(-am) się z całą umową wraz z załącznikiem, akceptuję jej warunki
+              i składam podpis elektroniczny jako <strong>{snapshot.renter.name}</strong>.
+            </span>
+          </label>
+
+          {error && <p className="mt-4 text-sm text-red-600 font-medium">{error}</p>}
+
+          {brakujaceKroki.length > 0 && (
+            <p role="status" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              Aby podpisać umowę: {brakujaceKroki.join(', ')}.
+            </p>
+          )}
+
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full mt-6"
+            disabled={brakujaceKroki.length > 0 || submitting}
+            onClick={handleSign}
+          >
+            {submitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FileSignature className="w-5 h-5 mr-2" />}
+            {submitting ? 'Generowanie i zapisywanie umowy…' : 'Podpisuję umowę'}
+          </Button>
+          <p className="text-xs text-neutral-500 text-center mt-3">
+            Po podpisaniu nie będzie można zmienić treści. PDF trafi na Twój e-mail.
+          </p>
         </div>
 
         <Link to="/" className="inline-flex items-center gap-2 text-neutral-600 hover:text-[#8b6914] mt-6">
@@ -342,20 +353,94 @@ export function ContractSigningPage() {
   );
 }
 
-function ContractSection({ title, children }: { title: string; children: React.ReactNode }) {
+type Snapshot = ContractPreviewResponse['snapshot'];
+
+const lessorLines = (snapshot: Snapshot): string[] => [
+  `${snapshot.lessor.name} z siedzibą w Rzeszowie,`,
+  `${snapshot.lessor.address},`,
+  `NIP ${snapshot.lessor.nip},`,
+  `reprezentowaną przez: ${snapshot.lessor.representative},`,
+  'zwaną dalej „Wynajmującym",',
+];
+
+const renterLines = (snapshot: Snapshot): string[] => {
+  const documentLabel = snapshot.renter.documentType === 'dowod_osobisty' ? 'dowodem osobistym' : 'paszportem';
+  return [
+    `${snapshot.renter.name},`,
+    `zamieszkałym/ą: ${snapshot.renter.address},`,
+    snapshot.renter.pesel ? `PESEL ${snapshot.renter.pesel},` : '',
+    snapshot.renter.documentNumber
+      ? `legitymującym/ą się ${documentLabel} nr ${snapshot.renter.documentNumber},`
+      : '',
+    `e-mail: ${snapshot.renter.email},`,
+    `tel. ${snapshot.renter.phone},`,
+    'zwanym/ą dalej „Najemcą",',
+  ].filter(Boolean);
+};
+
+function PartyBlock({ lines }: { lines: string[] }) {
   return (
-    <section className="mb-8">
-      <h2 className="text-lg font-bold text-[#8b6914] mb-4">{title}</h2>
-      {children}
-    </section>
+    <div>
+      {lines.map((line, index) => (
+        <p key={index}>{pl(line)}</p>
+      ))}
+    </div>
   );
 }
 
-function ContractRow({ label, value }: { label: string; value: string }) {
+/** One ustęp; embedded newlines become separate lines, "a) …" becomes a sub-list. */
+function ClausePoint({ index, point }: { index: number; point: string }) {
   return (
-    <div className="grid sm:grid-cols-[180px_1fr] gap-1 sm:gap-4 py-1.5 text-sm border-b border-neutral-100">
-      <span className="font-semibold text-neutral-500">{label}</span>
-      <span className="whitespace-pre-line">{value || '—'}</span>
+    <li>
+      {point.split('\n').map((line, lineIndex) => {
+        const sub = /^([a-z]\))[\u00A0\s]*(.*)$/s.exec(line);
+        if (sub) {
+          return (
+            <div key={lineIndex} className="flex gap-2 pl-7">
+              <span className="shrink-0">{sub[1]}</span>
+              <span>{pl(sub[2])}</span>
+            </div>
+          );
+        }
+        if (lineIndex === 0) {
+          return (
+            <div key={lineIndex} className="flex gap-2">
+              <span className="shrink-0 w-5 tabular-nums">{index + 1}.</span>
+              <span className="sm:text-justify">{pl(line)}</span>
+            </div>
+          );
+        }
+        return <div key={lineIndex} className="pl-7 sm:text-justify">{pl(line)}</div>;
+      })}
+    </li>
+  );
+}
+
+/** "a) <device>:" opens a group; items are numbered within their own group. */
+function HandoverList({ items }: { items: string[] }) {
+  const grouped = items.some((item) => /^[a-z]\)/.test(item));
+  let itemNumber = 0;
+
+  return (
+    <div className="mt-4 space-y-1 text-sm text-neutral-800">
+      {items.map((item, index) => {
+        const group = /^([a-z]\))\s*(.*)$/s.exec(item);
+        if (group) {
+          itemNumber = 0;
+          return (
+            <p key={index} className="font-bold pt-2">
+              {group[1]} {pl(group[2])}
+            </p>
+          );
+        }
+        itemNumber += 1;
+        return (
+          <div key={index} className={`flex gap-2 ${grouped ? 'pl-5' : ''}`}>
+            <span className="shrink-0 w-5 tabular-nums text-neutral-500">{itemNumber}.</span>
+            <span>{pl(item)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

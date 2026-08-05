@@ -7,7 +7,7 @@ import { getProductName } from '../products.js';
 import { sendSignedContractEmail } from '../email.js';
 import { collectRentalAttachments } from '../rental-attachments.js';
 import { encryptContractData, decryptContractData, randomSigningToken, sha256, signingTokenHash } from './crypto.js';
-import { CONTRACT_TEMPLATE_VERSION, buildContractClauses, type ContractSnapshot, type DeviceTerms } from './template.js';
+import { CONTRACT_TEMPLATE_VERSION, buildContractClauses, letter, type ContractSnapshot, type ClauseDevice } from './template.js';
 import { getProductTerms } from './product-terms.js';
 import { generateContractPdf } from './pdf.js';
 
@@ -59,15 +59,17 @@ const contractNumberFor = (reservationId: number): string =>
   `WB-R/${new Date().getFullYear()}/${String(reservationId).padStart(6, '0')}`;
 
 /**
- * Załącznik nr 1 proposed by the system. With several devices every line says
- * which one it belongs to, so a missing hose cannot be attributed to the wrong machine.
+ * Załącznik nr 1 proposed by the system. With several devices the list is split
+ * into "a) <device>:" groups, so a missing hose cannot be attributed to the
+ * wrong machine without repeating the device name on every single line.
  */
 export function buildDefaultHandoverItems(productIds: string[]): string[] {
+  const multi = productIds.length > 1;
   return productIds.flatMap((productId, index) => {
     const terms = getProductTerms(productId);
     const deviceName = terms?.deviceName || getProductName(productId);
     const lines = terms?.handoverItems?.length ? terms.handoverItems : [deviceName];
-    return productIds.length > 1 ? lines.map((line) => `${index + 1}) ${deviceName} — ${line}`) : lines;
+    return multi ? [`${letter(index)}) ${deviceName}:`, ...lines] : lines;
   });
 }
 
@@ -92,15 +94,21 @@ export async function createContractSession(input: CreateContractInput) {
         item_price: reservation.base_price,
       }];
 
-  const fallbackTerms = (productId: string): DeviceTerms => ({
+  const rentalDays = reservation.days > 0 ? reservation.days : 1;
+  const perDay = (price: number) => Math.round((price / rentalDays) * 100) / 100;
+
+  const fallbackTerms = (productId: string, itemPrice: number): ClauseDevice => ({
     deviceName: getProductName(productId),
     equipmentValue: 0,
     deepCleaningNote: 'zabrudzenia wymagające dodatkowego mycia',
+    itemPrice,
+    dailyRate: perDay(itemPrice),
   });
 
-  const devices: DeviceTerms[] = reservationItems.map((item: any) => {
+  const devices: ClauseDevice[] = reservationItems.map((item: any) => {
+    const itemPrice = Number(item.item_price);
     const terms = getProductTerms(String(item.product_id));
-    if (!terms) return fallbackTerms(String(item.product_id));
+    if (!terms) return fallbackTerms(String(item.product_id), itemPrice);
     return {
       deviceName: terms.deviceName,
       equipmentValue: terms.equipmentValue,
@@ -108,11 +116,13 @@ export async function createContractSession(input: CreateContractInput) {
       extraConsumable: terms.extraConsumable,
       mandatoryConsumable: terms.mandatoryConsumable,
       deepCleaningNote: terms.deepCleaningNote,
+      itemPrice,
+      dailyRate: perDay(itemPrice),
     };
   });
 
-  // With several devices every line says which one it belongs to, so a missing
-  // hose can never be attributed to the wrong machine.
+  // With several devices the protocol is grouped per device, so a missing hose
+  // can never be attributed to the wrong machine.
   const defaultHandoverItems = buildDefaultHandoverItems(
     reservationItems.map((item: any) => String(item.product_id))
   );
@@ -128,9 +138,7 @@ export async function createContractSession(input: CreateContractInput) {
     : `od dnia ${polishDate(String(reservation.start_date))} r., godz. ${startTime} (wydanie) do dnia ${polishDate(String(reservation.end_date))} r., godz. ${endTime} (zwrot)`;
 
   // Rate actually charged, so the price list in §12 never contradicts the deal.
-  const dailyRate = reservation.days > 0
-    ? Math.round((Number(reservation.base_price) / reservation.days) * 100) / 100
-    : Number(reservation.base_price);
+  const dailyRate = perDay(Number(reservation.base_price));
 
   const snapshot: ContractSnapshot = {
     contractNumber,
@@ -180,6 +188,10 @@ export async function createContractSession(input: CreateContractInput) {
       totalPrice: Number(reservation.total_price),
       deposit: data.deposit,
       dailyRate,
+      accessories: data.accessories,
+      conditionNotes: data.conditionNotes,
+      delivery: Boolean(reservation.delivery),
+      deliveryAddress: reservation.delivery ? reservation.address : undefined,
     }),
     handoverItems: data.handoverItems?.length ? data.handoverItems : defaultHandoverItems,
   };
@@ -237,6 +249,8 @@ export async function signContract(data: {
   token: string;
   renterSignatureDataUrl: string;
   lessorSignatureDataUrl: string;
+  handoverRenterSignatureDataUrl: string;
+  handoverLessorSignatureDataUrl: string;
   accepted: boolean;
   ip: string;
   userAgent: string;
@@ -250,6 +264,8 @@ export async function signContract(data: {
 
   const renterSignature = decodeSignature(data.renterSignatureDataUrl);
   const lessorSignature = decodeSignature(data.lessorSignatureDataUrl);
+  const handoverRenterSignature = decodeSignature(data.handoverRenterSignatureDataUrl);
+  const handoverLessorSignature = decodeSignature(data.handoverLessorSignatureDataUrl);
   const snapshot = parseSnapshot(contract.snapshot_encrypted);
   const signedAt = new Date().toISOString();
   const renterSignatureHash = sha256(renterSignature);
@@ -264,7 +280,12 @@ export async function signContract(data: {
   };
   const pdf = await generateContractPdf(
     snapshot,
-    { renter: renterSignature, lessor: lessorSignature },
+    {
+      renter: renterSignature,
+      lessor: lessorSignature,
+      handoverRenter: handoverRenterSignature,
+      handoverLessor: handoverLessorSignature,
+    },
     audit
   );
   const pdfHash = sha256(pdf);
@@ -282,6 +303,10 @@ export async function signContract(data: {
     renterSignatureHash,
     lessorSignatureEncrypted: encryptContractData(lessorSignature),
     lessorSignatureHash,
+    handoverRenterSignatureEncrypted: encryptContractData(handoverRenterSignature),
+    handoverRenterSignatureHash: sha256(handoverRenterSignature),
+    handoverLessorSignatureEncrypted: encryptContractData(handoverLessorSignature),
+    handoverLessorSignatureHash: sha256(handoverLessorSignature),
     signedName: snapshot.renter.name,
     signedIp: audit.signedIp,
     signedUserAgent: audit.signedUserAgent,
@@ -359,14 +384,24 @@ export async function regenerateSignedContractPdf(id: number, resendEmail = fals
   const lessorSignature = contract.lessor_signature_encrypted
     ? decryptContractData(contract.lessor_signature_encrypted)
     : undefined;
-  const pdf = await generateContractPdf(snapshot, { renter: renterSignature, lessor: lessorSignature }, {
-    signedAt: new Date(contract.signed_at).toISOString(),
-    signedIp: contract.signed_ip || 'unknown',
-    signedUserAgent: contract.signed_user_agent || 'unknown',
-    contentHash: contract.content_hash,
-    renterSignatureHash: contract.signature_hash,
-    lessorSignatureHash: contract.lessor_signature_hash || undefined,
-  });
+  const handoverRenter = contract.handover_signature_encrypted
+    ? decryptContractData(contract.handover_signature_encrypted)
+    : undefined;
+  const handoverLessor = contract.handover_lessor_signature_encrypted
+    ? decryptContractData(contract.handover_lessor_signature_encrypted)
+    : undefined;
+  const pdf = await generateContractPdf(
+    snapshot,
+    { renter: renterSignature, lessor: lessorSignature, handoverRenter, handoverLessor },
+    {
+      signedAt: new Date(contract.signed_at).toISOString(),
+      signedIp: contract.signed_ip || 'unknown',
+      signedUserAgent: contract.signed_user_agent || 'unknown',
+      contentHash: contract.content_hash,
+      renterSignatureHash: contract.signature_hash,
+      lessorSignatureHash: contract.lessor_signature_hash || undefined,
+    }
+  );
   const pdfHash = sha256(pdf);
   await fs.writeFile(contract.pdf_path, encryptContractData(pdf), { mode: 0o600 });
   await queries.refreshContractDocument(contract.pdf_path, sha256(pdf), pdf.length)
