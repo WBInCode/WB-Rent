@@ -48,6 +48,7 @@ import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
+import { opiszEtap, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
 import {
   BarChart,
   Bar,
@@ -102,6 +103,7 @@ import {
   Ticket,
   FolderArchive,
   Building2,
+  AlertTriangle,
 } from 'lucide-react';
 
 type AdminTab = 'reservations' | 'products' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'documents' | 'discounts' | 'coupons' | 'business' | 'settings';
@@ -158,6 +160,8 @@ interface Reservation {
   payment_status?: string;
   payment_provider?: string;
   contract_status?: 'not_prepared' | 'ready' | 'signed';
+  /** Etap najmu wyliczony przez serwer z umowy, płatności i terminu. */
+  stage?: RentalStageInfo;
   created_at: string;
 }
 
@@ -291,8 +295,32 @@ const STATUS_COLORS: Record<string, 'warning' | 'success' | 'error' | 'default' 
   archived: 'default',
 };
 
+const STAGE_BADGE_STYLE: Record<StageTone, string> = {
+  neutral: 'bg-white/[0.06] border-white/15 text-text-secondary',
+  info: 'bg-sky-500/10 border-sky-400/30 text-sky-300',
+  warning: 'bg-amber-500/10 border-amber-400/30 text-amber-300',
+  success: 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300',
+  error: 'bg-red-500/10 border-red-400/30 text-red-300',
+  alert: 'bg-red-500/20 border-red-400/60 text-red-200',
+};
+
+/** Jedna plakietka opisujaca faktyczny etap najmu zamiast trzech osobnych statusow. */
+function StageBadge({ info }: { info?: RentalStageInfo }) {
+  const { etykieta, ton, szczegol } = opiszEtap(info);
+  return (
+    <span className={`inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-[--radius-sm] border text-xs font-medium ${STAGE_BADGE_STYLE[ton]}`}>
+      <span className="inline-flex items-center gap-1.5">
+        {ton === 'alert' && <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />}
+        {etykieta}
+      </span>
+      {szczegol && <span className="text-[11px] font-normal opacity-80">{szczegol}</span>}
+    </span>
+  );
+}
+
 const RESERVATION_STATUS_OPTIONS = [
   { value: 'pending', label: 'Oczekuje' },
+
   { value: 'confirmed', label: 'Potwierdzona' },
   { value: 'picked_up', label: 'Wydane' },
   { value: 'returned', label: 'Zwrócone' },
@@ -1147,24 +1175,7 @@ export function AdminPanel() {
                       </div>
                       <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-2">
-                        <Badge variant={STATUS_COLORS[reservation.status] || 'default'}>
-                          {STATUS_LABELS[reservation.status] || reservation.status}
-                        </Badge>
-                        {reservation.payment_status === 'paid' && (
-                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Opłacona{reservation.payment_provider ? ` (${reservation.payment_provider})` : ''}</Badge>
-                        )}
-                        {reservation.payment_status === 'pending' && (
-                          <Badge variant="warning">Płatność w toku</Badge>
-                        )}
-                        {(reservation.payment_status === 'failed' || reservation.payment_status === 'cancelled') && (
-                          <Badge variant="error">Płatność nieudana</Badge>
-                        )}
-                        {reservation.contract_status === 'ready' && (
-                          <Badge variant="warning">Umowa czeka na podpis</Badge>
-                        )}
-                        {reservation.contract_status === 'signed' && (
-                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Umowa podpisana</Badge>
-                        )}
+                        <StageBadge info={reservation.stage} />
                         {reservation.status === 'picked_up' && (
                           <Button
                             variant="outline"

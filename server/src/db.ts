@@ -1824,6 +1824,15 @@ export const queries = {
     return result.rows[0];
   },
 
+  countReservationPhotos: async (reservationId: number, phase: 'before' | 'after'): Promise<number> => {
+    const result = await pool.query(
+      `SELECT COUNT(*)::integer AS liczba FROM reservation_photos
+       WHERE reservation_id = $1 AND phase = $2`,
+      [reservationId, phase]
+    );
+    return Number(result.rows[0]?.liczba ?? 0);
+  },
+
   deleteReservationPhoto: async (id: number) => {
     const result = await pool.query(
       `DELETE FROM reservation_photos WHERE id = $1 RETURNING file_path`,
@@ -1898,6 +1907,15 @@ export const queries = {
           `UPDATE reservations SET payment_status = $1, payment_provider = $2 WHERE id = $3`,
           [data.status === 'paid' ? 'paid' : data.status, row.provider, row.reservation_id]
         );
+        // Podpisana umowa + zaksiegowana platnosc = rezerwacja potwierdzona.
+        // Ruszamy wylacznie z 'pending', zeby nie cofnac zadnego pozniejszego stanu.
+        if (data.status === 'paid') {
+          await client.query(
+            `UPDATE reservations SET status = 'confirmed'
+             WHERE id = $1 AND status = 'pending' AND contract_status = 'signed'`,
+            [row.reservation_id]
+          );
+        }
       }
       await client.query('COMMIT');
       return row?.reservation_id as number | undefined;
@@ -2049,6 +2067,12 @@ export const queries = {
       if (row) {
         await client.query(
           `UPDATE reservations SET contract_status = 'signed' WHERE id = $1`,
+          [row.reservation_id]
+        );
+        // Jak wyzej: gdy platnosc juz przeszla, podpis domyka potwierdzenie.
+        await client.query(
+          `UPDATE reservations SET status = 'confirmed'
+           WHERE id = $1 AND status = 'pending' AND payment_status = 'paid'`,
           [row.reservation_id]
         );
       }

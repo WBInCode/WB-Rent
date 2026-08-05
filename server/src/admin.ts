@@ -17,6 +17,7 @@ import {
 import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
+import { describeRentalStage } from './reservation-stage.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -622,7 +623,13 @@ router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
       reservations = await queries.getReservations();
     }
 
-    res.json({ success: true, data: reservations });
+    const now = Date.now();
+    const zEtapem = reservations.map((reservation: any) => ({
+      ...reservation,
+      stage: describeRentalStage(reservation, now),
+    }));
+
+    res.json({ success: true, data: zEtapem });
   } catch (error) {
     console.error('Admin reservations error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
@@ -669,6 +676,19 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         message: 'Najpierw ustal faktyczny termin zwrotu i rozlicz wynajem bezterminowy',
       });
       return;
+    }
+
+    // Zwrot to moment rozliczenia - bez udokumentowanego stanu sprzetu nie ma
+    // czym poprzec ewentualnych obciazen za uszkodzenia czy zabrudzenia.
+    if (status === 'returned' && reservation.status !== 'returned') {
+      const zdjecia = await queries.countReservationPhotos(reservation.id, 'after');
+      if (zdjecia === 0) {
+        res.status(409).json({
+          success: false,
+          message: 'Dodaj zdjęcia sprzętu po zwrocie — bez nich nie można zamknąć najmu.',
+        });
+        return;
+      }
     }
 
     const activeStatuses = ['pending', 'confirmed', 'picked_up'];
