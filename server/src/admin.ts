@@ -4,7 +4,7 @@ import { z, ZodError } from 'zod';
 import { queries } from './db.js';
 import { config } from './config.js';
 import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
-import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail } from './email.js';
+import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail } from './email.js';
 import { calculateRentalItemsPrice, getProductName, products } from './products.js';
 import {
   newsletterPostSchema,
@@ -16,6 +16,7 @@ import {
 } from './schemas.js';
 import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
+import { resolvePaymentLink } from './payments/routes.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -444,6 +445,59 @@ router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
     }
     const changes = await queries.getReservationTermChanges(reservation.id);
     res.json({ success: true, data: changes });
+  });
+
+  // === LINK DO PŁATNOŚCI ===
+  // Zwraca ten sam link przy kolejnych wywołaniach, żeby klient nie dostał kilku
+  // otwartych sesji płatności i nie zapłacił dwa razy.
+  router.get('/reservations/:id/payment-link', adminAuth, async (req: Request, res: Response) => {
+    try {
+      const link = await resolvePaymentLink(Number(req.params.id), '127.0.0.1');
+      res.json({ success: true, data: link });
+    } catch (error) {
+      console.error('Admin payment link error:', error);
+      res.status(500).json({ success: false, message: 'Nie udało się przygotować linku do płatności' });
+    }
+  });
+
+  router.post('/reservations/:id/payment-link/send', adminAuth, async (req: Request, res: Response) => {
+    try {
+      const reservation = await queries.getReservationById(Number(req.params.id));
+      if (!reservation) {
+        res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+        return;
+      }
+
+      const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
+      if (link.status === 'paid') {
+        res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+        return;
+      }
+      if (link.status === 'unavailable') {
+        res.status(409).json({ success: false, message: link.reason });
+        return;
+      }
+
+      const result = await sendPaymentLinkEmail(
+        reservation.email,
+        reservation.name,
+        reservation.id,
+        link.amount,
+        link.url
+      );
+      if (!result.delivered) {
+        res.status(502).json({
+          success: false,
+          message: 'Link został przygotowany, ale e-mail nie został wysłany. Skopiuj link ręcznie.',
+        });
+        return;
+      }
+
+      res.json({ success: true, message: `Link do płatności wysłany na ${reservation.email}` });
+    } catch (error) {
+      console.error('Admin payment link send error:', error);
+      res.status(500).json({ success: false, message: 'Nie udało się wysłać linku do płatności' });
+    }
   });
 
   router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {

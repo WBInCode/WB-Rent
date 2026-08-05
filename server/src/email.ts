@@ -948,6 +948,57 @@ export const sendMyReservationsLink = async (email: string, link: string) => {
   return sendEmail(email, subject, html);
 };
 
+// === PAYMENT LINK (resent from the admin panel) ===
+export const sendPaymentLinkEmail = async (
+  email: string,
+  customerName: string,
+  reservationId: number,
+  amount: number,
+  link: string
+) => {
+  const safeName = esc(customerName);
+  const kwota = `${amount.toFixed(2).replace('.', ',')} zł`;
+  const subject = `Płatność za rezerwację #${reservationId} - WB-Rent`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Link do płatności</p>
+      </div>
+
+      <p>Cześć <strong style="color: #b8972a;">${safeName}</strong>,</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Przesyłamy link do opłacenia rezerwacji <strong>#${reservationId}</strong>.
+      </p>
+
+      <div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 22px 0; border-left: 4px solid #b8972a;">
+        <p style="margin: 0; color: #a1a1aa; font-size: 13px;">Do zapłaty</p>
+        <p style="margin: 4px 0 0; color: #b8972a; font-size: 26px; font-weight: bold;">${kwota}</p>
+      </div>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${link}" style="display: inline-block; background: linear-gradient(135deg, #b8972a 0%, #8b7420 100%); color: #000000; padding: 15px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+          Zapłać ${kwota}
+        </a>
+      </div>
+
+      <p style="color: #71717a; font-size: 13px;">
+        Jeśli rezerwacja została już opłacona, zignoruj tę wiadomość — link przestanie wtedy działać.
+      </p>
+
+      <div style="border-top: 1px solid #333; padding-top: 20px; margin-top: 20px;">
+        <p style="color: #71717a; font-size: 12px; margin: 0;">
+          Pozdrawiamy,<br>
+          Zespół WB-Rent<br>
+          <span style="color: #a1a1aa; font-size: 11px;">WB Partners Sp. z o.o. | NIP: 5170455185 | ul. Słowackiego 24/11, 35-060 Rzeszów</span>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html);
+};
+
 // === SIGNED RENTAL CONTRACT ===
 export const sendSignedContractEmail = async (
   email: string,

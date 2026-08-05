@@ -47,6 +47,7 @@ import DiscountsPanel from '@/components/DiscountsPanel';
 import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
+import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
 import {
   BarChart,
   Bar,
@@ -1377,6 +1378,9 @@ export function AdminPanel() {
                           <p className="text-text-primary">{reservation.notes}</p>
                         </div>
                       )}
+                      <div className="md:col-span-2">
+                        <PaymentLinkPanel reservationId={reservation.id} onNotify={notifyPanel} />
+                      </div>
                       <div className="md:col-span-2">
                         <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
                         <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />

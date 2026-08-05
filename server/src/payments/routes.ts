@@ -52,6 +52,72 @@ export async function createPaymentForReservation(reservation: {
   return { redirectUrl: result.redirectUrl, sessionId };
 }
 
+export type PaymentLinkResult =
+  | { status: 'ready'; url: string; sessionId: string; amount: number; provider: string; reused: boolean }
+  | { status: 'paid' }
+  | { status: 'unavailable'; reason: string };
+
+/**
+ * Exactly one live payment link per reservation. Minting a fresh gateway session
+ * on every click would leave several openable links and invite paying twice, so
+ * the pending session is reused until the amount changes or it gets paid.
+ */
+export async function resolvePaymentLink(
+  reservationId: number,
+  customerIp: string
+): Promise<PaymentLinkResult> {
+  const reservation = await queries.getReservationById(reservationId);
+  if (!reservation) return { status: 'unavailable', reason: 'Rezerwacja nie istnieje' };
+  if (reservation.payment_status === 'paid') return { status: 'paid' };
+  if (['rejected', 'cancelled'].includes(reservation.status)) {
+    return { status: 'unavailable', reason: 'Rezerwacja została anulowana' };
+  }
+
+  const provider = getActiveProvider();
+  if (!provider) return { status: 'unavailable', reason: 'Płatności online są obecnie wyłączone' };
+
+  if (config.contracts.enabled && config.contracts.requireBeforePayment) {
+    const signed = await queries.hasSignedContract(reservationId);
+    if (!signed) {
+      return { status: 'unavailable', reason: 'Najpierw musi zostać podpisana umowa najmu' };
+    }
+  }
+
+  const amount = Number(reservation.total_price);
+  const latest = await queries.getLatestPaymentForReservation(reservationId);
+  const reusable = latest
+    && latest.status === 'pending'
+    && latest.redirect_url
+    && latest.provider === provider.name
+    && Number(latest.amount) === amount;
+
+  if (reusable) {
+    return {
+      status: 'ready',
+      url: latest.redirect_url,
+      sessionId: latest.session_id,
+      amount: Number(latest.amount),
+      provider: latest.provider,
+      reused: true,
+    };
+  }
+
+  // A stale session for a different amount must not stay payable.
+  await queries.cancelPendingPayments(reservationId);
+
+  const created = await createPaymentForReservation(reservation, customerIp);
+  if (!created) return { status: 'unavailable', reason: 'Nie udało się utworzyć płatności' };
+
+  return {
+    status: 'ready',
+    url: created.redirectUrl,
+    sessionId: created.sessionId,
+    amount,
+    provider: provider.name,
+    reused: false,
+  };
+}
+
 // --- Public config (frontend feature detection) ---
 router.get('/config', (_req: Request, res: Response) => {
   const provider = getActiveProvider();
@@ -72,12 +138,6 @@ router.post('/create', async (req: Request, res: Response) => {
       return;
     }
 
-    const provider = getActiveProvider();
-    if (!provider) {
-      res.status(503).json({ success: false, message: 'Płatności online są obecnie niedostępne' });
-      return;
-    }
-
     const reservation = await queries.getReservationById(Number(reservationId));
     // Email must match the reservation (no resource enumeration)
     if (!reservation || reservation.email.toLowerCase() !== String(email).toLowerCase()) {
@@ -85,37 +145,20 @@ router.post('/create', async (req: Request, res: Response) => {
       return;
     }
 
-    if (reservation.payment_status === 'paid') {
-      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
-      return;
-    }
-
-    if (['rejected', 'cancelled'].includes(reservation.status)) {
-      res.status(409).json({ success: false, message: 'Rezerwacja została anulowana' });
-      return;
-    }
-
-    if (config.contracts.enabled && config.contracts.requireBeforePayment) {
-      const signed = await queries.hasSignedContract(reservation.id);
-      if (!signed) {
-        res.status(409).json({
-          success: false,
-          message: 'Płatność jest dostępna dopiero po podpisaniu umowy najmu',
-        });
-        return;
-      }
-    }
-
     const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       || req.socket.remoteAddress || '127.0.0.1';
 
-    const payment = await createPaymentForReservation(reservation, clientIp);
-    if (!payment) {
-      res.status(503).json({ success: false, message: 'Płatności online są obecnie niedostępne' });
+    const link = await resolvePaymentLink(Number(reservationId), clientIp);
+    if (link.status === 'paid') {
+      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+      return;
+    }
+    if (link.status === 'unavailable') {
+      res.status(409).json({ success: false, message: link.reason });
       return;
     }
 
-    res.status(201).json({ success: true, ...payment });
+    res.status(201).json({ success: true, redirectUrl: link.url, sessionId: link.sessionId });
   } catch (error) {
     console.error('Payment create error:', error);
     res.status(500).json({ success: false, message: 'Nie udało się utworzyć płatności. Spróbuj ponownie.' });

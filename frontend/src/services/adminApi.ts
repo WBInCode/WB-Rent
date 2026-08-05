@@ -237,6 +237,22 @@ export async function resendContractEmail(contractId: number) {
   });
 }
 
+export type PaymentLinkInfo =
+  | { status: 'ready'; url: string; sessionId: string; amount: number; provider: string; reused: boolean }
+  | { status: 'paid' }
+  | { status: 'unavailable'; reason: string };
+
+export async function getPaymentLink(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/payment-link`);
+}
+
+export async function sendPaymentLink(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/payment-link/send`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 // Get reservations
 export async function getReservations(status?: string) {
   return adminFetch(status ? `/reservations?status=${encodeURIComponent(status)}` : '/reservations');

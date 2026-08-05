@@ -1862,6 +1862,17 @@ export const queries = {
     return result.rows[0];
   },
 
+  /** Retires older sessions so only one payment link per reservation stays open. */
+  cancelPendingPayments: async (reservationId: number) => {
+    const result = await pool.query(
+      `UPDATE payments SET status = 'cancelled'
+       WHERE reservation_id = $1 AND status = 'pending'
+       RETURNING session_id`,
+      [reservationId]
+    );
+    return result.rows;
+  },
+
   /** Update payment + mirror the status onto the reservation. */
   updatePaymentStatus: async (data: {
     sessionId: string;
