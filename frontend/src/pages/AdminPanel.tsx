@@ -1345,7 +1345,7 @@ export function AdminPanel() {
 
                   {/* Expanded details */}
                   {expandedId === reservation.id && (
-                    <div className="mt-4 pt-4 border-t border-border grid md:grid-cols-2 gap-4 text-sm">
+                    <div className="px-4 sm:px-5 pb-5 pt-4 mt-1 border-t border-border grid md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <p className="text-text-muted mb-1">Email:</p>
                         <p className="text-text-primary">{reservation.email}</p>
