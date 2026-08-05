@@ -522,13 +522,23 @@ async function seedProductCatalog(client: import('pg').PoolClient) {
 }
 
 // Query helper functions
+
+/**
+ * Units that may actually leave the counter. Equipment flagged as damaged or
+ * sent to service is never bookable, no matter what the counters say - staff
+ * marking a machine "uszkodzony" must actually block it.
+ */
+const rentableQuantitySql = (alias = 'p') =>
+  `CASE WHEN ${alias}.condition_status IN ('damaged', 'service') THEN 0
+        ELSE GREATEST(${alias}.total_quantity - ${alias}.service_quantity, 0) END`;
+
 export const queries = {
   getProducts: async (includeInactive = false) => {
     const result = await pool.query(
       `SELECT p.*,
-              GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity,
+              ${rentableQuantitySql()} AS rentable_quantity,
               COUNT(DISTINCT r.id)::integer AS reserved_today,
-              GREATEST(p.total_quantity - p.service_quantity - COUNT(DISTINCT r.id)::integer, 0) AS available_today
+              GREATEST(${rentableQuantitySql()} - COUNT(DISTINCT r.id)::integer, 0) AS available_today
        FROM products p
        LEFT JOIN reservation_items ri ON ri.product_id = p.id
        LEFT JOIN reservations r ON r.id = ri.reservation_id
@@ -545,8 +555,8 @@ export const queries = {
 
   getProductById: async (id: string) => {
     const result = await pool.query(
-      `SELECT *, GREATEST(total_quantity - service_quantity, 0) AS rentable_quantity
-       FROM products WHERE id = $1`,
+      `SELECT p.*, ${rentableQuantitySql()} AS rentable_quantity
+       FROM products p WHERE p.id = $1`,
       [id]
     );
     return result.rows[0];
@@ -649,6 +659,32 @@ export const queries = {
     );
     syncProductCatalog(result.rows);
     return result.rows[0];
+  },
+
+  /**
+   * Highest number of this product booked at the same time from today on.
+   * Lowering stock below it would leave active reservations without equipment.
+   */
+  getPeakActiveReservations: async (productId: string): Promise<number> => {
+    const result = await pool.query(
+      `WITH active AS (
+         SELECT r.id, r.start_date AS starts, COALESCE(r.end_date, 'infinity'::date) AS ends
+         FROM reservations r
+         JOIN reservation_items ri ON ri.reservation_id = r.id
+         WHERE ri.product_id = $1
+           AND r.status IN ('pending', 'confirmed', 'picked_up')
+           AND COALESCE(r.end_date, 'infinity'::date) > CURRENT_DATE
+       )
+       SELECT COALESCE(MAX(overlapping), 0)::integer AS peak
+       FROM (
+         SELECT COUNT(*)::integer AS overlapping
+         FROM active a
+         JOIN active b ON b.starts <= a.starts AND b.ends > a.starts
+         GROUP BY a.id
+       ) counts`,
+      [productId]
+    );
+    return Number(result.rows[0]?.peak ?? 0);
   },
 
   deleteProduct: async (id: string) => {
@@ -824,7 +860,7 @@ export const queries = {
                 MIN(r.start_date) AS start_date,
                 MAX(r.end_date) AS end_date,
                 COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-                GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+                ${rentableQuantitySql()} AS rentable_quantity
          FROM unnest($1::text[]) AS requested(product_id)
          LEFT JOIN products p ON p.id = requested.product_id
          LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
@@ -832,10 +868,10 @@ export const queries = {
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($2::date, 'infinity'::date)
            AND COALESCE(r.end_date, 'infinity'::date) > $3::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active, p.condition_status
          HAVING p.id IS NULL
             OR NOT p.is_active
-            OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.endDate, data.startDate]
       );
 
@@ -1013,7 +1049,7 @@ export const queries = {
               MIN(r.start_date) AS start_date,
               MAX(r.end_date) AS end_date,
               COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-              GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+              ${rentableQuantitySql()} AS rentable_quantity
        FROM unnest($1::text[]) AS requested(product_id)
        LEFT JOIN products p ON p.id = requested.product_id
        LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
@@ -1021,9 +1057,9 @@ export const queries = {
          AND r.status IN ('pending', 'confirmed', 'picked_up')
          AND r.start_date < COALESCE($3::date, 'infinity'::date)
          AND COALESCE(r.end_date, 'infinity'::date) > $4::date
-      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity
+      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
        HAVING p.id IS NULL
-          OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+          OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
       [data.productIds, data.id, data.endDate, data.startDate]
     );
     return result.rows;
@@ -1064,7 +1100,7 @@ export const queries = {
                 MIN(r.start_date) AS start_date,
                 MAX(r.end_date) AS end_date,
                 COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-                GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+                ${rentableQuantitySql()} AS rentable_quantity
          FROM unnest($1::text[]) AS requested(product_id)
          LEFT JOIN products p ON p.id = requested.product_id
          LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
@@ -1072,9 +1108,9 @@ export const queries = {
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($3::date, 'infinity'::date)
            AND COALESCE(r.end_date, 'infinity'::date) > $4::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
          HAVING p.id IS NULL
-            OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.id, data.endDate, current.start_date]
       );
       if (conflictResult.rows.length > 0) {
@@ -1171,7 +1207,11 @@ export const queries = {
 
   checkDateAvailability: async (data: { productId: string; startDate: string; endDate: string }) => {
     const [productResult, reservationsResult] = await Promise.all([
-      pool.query(`SELECT total_quantity, service_quantity, is_active FROM products WHERE id = $1`, [data.productId]),
+      pool.query(
+        `SELECT ${rentableQuantitySql()} AS rentable_quantity, p.is_active, p.condition_status
+         FROM products p WHERE p.id = $1`,
+        [data.productId]
+      ),
       pool.query(
       `SELECT r.id, r.start_date, r.end_date, r.name, r.status
        FROM reservations r
@@ -1184,9 +1224,7 @@ export const queries = {
       ),
     ]);
     const product = productResult.rows[0];
-    const rentableQuantity = product
-      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity), 0)
-      : 0;
+    const rentableQuantity = product ? Number(product.rentable_quantity) : 0;
     return {
       available: Boolean(product?.is_active) && reservationsResult.rows.length < rentableQuantity,
       rentableQuantity,
@@ -1206,7 +1244,7 @@ export const queries = {
          AND COALESCE(r.end_date, 'infinity'::date) >= $1::date
        GROUP BY p.id
        HAVING NOT p.is_active
-          OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+          OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
       [today]
     );
     return result.rows;

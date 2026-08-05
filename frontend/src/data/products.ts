@@ -255,6 +255,11 @@ export const products: Product[] = [
 export const DELIVERY_FEE = 20; // PLN - transport każdą stronę
 export const WEEKEND_PICKUP_FEE = 30; // PLN - odbiór w sobotę lub niedzielę
 
+// Bez pobranego katalogu znamy tylko wgraną na sztywno listę, która nie zna
+// stanów magazynowych - wtedy nie wolno deklarować dostępności sprzętu.
+let catalogLoaded = false;
+export const isCatalogLoaded = () => catalogLoaded;
+
 export async function loadProductCatalog(): Promise<void> {
   const response = await getProductCatalog();
   if (!response.success || !response.data?.products?.length) return;
@@ -294,6 +299,7 @@ export async function loadProductCatalog(): Promise<void> {
   });
 
   products.splice(0, products.length, ...hydrated);
+  catalogLoaded = true;
 }
 
 // Helper functions

@@ -310,12 +310,30 @@ router.post('/reservations', async (req: Request, res: Response) => {
     }
 
     if (result.conflicts) {
-      const conflictInfo = result.conflicts
-        .map((c: any) => `${getProductName(c.product_id)}: ${c.start_date} - ${c.end_date || 'bezterminowo'}`)
-        .join(', ');
+      // "Zajęte w tym terminie" i "sprzętu w ogóle nie ma" to dla klienta dwie
+      // różne sytuacje - druga nie zniknie po wybraniu innych dat.
+      const brakSprzetu = result.conflicts.filter((c: any) => Number(c.rentable_quantity) === 0);
+      const zajete = result.conflicts.filter((c: any) => Number(c.rentable_quantity) > 0);
+
+      const czesci: string[] = [];
+      if (brakSprzetu.length > 0) {
+        czesci.push(
+          `${brakSprzetu.map((c: any) => getProductName(c.product_id)).join(', ')} — chwilowo niedostępny (serwis lub brak w magazynie)`
+        );
+      }
+      if (zajete.length > 0) {
+        czesci.push(
+          `${zajete
+            .map((c: any) => `${getProductName(c.product_id)}: zajęty ${c.start_date} - ${c.end_date || 'bezterminowo'}`)
+            .join(', ')}`
+        );
+      }
+
       res.status(409).json({
         success: false,
-        message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
+        message: zajete.length > 0
+          ? `${czesci.join('. ')}. Wybierz inne daty lub inne urządzenie.`
+          : `${czesci.join('. ')}. Prosimy o kontakt — podpowiemy zamiennik.`,
         errors: [{ field: 'dates', message: 'Termin niedostępny' }],
       });
       return;

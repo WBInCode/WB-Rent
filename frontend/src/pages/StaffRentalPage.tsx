@@ -22,7 +22,7 @@ import {
   User,
 } from 'lucide-react';
 import { Button, Card, Input, Select, Textarea } from '@/components/ui';
-import { products, getProductById, calculateRentalCost, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
+import { products, getProductById, calculateRentalCost, isCatalogLoaded, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
 import { type ReservationPayload } from '@/services/api';
 import {
   createContractSession,
@@ -859,6 +859,16 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
     { id: 'pozostale', label: 'Pozostałe' },
   ];
   const visibleProducts = filter === 'all' ? products : products.filter((product) => product.categoryId === filter);
+  const katalogAktualny = isCatalogLoaded();
+
+  // 0 sztuk w magazynie = sprzętu nie ma fizycznie, nie da się go wynająć na żaden termin.
+  // 0 dostępnych dziś przy niezerowym stanie = jest wypożyczony, ale przyszły termin bywa wolny.
+  const stanSprzetu = (product: typeof products[number]) => {
+    if (!katalogAktualny) return { blokada: false, etykieta: '' };
+    if (product.totalQuantity === 0) return { blokada: true, etykieta: 'Brak w magazynie' };
+    if (product.availableToday === 0) return { blokada: false, etykieta: 'Wypożyczony dziś' };
+    return { blokada: false, etykieta: '' };
+  };
 
   return (
     <section className="rounded-[--radius-sm] border border-white/10 bg-[#111] overflow-hidden">
@@ -897,15 +907,17 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-px bg-white/10">
         {visibleProducts.map((product) => {
           const selected = selectedIds.includes(product.id);
+          const { blokada, etykieta } = stanSprzetu(product);
           return (
             <button
               key={product.id}
               type="button"
               aria-pressed={selected}
-              aria-label={`${selected ? 'Usuń' : 'Dodaj'} ${product.name}`}
+              disabled={blokada}
+              aria-label={`${blokada ? 'Niedostępny' : selected ? 'Usuń' : 'Dodaj'} ${product.name}`}
               onClick={() => onToggle(product.id)}
               className={`group relative text-left bg-[#111] p-3 sm:p-4 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-[-2px] ${
-                selected ? 'bg-gold/[0.08]' : 'hover:bg-white/[0.035]'
+                blokada ? 'opacity-45 cursor-not-allowed' : selected ? 'bg-gold/[0.08]' : 'hover:bg-white/[0.035]'
               }`}
             >
               <div className={`relative aspect-[4/3] rounded-lg bg-white overflow-hidden border transition-colors ${selected ? 'border-gold' : 'border-transparent group-hover:border-gold/30'}`}>
@@ -913,6 +925,13 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
                 {selected && (
                   <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gold text-black flex items-center justify-center shadow-lg">
                     <Check className="w-4 h-4" strokeWidth={3} />
+                  </span>
+                )}
+                {etykieta && (
+                  <span className={`absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                    blokada ? 'bg-error text-white' : 'bg-amber-500 text-black'
+                  }`}>
+                    {etykieta}
                   </span>
                 )}
               </div>

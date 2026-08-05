@@ -230,6 +230,21 @@ router.put('/products/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const data = productInventorySchema.parse({ ...req.body, id });
+
+    // Stock must never drop below what is already booked, otherwise active
+    // reservations point at equipment the system no longer has. The condition
+    // flag is deliberately excluded - equipment breaks mid-rental and staff must
+    // still be able to mark it; it only blocks new bookings.
+    const rentable = Math.max(data.totalQuantity - data.serviceQuantity, 0);
+    const booked = await queries.getPeakActiveReservations(id);
+    if (rentable < booked) {
+      res.status(409).json({
+        success: false,
+        message: `Nie można zejść poniżej ${booked} szt. — tyle sztuk jest równocześnie zarezerwowanych na przyszłe terminy. Najpierw anuluj lub zakończ te rezerwacje.`,
+      });
+      return;
+    }
+
     const product = await queries.updateProduct(id, data);
     if (!product) {
       res.status(404).json({ success: false, message: 'Produkt nie istnieje' });
