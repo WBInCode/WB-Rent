@@ -21,8 +21,8 @@ export const contractDetailsSchema = z.object({
   // Optional: the renter is identified by PESEL. Left blank when the employee
   // does not record the ID document.
   documentNumber: z.string().trim()
-    .max(30, 'Numer dokumentu może mieć maksymalnie 30 znaków')
-    .regex(/^[\p{L}\d\s-]*$/u, 'Numer dokumentu może zawierać tylko litery, cyfry, spacje i myślniki')
+    .max(30, 'Numer dokumentu tożsamości może mieć maksymalnie 30 znaków')
+    .regex(/^[\p{L}\d\s-]*$/u, 'Numer dokumentu tożsamości może zawierać tylko litery, cyfry, spacje i myślniki')
     .default(''),
   pesel: z.string().trim()
     .regex(/^\d{11}$/, 'PESEL musi składać się dokładnie z 11 cyfr'),

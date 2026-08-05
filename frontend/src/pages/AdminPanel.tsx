@@ -2829,18 +2829,7 @@ export function AdminPanel() {
                         required
                       />
                       <Input
-                        label="Numer dokumentu"
-                        value={contractForm.documentNumber}
-                        onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
-                        placeholder="ABC 123456"
-                        minLength={3}
-                        maxLength={30}
-                        pattern="[\p{L}\p{N} \-]{3,30}"
-                        hint="Minimum 3 znaki, np. ABC 123456"
-                        required
-                      />
-                      <Input
-                        label="PESEL (opcjonalnie)"
+                        label="PESEL"
                         value={contractForm.pesel || ''}
                         onChange={(event) => setContractForm((current) => ({ ...current, pesel: event.target.value.replace(/\D/g, '').slice(0, 11) }))}
                         placeholder="11 cyfr"
@@ -2848,7 +2837,16 @@ export function AdminPanel() {
                         minLength={11}
                         maxLength={11}
                         pattern="[0-9]{11}"
-                        hint="Dokładnie 11 cyfr albo pozostaw puste"
+                        hint="Dokładnie 11 cyfr — identyfikuje Najemcę w umowie"
+                        required
+                      />
+                      <Input
+                        label="Numer dokumentu tożsamości (opcjonalnie)"
+                        value={contractForm.documentNumber}
+                        onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
+                        placeholder="ABC 123456"
+                        maxLength={30}
+                        hint="Możesz zostawić puste — Najemcę identyfikuje PESEL"
                       />
                     </div>
                   </div>

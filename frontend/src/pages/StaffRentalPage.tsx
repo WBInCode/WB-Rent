@@ -277,7 +277,7 @@ export function StaffRentalPage() {
       return;
     }
     if (form.documentNumber.trim() && !/^[\p{L}\d\s-]+$/u.test(form.documentNumber.trim())) {
-      rejectWith('Numer dokumentu może zawierać tylko litery, cyfry, spacje i myślniki.', 'numer-dokumentu-(opcjonalnie)');
+      rejectWith('Numer dokumentu tożsamości może zawierać tylko litery, cyfry, spacje i myślniki.', 'numer-dokumentu-tożsamości-(opcjonalnie)');
       return;
     }
     if (form.employeeName.trim().length < 3) {
@@ -590,7 +590,7 @@ export function StaffRentalPage() {
                     required
                   />
                   <Input
-                    label="Numer dokumentu (opcjonalnie)"
+                    label="Numer dokumentu tożsamości (opcjonalnie)"
                     value={form.documentNumber}
                     onChange={(event) => update('documentNumber', event.target.value.toUpperCase())}
                     maxLength={30}

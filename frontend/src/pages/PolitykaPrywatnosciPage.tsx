@@ -129,7 +129,7 @@ export function PolitykaPrywatnosciPage() {
                     <div className="p-4 rounded-lg bg-bg-primary/50 md:col-span-2">
                       <h4 className="font-semibold text-text-primary mb-2">Elektroniczna umowa najmu i wydanie sprzętu:</h4>
                       <ul className="space-y-1 text-sm list-disc list-inside">
-                        <li>Adres zamieszkania, rodzaj i numer dokumentu tożsamości oraz opcjonalnie numer PESEL</li>
+                        <li>Adres zamieszkania, numer PESEL oraz opcjonalnie rodzaj i numer dokumentu tożsamości</li>
                         <li>Obraz odręcznego podpisu złożonego na ekranie urządzenia</li>
                         <li>Data i czas podpisu, adres IP, informacje o przeglądarce i urządzeniu</li>
                         <li>Opis wydanego sprzętu, akcesoriów, stanu technicznego, kaucji i rozliczenia</li>
