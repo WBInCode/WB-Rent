@@ -18,6 +18,7 @@ import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema,
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
+import { availableActions, canTransition } from './reservation-transitions.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -49,6 +50,17 @@ const termChangeSchema = z.object({
 });
 
 const reservationStatuses = ['pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected', 'cancelled'] as const;
+
+/** Wpis do historii, gdy pracownik nie dopisze wlasnej notatki. */
+const DOMYSLNA_NOTATKA: Record<string, string> = {
+  confirmed: 'Rezerwacja potwierdzona',
+  picked_up: 'Sprzęt wydany klientowi',
+  returned: 'Przyjęto zwrot sprzętu',
+  completed: 'Najem zamknięty i rozliczony',
+  rejected: 'Rezerwacja odrzucona',
+  cancelled: 'Rezerwacja anulowana',
+};
+
 const statusChangeSchema = z.object({
   status: z.enum(reservationStatuses),
   note: z.string().trim().max(500).optional(),
@@ -624,10 +636,16 @@ router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
     }
 
     const now = Date.now();
-    const zEtapem = reservations.map((reservation: any) => ({
-      ...reservation,
-      stage: describeRentalStage(reservation, now),
-    }));
+    const idki = reservations.map((r: any) => r.id);
+    const zdjeciaZwrotu = await queries.countReturnPhotosForReservations(idki);
+    const zEtapem = reservations.map((reservation: any) => {
+      const context = { returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0 };
+      return {
+        ...reservation,
+        stage: describeRentalStage(reservation, now),
+        actions: availableActions(reservation, context, now),
+      };
+    });
 
     res.json({ success: true, data: zEtapem });
   } catch (error) {
@@ -678,17 +696,16 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       return;
     }
 
-    // Zwrot to moment rozliczenia - bez udokumentowanego stanu sprzetu nie ma
-    // czym poprzec ewentualnych obciazen za uszkodzenia czy zabrudzenia.
-    if (status === 'returned' && reservation.status !== 'returned') {
-      const zdjecia = await queries.countReservationPhotos(reservation.id, 'after');
-      if (zdjecia === 0) {
-        res.status(409).json({
-          success: false,
-          message: 'Dodaj zdjęcia sprzętu po zwrocie — bez nich nie można zamknąć najmu.',
-        });
-        return;
-      }
+    // Jedna bramka na kolejnosc statusow i warunki biznesowe. Panel rysuje tylko
+    // dozwolone przyciski, ale API musi bronic sie samo.
+    const przejscie = canTransition(
+      reservation,
+      status,
+      { returnPhotos: await queries.countReservationPhotos(reservation.id, 'after') }
+    );
+    if (!przejscie.ok) {
+      res.status(409).json({ success: false, message: przejscie.reason });
+      return;
     }
 
     const activeStatuses = ['pending', 'confirmed', 'picked_up'];
@@ -714,7 +731,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     const updateResult = await queries.updateReservationStatus({
       id: Number(id),
       status,
-      note: input.note || `Status zmieniono na: ${status}`,
+      note: input.note || DOMYSLNA_NOTATKA[status] || `Status zmieniono na: ${status}`,
       changedBy: input.changedBy || 'Panel administratora',
       notifyCustomer,
     });

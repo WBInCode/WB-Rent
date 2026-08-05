@@ -449,6 +449,18 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         ADD COLUMN IF NOT EXISTS handover_lessor_signature_hash TEXT;
     `,
   },
+  {
+    version: 14,
+    name: 'normalize-reservation-status',
+    sql: `
+      -- Rezerwacje z wystawiona umowa zostawaly w kolejce zapytan, bo status
+      -- zmienial sie tylko po recznym kliknieciu. Maszyna stanow wymaga, zeby
+      -- kolumna status odzwierciedlala rzeczywisty etap obslugi.
+      UPDATE reservations
+      SET status = 'confirmed'
+      WHERE status = 'pending' AND contract_status IN ('ready', 'signed');
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -1833,6 +1845,19 @@ export const queries = {
     return Number(result.rows[0]?.liczba ?? 0);
   },
 
+  /** Liczba zdjec zwrotu dla wielu rezerwacji naraz - lista w panelu pyta o wszystkie. */
+  countReturnPhotosForReservations: async (ids: number[]): Promise<Record<number, number>> => {
+    if (ids.length === 0) return {};
+    const result = await pool.query(
+      `SELECT reservation_id, COUNT(*)::integer AS liczba
+       FROM reservation_photos
+       WHERE reservation_id = ANY($1::int[]) AND phase = 'after'
+       GROUP BY reservation_id`,
+      [ids]
+    );
+    return Object.fromEntries(result.rows.map((row) => [Number(row.reservation_id), Number(row.liczba)]));
+  },
+
   deleteReservationPhoto: async (id: number) => {
     const result = await pool.query(
       `DELETE FROM reservation_photos WHERE id = $1 RETURNING file_path`,
@@ -2004,6 +2029,12 @@ export const queries = {
       );
       await client.query(
         `UPDATE reservations SET contract_status = 'ready' WHERE id = $1`,
+        [data.reservationId]
+      );
+      // Przygotowanie umowy jest jednoznaczne z przyjeciem rezerwacji - inaczej
+      // zostawalaby w kolejce zapytan mimo wystawionego dokumentu.
+      await client.query(
+        `UPDATE reservations SET status = 'confirmed' WHERE id = $1 AND status = 'pending'`,
         [data.reservationId]
       );
       await client.query('COMMIT');

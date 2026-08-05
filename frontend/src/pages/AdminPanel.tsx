@@ -49,6 +49,7 @@ import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
 import { opiszEtap, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
+import { ACTION_TARGET_STATUS, type ActionAvailability, type RentalAction } from '@/utils/rentalActions';
 import {
   BarChart,
   Bar,
@@ -104,6 +105,8 @@ import {
   FolderArchive,
   Building2,
   AlertTriangle,
+  PackageCheck,
+  Undo2,
 } from 'lucide-react';
 
 type AdminTab = 'reservations' | 'products' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'documents' | 'discounts' | 'coupons' | 'business' | 'settings';
@@ -162,6 +165,8 @@ interface Reservation {
   contract_status?: 'not_prepared' | 'ready' | 'signed';
   /** Etap najmu wyliczony przez serwer z umowy, płatności i terminu. */
   stage?: RentalStageInfo;
+  /** Kroki dozwolone w tym momencie — panel nie rysuje żadnych innych. */
+  actions?: ActionAvailability[];
   created_at: string;
 }
 
@@ -318,16 +323,96 @@ function StageBadge({ info }: { info?: RentalStageInfo }) {
   );
 }
 
-const RESERVATION_STATUS_OPTIONS = [
-  { value: 'pending', label: 'Oczekuje' },
+const ACTION_STYLE: Record<RentalAction, {
+  etykieta: string;
+  Ikona: typeof Check;
+  klasa: string;
+  drugorzedna?: boolean;
+}> = {
+  confirm: {
+    etykieta: 'Potwierdź rezerwację',
+    Ikona: CheckCircle,
+    klasa: 'bg-gold text-black hover:bg-gold-light',
+  },
+  hand_over: {
+    etykieta: 'Wydaj sprzęt',
+    Ikona: PackageCheck,
+    klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
+  },
+  register_return: {
+    etykieta: 'Przyjmij zwrot',
+    Ikona: Undo2,
+    klasa: 'bg-sky-500 text-black hover:bg-sky-400',
+  },
+  complete: {
+    etykieta: 'Zamknij i rozlicz',
+    Ikona: CheckCircle,
+    klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
+  },
+  cancel: { etykieta: 'Anuluj', Ikona: XCircle, klasa: '', drugorzedna: true },
+  reject: { etykieta: 'Odrzuć', Ikona: XCircle, klasa: '', drugorzedna: true },
+};
 
-  { value: 'confirmed', label: 'Potwierdzona' },
-  { value: 'picked_up', label: 'Wydane' },
-  { value: 'returned', label: 'Zwrócone' },
-  { value: 'completed', label: 'Zakończona' },
-  { value: 'rejected', label: 'Odrzucona' },
-  { value: 'cancelled', label: 'Anulowana' },
-];
+/** Kolejny krok obsługi: tylko akcje, na które pozwala serwer. Zablokowane
+ *  zostają widoczne z powodem, żeby było wiadomo czego brakuje. */
+function StageActions({
+  actions,
+  onAction,
+}: {
+  actions?: ActionAvailability[];
+  onAction: (action: RentalAction) => void;
+}) {
+  if (!actions || actions.length === 0) {
+    return <p className="text-xs text-text-muted italic">Najem zamknięty — brak dalszych kroków</p>;
+  }
+
+  const glowne = actions.filter((item) => !ACTION_STYLE[item.action].drugorzedna);
+  const drugorzedne = actions.filter((item) => ACTION_STYLE[item.action].drugorzedna);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {glowne.map((item) => {
+        const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
+        return (
+          <button
+            key={item.action}
+            type="button"
+            disabled={!item.available}
+            title={item.reason}
+            onClick={() => onAction(item.action)}
+            className={`inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
+              item.available ? klasa : 'border border-border text-text-muted cursor-not-allowed opacity-60'
+            }`}
+          >
+            <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
+          </button>
+        );
+      })}
+      {glowne.some((item) => !item.available && item.reason) && (
+        <p className="text-[11px] text-amber-400/90 leading-snug">
+          {glowne.find((item) => !item.available && item.reason)?.reason}
+        </p>
+      )}
+      {drugorzedne.length > 0 && (
+        <div className="flex gap-1.5">
+          {drugorzedne.map((item) => {
+            const { etykieta, Ikona } = ACTION_STYLE[item.action];
+            return (
+              <button
+                key={item.action}
+                type="button"
+                onClick={() => onAction(item.action)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-[--radius-sm] text-xs text-text-muted hover:text-error hover:bg-error/10 transition-colors"
+              >
+                <Ikona className="w-3.5 h-3.5" aria-hidden="true" /> {etykieta}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const STATUS_DESCRIPTIONS: Record<string, string> = {
   pending: 'Przywraca rezerwację do kolejki oczekujących.',
@@ -1234,13 +1319,11 @@ export function AdminPanel() {
                         </p>
                       </div>
 
-                      <div className="w-full sm:w-[190px] shrink-0">
-                        <Select
-                          id={`reservation-status-${reservation.id}`}
-                          label="Status wynajmu"
-                          value={reservation.status}
-                          options={RESERVATION_STATUS_OPTIONS}
-                          onChange={(event) => void openStatusModal(reservation, event.target.value)}
+                      <div className="w-full sm:w-[210px] shrink-0">
+                        <p className="text-xs text-text-muted mb-1.5">Następny krok</p>
+                        <StageActions
+                          actions={reservation.actions}
+                          onAction={(action) => void openStatusModal(reservation, ACTION_TARGET_STATUS[action])}
                         />
                       </div>
 
@@ -2511,19 +2594,7 @@ export function AdminPanel() {
                 </div>
               </div>
 
-              <Select
-                id="manual-reservation-status"
-                label="Wybierz status"
-                value={statusForm.targetStatus}
-                options={RESERVATION_STATUS_OPTIONS.filter((option) => option.value !== statusFor.status)}
-                onChange={(event) => setStatusForm((current) => ({
-                  ...current,
-                  targetStatus: event.target.value,
-                  notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(event.target.value),
-                }))}
-              />
-
-              <div className="mt-4 p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
+              <div className="p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
                 {STATUS_DESCRIPTIONS[statusForm.targetStatus]}
               </div>
 
@@ -2547,13 +2618,12 @@ export function AdminPanel() {
                   required
                 />
                 <Textarea
-                  label="Powód zmiany"
+                  label="Notatka (opcjonalnie)"
                   value={statusForm.note}
                   onChange={(event) => setStatusForm((current) => ({ ...current, note: event.target.value }))}
-                  placeholder="Np. korekta po rozmowie z klientem"
+                  placeholder="Np. klient odebrał dzień później"
                   rows={3}
-                  minLength={3}
-                  required
+                  maxLength={500}
                 />
               </div>
 
@@ -2607,7 +2677,7 @@ export function AdminPanel() {
                 {!statusHistoryOnly && <Button
                   type="submit"
                   variant="primary"
-                  disabled={statusSaving || statusForm.changedBy.trim().length < 3 || statusForm.note.trim().length < 3}
+                  disabled={statusSaving || statusForm.changedBy.trim().length < 3}
                 >
                   {statusSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                   Zapisz status
