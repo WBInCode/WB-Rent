@@ -18,7 +18,7 @@ const liczbaZdjec = (ile: number) =>
 
 function Wiersz({ etykieta, children }: { etykieta: string; children: React.ReactNode }) {
   return (
-    <div className="grid sm:grid-cols-[170px_1fr] gap-1 sm:gap-4 py-1.5 border-b border-white/[0.06] last:border-0">
+    <div className="grid sm:grid-cols-[170px_1fr] gap-1 sm:gap-4 py-1.5 border-b border-border last:border-0">
       <dt className="text-xs text-text-muted uppercase tracking-wide">{etykieta}</dt>
       <dd className="text-sm text-text-primary whitespace-pre-line">{children}</dd>
     </div>
@@ -38,7 +38,7 @@ function Naglowek({ children }: { children: React.ReactNode }) {
  */
 export function HandoverDocument({ snapshot }: { snapshot: HandoverSnapshot }) {
   return (
-    <Card variant="glass" className="p-5 sm:p-7 bg-white/[0.02]">
+    <Card variant="glass" className="p-5 sm:p-7 bg-surface-soft">
       <div className="text-center pb-4 mb-5 border-b border-gold/30">
         <h2 className="text-lg sm:text-xl font-bold text-text-primary">PROTOKÓŁ WYDANIA SPRZĘTU</h2>
         <p className="text-sm text-text-muted mt-1">nr {snapshot.protocolNumber}</p>

@@ -155,6 +155,11 @@
 }
 
 /* === BASE STYLES === */
+/* Stałe odcienie palety Tailwind (amber-400, emerald-400…) są dobrane pod ciemne
+   tło i na jasnym gubią kontrast. Wariant `light:` pozwala podać ciemniejszy
+   odcień tylko dla jasnego motywu, bez ruszania wyglądu ciemnego. */
+@custom-variant light (&:where([data-theme='light'] *));
+
 *,
 *::before,
 *::after {

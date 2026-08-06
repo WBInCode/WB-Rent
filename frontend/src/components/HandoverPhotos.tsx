@@ -249,7 +249,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
     const phasePhotos = photos.filter((photo) => photo.phase === phase);
 
     return (
-      <div className="rounded-[--radius-sm] border border-white/10 bg-white/[0.02] p-4">
+      <div className="rounded-[--radius-sm] border border-border bg-surface-soft p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-text-primary">{PHASE_LABEL[phase]}</p>
@@ -272,7 +272,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={uploading !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-white/5 disabled:opacity-40"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-border-hover px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-soft disabled:opacity-40"
             >
               <ImagePlus className="h-4 w-4" />
               Z galerii
@@ -296,7 +296,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
         {phasePhotos.length > 0 && (
           <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
             {phasePhotos.map((photo) => (
-              <li key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-white/10 bg-black/30">
+              <li key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-black/30">
                 {previews[photo.id] ? (
                   <img
                     src={previews[photo.id]}

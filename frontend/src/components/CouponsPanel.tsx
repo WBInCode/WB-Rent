@@ -15,8 +15,8 @@ interface CouponsPanelProps {
 }
 
 const STATUS_STYLES: Record<AdminCoupon['status'], string> = {
-  active: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
-  used: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
+  active: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 light:text-emerald-700',
+  used: 'bg-sky-500/10 border-sky-500/25 text-sky-300 light:text-sky-700',
   cancelled: 'bg-white/[0.06] border-white/10 text-text-muted',
 };
 
@@ -118,8 +118,8 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden divide-x divide-y xl:divide-y-0 divide-white/10">
         <Metric label="Wszystkich" value={stats.total} />
-        <Metric label="Aktywnych" value={stats.active} tone="text-emerald-300" />
-        <Metric label="Wykorzystanych" value={stats.used} tone="text-sky-300" />
+        <Metric label="Aktywnych" value={stats.active} tone="text-emerald-300 light:text-emerald-700" />
+        <Metric label="Wykorzystanych" value={stats.used} tone="text-sky-300 light:text-sky-700" />
         <Metric label="Anulowanych" value={stats.cancelled} tone="text-text-muted" />
       </div>
 
@@ -350,7 +350,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
     >
       {children}
     </button>

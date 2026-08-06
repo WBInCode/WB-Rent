@@ -239,7 +239,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
                       </span>
                     )}
                     {doc.archived_at && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 light:text-amber-700 border border-amber-500/25">
                         archiwum
                       </span>
                     )}
@@ -411,7 +411,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
     >
       {children}
     </button>

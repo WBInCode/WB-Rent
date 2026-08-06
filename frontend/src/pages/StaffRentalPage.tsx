@@ -34,6 +34,7 @@ import {
   type CreateContractPayload,
 } from '@/services/adminApi';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const todayLocal = () => {
   const date = new Date();
@@ -449,7 +450,7 @@ export function StaffRentalPage() {
               onNotify={(message, tone) => setError(tone === 'error' ? message : '')}
             />
             {error && (
-              <p className="mt-3 text-sm text-red-300">{error}</p>
+              <p className="mt-3 text-sm text-red-300 light:text-red-700">{error}</p>
             )}
           </div>
 
@@ -464,14 +465,17 @@ export function StaffRentalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#090909] text-text-primary">
-      <div className="border-b border-white/10 bg-[#0d0d0d]">
+    <div className="min-h-screen bg-bg-primary text-text-primary">
+      <div className="border-b border-border bg-bg-secondary">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
           <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-gold transition-colors">
             <ArrowLeft className="w-4 h-4" /> Panel admina
           </Link>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
-            <ShieldCheck className="w-4 h-4 text-green-500" /> Tryb bezpiecznej obsługi klienta
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
+              <ShieldCheck className="w-4 h-4 text-green-500" /> Tryb bezpiecznej obsługi klienta
+            </div>
+            <ThemeToggle className="h-9 w-9" />
           </div>
         </div>
       </div>
@@ -715,7 +719,7 @@ export function StaffRentalPage() {
                       <h2 className="text-xl font-bold leading-snug">Wybrany zestaw</h2>
                       <div className="mt-4 space-y-2">
                         {price?.lineItems.map(({ product, price: itemPrice }, index) => (
-                          <div key={product.id} className="flex items-start justify-between gap-3 p-3 rounded-[--radius-sm] bg-white/[0.025] border border-white/[0.07]">
+                          <div key={product.id} className="flex items-start justify-between gap-3 p-3 rounded-[--radius-sm] bg-surface-soft border border-border">
                             <div className="min-w-0">
                               <p className="text-[10px] uppercase tracking-wider text-text-muted">Pozycja {index + 1}</p>
                               <p className="text-sm font-medium mt-0.5 leading-snug">{shortProductName(product.name)}</p>
@@ -817,7 +821,7 @@ export function StaffRentalPage() {
 
                 <div className="px-5 pb-5">
                   {error && (
-                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/25 text-sm text-red-300">{error}</div>
+                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/25 text-sm text-red-300 light:text-red-700">{error}</div>
                   )}
                   <Button type="submit" variant="primary" size="lg" className="w-full" disabled={selectedProducts.length === 0 || submitting}>
                     {submitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FileSignature className="w-5 h-5 mr-2" />}
@@ -850,7 +854,7 @@ function FormCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card variant="glass" className="p-5 sm:p-7 border-white/10">
+    <Card variant="glass" className="p-5 sm:p-7 border-border">
       <div className="flex items-start gap-4 mb-6">
         <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">{icon}</div>
         <div className="min-w-0">
@@ -886,8 +890,8 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
   };
 
   return (
-    <section className="rounded-[--radius-sm] border border-white/10 bg-[#111] overflow-hidden">
-      <div className="px-5 sm:px-7 py-5 border-b border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <section className="rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden">
+      <div className="px-5 sm:px-7 py-5 border-b border-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">
             <Layers3 className="w-5 h-5" />
@@ -909,7 +913,7 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
               aria-selected={filter === item.id}
               onClick={() => setFilter(item.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition-colors ${
-                filter === item.id ? 'bg-gold text-black border-gold' : 'bg-transparent text-text-secondary border-border hover:border-gold/40 hover:text-white'
+                filter === item.id ? 'bg-gold text-gold-contrast border-gold' : 'bg-transparent text-text-secondary border-border hover:border-gold/40 hover:text-text-primary'
               }`}
             >
               {item.label}
@@ -919,7 +923,7 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-px bg-white/10">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-px bg-surface-strong">
         {visibleProducts.map((product) => {
           const selected = selectedIds.includes(product.id);
           const { blokada, etykieta } = stanSprzetu(product);
@@ -931,14 +935,14 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
               disabled={blokada}
               aria-label={`${blokada ? 'Niedostępny' : selected ? 'Usuń' : 'Dodaj'} ${product.name}`}
               onClick={() => onToggle(product.id)}
-              className={`group relative text-left bg-[#111] p-3 sm:p-4 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-[-2px] ${
-                blokada ? 'opacity-45 cursor-not-allowed' : selected ? 'bg-gold/[0.08]' : 'hover:bg-white/[0.035]'
+              className={`group relative text-left bg-bg-card p-3 sm:p-4 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-[-2px] ${
+                blokada ? 'opacity-45 cursor-not-allowed' : selected ? 'bg-gold/[0.08]' : 'hover:bg-surface-soft'
               }`}
             >
               <div className={`relative aspect-[4/3] rounded-lg bg-white overflow-hidden border transition-colors ${selected ? 'border-gold' : 'border-transparent group-hover:border-gold/30'}`}>
                 <img src={product.image} alt="" className="absolute inset-0 w-full h-full object-contain p-2 sm:p-3" loading="lazy" />
                 {selected && (
-                  <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gold text-black flex items-center justify-center shadow-lg">
+                  <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gold text-gold-contrast flex items-center justify-center shadow-lg">
                     <Check className="w-4 h-4" strokeWidth={3} />
                   </span>
                 )}
@@ -951,7 +955,7 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
                 )}
               </div>
               <div className="pt-3">
-                <p className="text-[10px] uppercase tracking-wider text-gold/80">{categoryLabel(product.categoryId)}</p>
+                <p className="text-[10px] uppercase tracking-wider text-gold">{categoryLabel(product.categoryId)}</p>
                 <h3 className="text-xs sm:text-sm font-semibold leading-snug mt-1 line-clamp-2 min-h-[2.5rem]">{shortProductName(product.name)}</h3>
                 <div className="flex items-baseline justify-between gap-2 mt-2">
                   <span className="text-[11px] text-text-muted">od</span>
@@ -975,7 +979,7 @@ function PickupOption({ selected, icon, title, description, onClick }: { selecte
       onClick={onClick}
       className={`relative text-left p-4 rounded-lg border transition-colors ${selected ? 'border-gold bg-gold/10' : 'border-border bg-bg-primary/40 hover:border-border-hover'}`}
     >
-      <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${selected ? 'bg-gold text-black' : 'bg-white/5 text-text-muted'}`}>{icon}</span>
+      <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${selected ? 'bg-gold text-gold-contrast' : 'bg-surface-soft text-text-muted'}`}>{icon}</span>
       <span className="block text-sm font-semibold mt-3">{title}</span>
       <span className="block text-xs text-text-muted mt-1 leading-relaxed">{description}</span>
       {selected && <Check className="absolute top-3 right-3 w-4 h-4 text-gold" />}
@@ -986,7 +990,7 @@ function PickupOption({ selected, icon, title, description, onClick }: { selecte
 function ProcessStep({ number, label, active = false }: { number: string; label: string; active?: boolean }) {
   return (
     <div className={`flex items-center gap-1.5 ${active ? 'text-gold' : 'text-text-muted'}`}>
-      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${active ? 'bg-gold text-black border-gold' : 'border-border'}`}>{number}</span>
+      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${active ? 'bg-gold text-gold-contrast border-gold' : 'border-border'}`}>{number}</span>
       <span className="hidden sm:inline">{label}</span>
     </div>
   );

@@ -58,7 +58,7 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
   };
 
   return (
-    <div className="p-4 bg-white/[0.025] border border-white/[0.08] rounded-[--radius-sm]">
+    <div className="p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
       <div className="flex items-center justify-between gap-3 mb-3">
         <p className="text-text-muted flex items-center gap-2">
           <CreditCard className="w-4 h-4" /> Link do płatności
@@ -80,14 +80,14 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
       )}
 
       {info?.status === 'paid' && (
-        <p className="text-sm text-emerald-400 flex items-center gap-2">
+        <p className="text-sm text-emerald-400 light:text-emerald-700 flex items-center gap-2">
           <Check className="w-4 h-4" /> Rezerwacja opłacona — link nie jest już aktywny.
         </p>
       )}
 
       {info?.status === 'unavailable' && (
         <>
-          <p className="text-sm text-amber-400">{info.reason}</p>
+          <p className="text-sm text-amber-400 light:text-amber-700">{info.reason}</p>
           {info.canPayManually && (
             <div className="mt-3">
               <ManualPaymentForm
@@ -110,7 +110,7 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
             <span className="text-lg font-bold text-gold">{money(info.amount)}</span>
           </div>
 
-          <p className="text-[11px] font-mono text-text-muted break-all bg-black/30 rounded px-2 py-1.5 mb-3">
+          <p className="text-[11px] font-mono text-text-muted break-all bg-surface-strong rounded px-2 py-1.5 mb-3">
             {info.url}
           </p>
 
@@ -118,7 +118,7 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
             <button
               type="button"
               onClick={() => void copy()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm bg-gold text-black font-medium hover:bg-gold-light transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm bg-gold text-gold-contrast font-medium hover:bg-gold-light transition-colors"
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Skopiowano' : 'Kopiuj link'}

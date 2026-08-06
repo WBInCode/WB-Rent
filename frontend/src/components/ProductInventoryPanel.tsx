@@ -47,10 +47,10 @@ const CONDITION_OPTIONS: Array<{ value: ProductCondition; label: string }> = [
 ];
 
 const CONDITION_STYLES: Record<ProductCondition, string> = {
-  good: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
-  attention: 'bg-amber-500/10 border-amber-500/25 text-amber-300',
-  service: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
-  damaged: 'bg-red-500/10 border-red-500/25 text-red-300',
+  good: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 light:text-emerald-700',
+  attention: 'bg-amber-500/10 border-amber-500/25 text-amber-300 light:text-amber-700',
+  service: 'bg-sky-500/10 border-sky-500/25 text-sky-300 light:text-sky-700',
+  damaged: 'bg-red-500/10 border-red-500/25 text-red-300 light:text-red-700',
 };
 
 const emptyProduct: ProductInventoryPayload = {
@@ -228,9 +228,9 @@ export function ProductInventoryPanel({
       <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden">
         <div className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y xl:divide-y-0 divide-white/10">
           <InventoryMetric icon={<Boxes className="w-5 h-5" />} label="Wszystkie sztuki" value={totals.units} />
-          <InventoryMetric icon={<Package className="w-5 h-5" />} label="Dostępne dzisiaj" value={totals.available} tone="text-emerald-300" />
+          <InventoryMetric icon={<Package className="w-5 h-5" />} label="Dostępne dzisiaj" value={totals.available} tone="text-emerald-300 light:text-emerald-700" />
           <InventoryMetric icon={<Eye className="w-5 h-5" />} label="Wynajęte dzisiaj" value={totals.rented} tone="text-gold" />
-          <InventoryMetric icon={<Wrench className="w-5 h-5" />} label="Wyłączone / serwis" value={totals.service} tone="text-sky-300" />
+          <InventoryMetric icon={<Wrench className="w-5 h-5" />} label="Wyłączone / serwis" value={totals.service} tone="text-sky-300 light:text-sky-700" />
         </div>
       </div>
 
@@ -317,7 +317,7 @@ export function ProductInventoryPanel({
 
                 <div>
                   <div className="flex items-center gap-2 text-xs">
-                    <strong className="text-emerald-300">{available} dostępne</strong>
+                    <strong className="text-emerald-300 light:text-emerald-700">{available} dostępne</strong>
                     <span className="text-text-muted">{rented} wynajęte · {service} serwis</span>
                   </div>
                   <div className="mt-2 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
@@ -337,7 +337,7 @@ export function ProductInventoryPanel({
                     <Pencil className="w-4 h-4" />
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => onDelete(product)} aria-label={`Usuń ${product.name}`} title="Usuń produkt">
-                    <Trash2 className="w-4 h-4 text-red-300" />
+                    <Trash2 className="w-4 h-4 text-red-300 light:text-red-700" />
                   </Button>
                 </div>
               </div>
@@ -426,7 +426,7 @@ export function ProductInventoryPanel({
                                 <button type="button" disabled={index === form.images.length - 1} onClick={() => moveImage(index, index + 1)} className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5 disabled:opacity-25" title="Przesuń później" aria-label={`Przesuń zdjęcie ${index + 1} później`}>
                                   <ArrowDown className="w-4 h-4" />
                                 </button>
-                                <button type="button" disabled={form.images.length <= 1} onClick={() => void removeImage(index)} className="ml-auto p-2 rounded-md text-red-300 hover:bg-red-500/10 disabled:opacity-25" title={form.images.length <= 1 ? 'Produkt musi zachować co najmniej jedno zdjęcie' : 'Usuń z galerii'} aria-label={`Usuń zdjęcie ${index + 1}`}>
+                                <button type="button" disabled={form.images.length <= 1} onClick={() => void removeImage(index)} className="ml-auto p-2 rounded-md text-red-300 light:text-red-700 hover:bg-red-500/10 disabled:opacity-25" title={form.images.length <= 1 ? 'Produkt musi zachować co najmniej jedno zdjęcie' : 'Usuń z galerii'} aria-label={`Usuń zdjęcie ${index + 1}`}>
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
@@ -436,7 +436,7 @@ export function ProductInventoryPanel({
                       </div>
                     ) : (
                       <div className="p-6 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.05] text-center">
-                        <Images className="w-7 h-7 mx-auto text-amber-300" />
+                        <Images className="w-7 h-7 mx-auto text-amber-300 light:text-amber-700" />
                         <p className="text-sm text-amber-200 mt-2">Dodaj co najmniej jedno zdjęcie produktu</p>
                       </div>
                     )}
@@ -533,7 +533,7 @@ export function ProductInventoryPanel({
                     />
                   </div>
                   {form.serviceQuantity > form.totalQuantity && (
-                    <div className="mt-3 p-3 rounded-lg border border-red-500/25 bg-red-500/[0.08] text-sm text-red-300 flex items-start gap-2">
+                    <div className="mt-3 p-3 rounded-lg border border-red-500/25 bg-red-500/[0.08] text-sm text-red-300 light:text-red-700 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> Liczba sztuk w serwisie nie może przekraczać stanu całkowitego.
                     </div>
                   )}

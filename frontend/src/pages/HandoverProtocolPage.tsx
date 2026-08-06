@@ -18,6 +18,7 @@ import { Button, Card, Input, Textarea } from '@/components/ui';
 import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { HandoverDocument } from '@/components/HandoverDocument';
+import ThemeToggle from '@/components/ThemeToggle';
 import {
   downloadHandoverPdf,
   getHandoverProtocol,
@@ -129,10 +130,17 @@ export function HandoverProtocolPage() {
     setZapisywanie(false);
   };
 
-  const powrot = (
+  const linkDoPanelu = (
     <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-gold transition-colors">
       <ArrowLeft className="w-4 h-4" /> Wróć do panelu
     </Link>
+  );
+
+  const powrot = (
+    <div className="flex items-center justify-between gap-3">
+      {linkDoPanelu}
+      <ThemeToggle className="h-9 w-9" />
+    </div>
   );
 
   if (ladowanie) {
@@ -176,8 +184,8 @@ export function HandoverProtocolPage() {
     <div
       className={`p-3 rounded-[--radius-sm] text-sm border ${
         komunikat.ton === 'success'
-          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-          : 'bg-red-500/10 border-red-500/30 text-red-300'
+          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 light:text-emerald-700'
+          : 'bg-red-500/10 border-red-500/30 text-red-300 light:text-red-700'
       }`}
     >
       {komunikat.tekst}
@@ -195,7 +203,7 @@ export function HandoverProtocolPage() {
 
           <Card variant="glass" className="p-5 border-emerald-500/30 bg-emerald-500/[0.06]">
             <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 light:text-emerald-700 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-semibold text-text-primary">Protokół podpisany — sprzęt wydany</p>
                 <p className="text-sm text-text-muted mt-1">
@@ -225,7 +233,7 @@ export function HandoverProtocolPage() {
             />
           </Card>
 
-          <div className="pb-8">{powrot}</div>
+          <div className="pb-8">{linkDoPanelu}</div>
         </div>
       </div>
     );
@@ -261,7 +269,7 @@ export function HandoverProtocolPage() {
 
           {!view.canSign && (
             <Card variant="glass" className="p-4 border-amber-500/30 bg-amber-500/[0.06]">
-              <p className="text-sm text-amber-300 flex items-start gap-2">
+              <p className="text-sm text-amber-300 light:text-amber-700 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 {view.blockedReason}
               </p>
@@ -293,7 +301,7 @@ export function HandoverProtocolPage() {
             </div>
 
             {(!maPodpisPracownika || !maPodpisKlienta) && (
-              <p className="text-xs text-amber-300">
+              <p className="text-xs text-amber-300 light:text-amber-700">
                 Do podpisania brakuje:{' '}
                 {[!maPodpisPracownika && 'podpis wydającego', !maPodpisKlienta && 'podpis klienta']
                   .filter(Boolean)
@@ -318,7 +326,7 @@ export function HandoverProtocolPage() {
             </div>
           </Card>
 
-          <div className="pb-8">{powrot}</div>
+          <div className="pb-8">{linkDoPanelu}</div>
         </div>
       </div>
     );
@@ -334,7 +342,7 @@ export function HandoverProtocolPage() {
 
         {!view.canSign && (
           <Card variant="glass" className="p-4 border-amber-500/30 bg-amber-500/[0.06]">
-            <p className="text-sm text-amber-300 flex items-start gap-2">
+            <p className="text-sm text-amber-300 light:text-amber-700 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               {view.blockedReason}
             </p>
@@ -392,7 +400,7 @@ export function HandoverProtocolPage() {
                   size="sm"
                   aria-label={`Usuń pozycję ${index + 1}`}
                   onClick={() => setPozycje((lista) => lista.filter((_, i) => i !== index))}
-                  className="text-red-400 hover:text-red-300 shrink-0"
+                  className="text-red-400 light:text-red-700 hover:text-red-300 light:text-red-700 shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
@@ -452,7 +460,7 @@ export function HandoverProtocolPage() {
           />
 
           {braki.length > 0 && (
-            <p className="text-xs text-amber-300">Do wygenerowania protokołu brakuje: {braki.join(', ')}.</p>
+            <p className="text-xs text-amber-300 light:text-amber-700">Do wygenerowania protokołu brakuje: {braki.join(', ')}.</p>
           )}
 
           <Button
@@ -469,7 +477,7 @@ export function HandoverProtocolPage() {
           </p>
         </Card>
 
-        <div className="pb-8">{powrot}</div>
+        <div className="pb-8">{linkDoPanelu}</div>
       </div>
     </div>
   );

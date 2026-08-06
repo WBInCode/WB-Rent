@@ -62,7 +62,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
   const gotowe = potwierdzone && pracownik.trim().length >= 3 && Number(kwota.replace(',', '.')) > 0;
 
   return (
-    <div className="w-full mt-3 p-4 rounded-[--radius-sm] bg-white/[0.03] border border-gold/25">
+    <div className="w-full mt-3 p-4 rounded-[--radius-sm] bg-surface-soft border border-gold/25">
       <p className="text-sm font-semibold text-gold mb-3">Zapisz wpłatę przyjętą na miejscu</p>
 
       <div className="flex gap-2 mb-3">
@@ -72,7 +72,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
             type="button"
             onClick={() => setMetoda(id)}
             className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-[--radius-sm] text-xs font-medium border transition-colors ${
-              metoda === id ? 'bg-gold text-black border-gold' : 'border-border text-text-secondary hover:border-gold/40'
+              metoda === id ? 'bg-gold text-gold-contrast border-gold' : 'border-border text-text-secondary hover:border-gold/40'
             }`}
           >
             <Ikona className="w-3.5 h-3.5" /> {etykieta}
@@ -120,7 +120,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
           type="button"
           disabled={!gotowe || zapisywanie}
           onClick={() => void zapisz()}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm font-medium bg-gold text-black hover:bg-gold-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm font-medium bg-gold text-gold-contrast hover:bg-gold-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {zapisywanie ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
           Zapisz wpłatę
