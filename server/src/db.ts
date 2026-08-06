@@ -1180,17 +1180,6 @@ export const queries = {
     return result.rows;
   },
 
-  getReservationsByStatus: async (status: string) => {
-    const result = await pool.query(
-      `SELECT r.*,
-              COALESCE((SELECT json_agg(ri ORDER BY ri.position, ri.id)
-                        FROM reservation_items ri WHERE ri.reservation_id = r.id), '[]'::json) AS items
-       FROM reservations r WHERE r.status = $1 ORDER BY r.created_at DESC`,
-      [status]
-    );
-    return result.rows;
-  },
-
   getReservationsByEmail: async (email: string) => {
     const result = await pool.query(
             `SELECT r.id, r.product_id, r.start_date, r.end_date, r.is_indefinite, r.start_time, r.end_time,

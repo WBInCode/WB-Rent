@@ -266,8 +266,8 @@ export async function markReservationPaid(
 }
 
 // Get reservations
-export async function getReservations(status?: string) {
-  return adminFetch(status ? `/reservations?status=${encodeURIComponent(status)}` : '/reservations');
+export async function getReservations() {
+  return adminFetch('/reservations');
 }
 
 export interface ReservationStatusChangePayload {

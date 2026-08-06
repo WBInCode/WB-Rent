@@ -1,4 +1,4 @@
-import { useState, useEffect, useEffectEvent } from 'react';
+import { useState, useEffect, useMemo, useEffectEvent } from 'react';
 import { 
   adminLogin, 
   adminLogout, 
@@ -48,7 +48,7 @@ import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
-import { opiszEtap, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
+import { opiszEtap, pasujeDoFiltru, FILTRY, type KluczFiltru, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
 import { ACTION_TARGET_STATUS, type ActionAvailability, type RentalAction } from '@/utils/rentalActions';
 import {
   BarChart,
@@ -480,7 +480,7 @@ export function AdminPanel() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [inventoryProducts, setInventoryProducts] = useState<AdminProduct[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<KluczFiltru>('aktywne');
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [statusFor, setStatusFor] = useState<Reservation | null>(null);
@@ -769,12 +769,17 @@ export function AdminPanel() {
     return () => clearInterval(interval);
   }, [isLoggedIn]);
 
+  const widoczneRezerwacje = useMemo(
+    () => reservations.filter((reservation: Reservation) => pasujeDoFiltru(reservation.stage, statusFilter)),
+    [reservations, statusFilter]
+  );
+
   const loadData = async () => {
     setLoading(true);
     try {
       const [statsRes, reservationsRes, productsRes, contactsRes, revenueRes, subscribersRes, postsRes, notificationsRes] = await Promise.all([
         getStats(),
-        getReservations(statusFilter !== 'all' ? statusFilter : undefined),
+        getReservations(),
         getAdminProducts(),
         getContacts(),
         getRevenue(),
@@ -972,7 +977,7 @@ export function AdminPanel() {
     {
       label: 'Operacje',
       items: [
-        { id: 'reservations' as const, label: 'Rezerwacje', icon: Calendar, badge: reservations.length },
+        { id: 'reservations' as const, label: 'Rezerwacje', icon: Calendar, badge: reservations.filter((r: Reservation) => pasujeDoFiltru(r.stage, 'aktywne')).length || undefined },
         { id: 'products' as const, label: 'Produkty i magazyn', icon: Package, badge: inventoryProducts.filter((product) => Number(product.available_today) === 0).length || undefined },
         { id: 'calendar' as const, label: 'Kalendarz', icon: CalendarDays, badge: undefined },
         { id: 'revenue' as const, label: 'Przychody', icon: TrendingUp, badge: undefined },
@@ -1181,27 +1186,20 @@ export function AdminPanel() {
             {/* Filter */}
             <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-x-auto">
               <div className="flex gap-1.5 items-center min-w-max">
-              {['all', 'pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected'].map((status) => (
-                <Button
-                  key={status}
-                  variant={statusFilter === status ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => {
-                    setStatusFilter(status);
-                    if (status !== 'all') {
-                      getReservations(status).then(res => {
-                        if (res.success) setReservations(res.data);
-                      });
-                    } else {
-                      getReservations().then(res => {
-                        if (res.success) setReservations(res.data);
-                      });
-                    }
-                  }}
-                >
-                  {status === 'all' ? 'Wszystkie' : STATUS_LABELS[status]}
-                </Button>
-              ))}
+              {FILTRY.map((filtr) => {
+                const ile = reservations.filter((r: Reservation) => pasujeDoFiltru(r.stage, filtr.klucz)).length;
+                return (
+                  <Button
+                    key={filtr.klucz}
+                    variant={statusFilter === filtr.klucz ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setStatusFilter(filtr.klucz)}
+                  >
+                    {filtr.etykieta}
+                    <span className={`ml-1.5 tabular-nums ${ile === 0 ? 'opacity-40' : 'opacity-70'}`}>{ile}</span>
+                  </Button>
+                );
+              })}
               </div>
               <div className="ml-auto shrink-0 pl-2 border-l border-white/10">
                 <Button
@@ -1210,16 +1208,16 @@ export function AdminPanel() {
                   onClick={() => {
                     exportToCsv(
                       `rezerwacje-${new Date().toISOString().slice(0, 10)}.csv`,
-                      ['ID', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
-                      reservations.map(r => [
-                        r.id, STATUS_LABELS[r.status] || r.status, reservationProductLabel(r),
+                      ['ID', 'Etap', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
+                      widoczneRezerwacje.map(r => [
+                        r.id, opiszEtap(r.stage).etykieta, STATUS_LABELS[r.status] || r.status, reservationProductLabel(r),
                         r.start_date, r.end_date, r.start_time || '', r.end_time || '',
                         r.name, r.email, r.phone, r.city, r.delivery ? 'tak' : 'nie',
                         r.days, r.base_price, r.delivery_fee, r.total_price,
                         r.wants_invoice ? 'tak' : 'nie', r.invoice_nip || '', r.created_at,
                       ])
                     );
-                    showToast('success', `Wyeksportowano ${reservations.length} rezerwacji`);
+                    showToast('success', `Wyeksportowano ${widoczneRezerwacje.length} rezerwacji`);
                   }}
                 >
                   <FileText className="w-4 h-4 mr-2" />
@@ -1229,7 +1227,7 @@ export function AdminPanel() {
             </div>
 
             {/* Reservations list */}
-            {reservations.length === 0 ? (
+            {widoczneRezerwacje.length === 0 ? (
               <Card variant="glass" className="p-12 text-center border-dashed">
                 <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold flex items-center justify-center mx-auto mb-4">
                   <Calendar className="w-6 h-6" />
@@ -1238,14 +1236,7 @@ export function AdminPanel() {
                 <p className="text-sm text-text-muted mt-1">Zmień filtr lub utwórz nowy wynajem.</p>
               </Card>
             ) : (
-              reservations
-                .filter((reservation) => {
-                  // W zakładce "Wszystkie" nie pokazuj odrzuconych i zakończonych
-                  if (statusFilter === 'all') {
-                    return !['rejected', 'completed', 'cancelled'].includes(reservation.status);
-                  }
-                  return true;
-                })
+              widoczneRezerwacje
                 .map((reservation) => (
                 <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-white/10 bg-[#101010]">
                   <div className="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5">

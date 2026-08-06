@@ -448,16 +448,9 @@ router.post('/contracts/:id/resend-email', adminAuth, async (req: Request, res: 
 });
 
 // Get all reservations
-router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
+router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
   try {
-    const status = req.query.status as string | undefined;
-
-    let reservations;
-    if (status && status !== 'all') {
-      reservations = await queries.getReservationsByStatus(status);
-    } else {
-      reservations = await queries.getReservations();
-    }
+    const reservations = await queries.getReservations();
 
     const now = Date.now();
     const idki = reservations.map((r: any) => r.id);

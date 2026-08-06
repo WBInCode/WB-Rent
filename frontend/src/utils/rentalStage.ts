@@ -83,3 +83,61 @@ export function opiszEtap(info: RentalStageInfo | undefined | null): StageBadge 
   }
   return { etykieta, ton, szczegol: null };
 }
+
+/**
+ * Filtry listy rezerwacji. Celowo oparte na tych samych etapach co plakietki —
+ * wcześniej filtry mówiły surowym statusem ("Oczekuje"), a plakietka obok
+ * etapem ("Do zapłaty"), więc jeden ekran mówił dwoma językami.
+ */
+export type KluczFiltru =
+  | 'aktywne'
+  | 'wymaga_dzialania'
+  | 'do_wydania'
+  | 'u_klienta'
+  | 'po_terminie'
+  | 'zwroty'
+  | 'zakonczone'
+  | 'odrzucone'
+  | 'wszystkie';
+
+/**
+ * Każdy etap ma dokładnie jedną grupę. Zapis jako Record wymusza to na
+ * kompilatorze: nowy etap na serwerze nie przejdzie budowania, dopóki ktoś nie
+ * zdecyduje, w którym filtrze ma się pokazywać. Inaczej najem zniknąłby z listy.
+ */
+const GRUPA: Record<RentalStage, Exclude<KluczFiltru, 'aktywne' | 'wszystkie'>> = {
+  inquiry: 'wymaga_dzialania',
+  confirmed_no_contract: 'wymaga_dzialania',
+  awaiting_signature: 'wymaga_dzialania',
+  awaiting_payment: 'wymaga_dzialania',
+  ready_for_pickup: 'do_wydania',
+  with_customer: 'u_klienta',
+  overdue: 'po_terminie',
+  return_in_progress: 'zwroty',
+  completed: 'zakonczone',
+  rejected: 'odrzucone',
+  cancelled: 'odrzucone',
+};
+
+const ZAMKNIETE: RentalStage[] = ['completed', 'rejected', 'cancelled'];
+
+export const FILTRY: { klucz: KluczFiltru; etykieta: string }[] = [
+  { klucz: 'aktywne', etykieta: 'Aktywne' },
+  { klucz: 'wymaga_dzialania', etykieta: 'Wymaga działania' },
+  { klucz: 'do_wydania', etykieta: 'Do wydania' },
+  { klucz: 'u_klienta', etykieta: 'U klienta' },
+  { klucz: 'po_terminie', etykieta: 'Po terminie' },
+  { klucz: 'zwroty', etykieta: 'Zwroty' },
+  { klucz: 'zakonczone', etykieta: 'Zakończone' },
+  { klucz: 'odrzucone', etykieta: 'Odrzucone' },
+  { klucz: 'wszystkie', etykieta: 'Wszystkie' },
+];
+
+export function pasujeDoFiltru(info: RentalStageInfo | undefined | null, klucz: KluczFiltru): boolean {
+  if (klucz === 'wszystkie') return true;
+  const etap = info?.stage;
+  // Rezerwacja bez wyliczonego etapu nie może zniknąć z widoku - pokaż ją w domyślnym.
+  if (!etap || !(etap in GRUPA)) return klucz === 'aktywne';
+  if (klucz === 'aktywne') return !ZAMKNIETE.includes(etap);
+  return GRUPA[etap] === klucz;
+}
