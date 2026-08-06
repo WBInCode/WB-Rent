@@ -1867,6 +1867,49 @@ export const queries = {
   },
 
   // === PAYMENTS ===
+  /**
+   * Wplata przyjeta poza bramka - gotowka, przelew, terminal. Zamyka wszystkie
+   * otwarte sesje online, zeby klient nie zaplacil drugi raz przez internet.
+   */
+  recordManualPayment: async (data: {
+    reservationId: number;
+    amount: number;
+    method: string;
+    confirmedBy: string;
+  }) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE payments SET status = 'cancelled'
+         WHERE reservation_id = $1 AND status = 'pending'`,
+        [data.reservationId]
+      );
+      const sessionId = `manual-${data.reservationId}-${Date.now().toString(36)}`;
+      await client.query(
+        `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, status, paid_at)
+         VALUES ($1, $2, $3, $4, $5, 'paid', CURRENT_TIMESTAMP)`,
+        [data.reservationId, data.method, sessionId, data.confirmedBy.slice(0, 120), data.amount]
+      );
+      await client.query(
+        `UPDATE reservations SET payment_status = 'paid', payment_provider = $2 WHERE id = $1`,
+        [data.reservationId, data.method]
+      );
+      await client.query(
+        `UPDATE reservations SET status = 'confirmed'
+         WHERE id = $1 AND status = 'pending' AND contract_status = 'signed'`,
+        [data.reservationId]
+      );
+      await client.query('COMMIT');
+      return { sessionId };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
   insertPayment: async (data: {
     reservationId: number;
     provider: string;

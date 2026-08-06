@@ -55,7 +55,7 @@ export async function createPaymentForReservation(reservation: {
 export type PaymentLinkResult =
   | { status: 'ready'; url: string; sessionId: string; amount: number; provider: string; reused: boolean }
   | { status: 'paid' }
-  | { status: 'unavailable'; reason: string };
+  | { status: 'unavailable'; reason: string; amount: number; canPayManually: boolean };
 
 /**
  * Exactly one live payment link per reservation. Minting a fresh gateway session
@@ -67,23 +67,40 @@ export async function resolvePaymentLink(
   customerIp: string
 ): Promise<PaymentLinkResult> {
   const reservation = await queries.getReservationById(reservationId);
-  if (!reservation) return { status: 'unavailable', reason: 'Rezerwacja nie istnieje' };
-  if (reservation.payment_status === 'paid') return { status: 'paid' };
-  if (['rejected', 'cancelled'].includes(reservation.status)) {
-    return { status: 'unavailable', reason: 'Rezerwacja została anulowana' };
+  if (!reservation) {
+    return { status: 'unavailable', reason: 'Rezerwacja nie istnieje', amount: 0, canPayManually: false };
   }
+  if (reservation.payment_status === 'paid') return { status: 'paid' };
 
-  const provider = getActiveProvider();
-  if (!provider) return { status: 'unavailable', reason: 'Płatności online są obecnie wyłączone' };
+  const amount = Number(reservation.total_price);
+
+  if (['rejected', 'cancelled'].includes(reservation.status)) {
+    return { status: 'unavailable', reason: 'Rezerwacja została anulowana', amount, canPayManually: false };
+  }
 
   if (config.contracts.enabled && config.contracts.requireBeforePayment) {
     const signed = await queries.hasSignedContract(reservationId);
     if (!signed) {
-      return { status: 'unavailable', reason: 'Najpierw musi zostać podpisana umowa najmu' };
+      return {
+        status: 'unavailable',
+        reason: 'Najpierw musi zostać podpisana umowa najmu',
+        amount,
+        canPayManually: false,
+      };
     }
   }
 
-  const amount = Number(reservation.total_price);
+  const provider = getActiveProvider();
+  if (!provider) {
+    // Bramka wyłączona nie znaczy, że klient nie może zapłacić przy ladzie.
+    return {
+      status: 'unavailable',
+      reason: 'Płatności online są obecnie wyłączone',
+      amount,
+      canPayManually: true,
+    };
+  }
+
   const latest = await queries.getLatestPaymentForReservation(reservationId);
   const reusable = latest
     && latest.status === 'pending'
@@ -106,7 +123,14 @@ export async function resolvePaymentLink(
   await queries.cancelPendingPayments(reservationId);
 
   const created = await createPaymentForReservation(reservation, customerIp);
-  if (!created) return { status: 'unavailable', reason: 'Nie udało się utworzyć płatności' };
+  if (!created) {
+    return {
+      status: 'unavailable',
+      reason: 'Nie udało się utworzyć płatności online',
+      amount,
+      canPayManually: true,
+    };
+  }
 
   return {
     status: 'ready',

@@ -204,10 +204,6 @@ export function ContractSigningPage() {
               </Button>
             </Link>
           </div>
-
-          <p className="text-xs text-text-muted text-center mt-6">
-            Sprzęt wydajemy po podpisaniu protokołu wydania na miejscu. W razie pytań: 570 038 828.
-          </p>
         </Card>
       </div>
     );

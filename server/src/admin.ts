@@ -449,185 +449,9 @@ router.post('/contracts/:id/resend-email', adminAuth, async (req: Request, res: 
 
 // Get all reservations
 router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
-
-  router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res: Response) => {
-    const reservation = await queries.getReservationById(Number(req.params.id));
-    if (!reservation) {
-      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
-      return;
-    }
-    const changes = await queries.getReservationTermChanges(reservation.id);
-    res.json({ success: true, data: changes });
-  });
-
-  // === LINK DO PŁATNOŚCI ===
-  // Zwraca ten sam link przy kolejnych wywołaniach, żeby klient nie dostał kilku
-  // otwartych sesji płatności i nie zapłacił dwa razy.
-  router.get('/reservations/:id/payment-link', adminAuth, async (req: Request, res: Response) => {
-    try {
-      const link = await resolvePaymentLink(Number(req.params.id), '127.0.0.1');
-      res.json({ success: true, data: link });
-    } catch (error) {
-      console.error('Admin payment link error:', error);
-      res.status(500).json({ success: false, message: 'Nie udało się przygotować linku do płatności' });
-    }
-  });
-
-  router.post('/reservations/:id/payment-link/send', adminAuth, async (req: Request, res: Response) => {
-    try {
-      const reservation = await queries.getReservationById(Number(req.params.id));
-      if (!reservation) {
-        res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
-        return;
-      }
-
-      const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
-      if (link.status === 'paid') {
-        res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
-        return;
-      }
-      if (link.status === 'unavailable') {
-        res.status(409).json({ success: false, message: link.reason });
-        return;
-      }
-
-      const result = await sendPaymentLinkEmail(
-        reservation.email,
-        reservation.name,
-        reservation.id,
-        link.amount,
-        link.url
-      );
-      if (!result.delivered) {
-        res.status(502).json({
-          success: false,
-          message: 'Link został przygotowany, ale e-mail nie został wysłany. Skopiuj link ręcznie.',
-        });
-        return;
-      }
-
-      res.json({ success: true, message: `Link do płatności wysłany na ${reservation.email}` });
-    } catch (error) {
-      console.error('Admin payment link send error:', error);
-      res.status(500).json({ success: false, message: 'Nie udało się wysłać linku do płatności' });
-    }
-  });
-
-  router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {
-    try {
-      const input = termChangeSchema.parse(req.body);
-      const reservation = await queries.getReservationById(Number(req.params.id));
-      if (!reservation) {
-        res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
-        return;
-      }
-      if (reservation.status !== 'picked_up') {
-        res.status(409).json({ success: false, message: 'Termin można zmienić tylko dla wydanego sprzętu' });
-        return;
-      }
-      if (input.isIndefinite && reservation.is_indefinite) {
-        res.status(400).json({ success: false, message: 'Ten wynajem jest już bezterminowy' });
-        return;
-      }
-
-      let endDate: string | null = null;
-      let days = Number(reservation.days);
-      let basePrice = Number(reservation.base_price);
-      let totalPrice = Number(reservation.total_price);
-      if (!input.isIndefinite) {
-        if (!input.endDate || Number.isNaN(Date.parse(input.endDate))) {
-          res.status(400).json({ success: false, message: 'Podaj prawidłową datę zwrotu' });
-          return;
-        }
-        endDate = input.endDate;
-        const currentEnd = reservation.end_date ? String(reservation.end_date) : null;
-        const currentEndAt = currentEnd
-          ? Date.parse(`${currentEnd.slice(0, 10)}T${reservation.end_time || '09:00'}`)
-          : null;
-        const newEndAt = Date.parse(`${endDate}T${input.endTime}`);
-        if (currentEndAt !== null && newEndAt <= currentEndAt) {
-          res.status(400).json({ success: false, message: 'Nowy termin musi być późniejszy od obecnego terminu zwrotu' });
-          return;
-        }
-        if (Date.parse(endDate) < Date.parse(String(reservation.start_date))) {
-          res.status(400).json({ success: false, message: 'Termin zwrotu nie może być wcześniejszy od odbioru' });
-          return;
-        }
-
-        const dateDiff = Math.round(
-          (Date.parse(endDate) - Date.parse(String(reservation.start_date))) / 86_400_000
-        );
-        const [startHour, startMinute] = String(reservation.start_time || '09:00').split(':').map(Number);
-        const [endHour, endMinute] = input.endTime.split(':').map(Number);
-        const extraDay = endHour * 60 + endMinute > startHour * 60 + startMinute ? 1 : 0;
-        days = Math.max(1, dateDiff + extraDay);
-        const pickupDay = new Date(`${String(reservation.start_date)}T12:00:00`).getDay();
-        const pricing = calculateRentalItemsPrice(
-          reservationProductIds(reservation),
-          days,
-          pickupDay === 5 && days === 3
-        );
-        if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
-        basePrice = pricing.basePrice;
-        const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
-        totalPrice = basePrice + fixedFees;
-      }
-
-      const result = await queries.changeReservationTerm({
-        id: reservation.id,
-        endDate,
-        endTime: input.endTime,
-        isIndefinite: input.isIndefinite,
-        days,
-        basePrice,
-        totalPrice,
-        itemPrices: input.isIndefinite
-          ? (reservation.items || []).map((item: any) => ({ productId: String(item.product_id), itemPrice: Number(item.item_price) }))
-          : (calculateRentalItemsPrice(
-              reservationProductIds(reservation),
-              days,
-              new Date(`${String(reservation.start_date)}T12:00:00`).getDay() === 5 && days === 3
-            )?.items.map((item) => ({ productId: item.productId, itemPrice: item.itemPrice })) || []),
-        note: input.note,
-        changedBy: input.changedBy,
-      });
-      if (result.conflicts?.length) {
-        const conflict = result.conflicts[0];
-        res.status(409).json({
-          success: false,
-          message: `Nie można zmienić terminu: ${getProductName(conflict.product_id)} jest zarezerwowany od ${conflict.start_date}`,
-          data: { conflicts: result.conflicts },
-        });
-        return;
-      }
-
-      const priceDelta = totalPrice - Number(reservation.total_price);
-      const emailResult = await sendRentalTermChangedEmail({
-        email: reservation.email,
-        name: reservation.name,
-        productName: reservationProductNames(reservation),
-        endDate: input.isIndefinite ? 'bezterminowo - do odwołania' : `${endDate} ${input.endTime}`,
-        totalPrice,
-        priceDelta,
-        note: input.note,
-      });
-      res.json({
-        success: true,
-        message: input.isIndefinite ? 'Wynajem zmieniono na bezterminowy' : 'Termin wynajmu został przedłużony',
-        data: { reservation: result.reservation, priceDelta, emailDelivered: emailResult.delivered },
-      });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zmiany' });
-        return;
-      }
-      console.error('Reservation term change error:', error);
-      res.status(500).json({ success: false, message: 'Nie udało się zmienić terminu wynajmu' });
-    }
-  });
   try {
     const status = req.query.status as string | undefined;
-    
+
     let reservations;
     if (status && status !== 'all') {
       reservations = await queries.getReservationsByStatus(status);
@@ -651,6 +475,230 @@ router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Admin reservations error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res: Response) => {
+  const reservation = await queries.getReservationById(Number(req.params.id));
+  if (!reservation) {
+    res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+    return;
+  }
+  const changes = await queries.getReservationTermChanges(reservation.id);
+  res.json({ success: true, data: changes });
+});
+
+// === LINK DO PŁATNOŚCI ===
+// Zwraca ten sam link przy kolejnych wywołaniach, żeby klient nie dostał kilku
+// otwartych sesji płatności i nie zapłacił dwa razy.
+router.get('/reservations/:id/payment-link', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const link = await resolvePaymentLink(Number(req.params.id), '127.0.0.1');
+    res.json({ success: true, data: link });
+  } catch (error) {
+    console.error('Admin payment link error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się przygotować linku do płatności' });
+  }
+});
+
+// Wpłata przyjęta przy ladzie. Bez tego wydanie sprzętu blokowałoby się na
+// "rezerwacja nieopłacona", mimo że pieniądze są w kasie.
+const manualPaymentSchema = z.object({
+  method: z.enum(['cash', 'transfer', 'terminal'], { message: 'Wybierz formę wpłaty: gotówka, przelew lub terminal' }),
+  amount: z.number({ message: 'Podaj kwotę wpłaty' }).positive('Kwota musi być większa od zera').max(100000),
+  confirmedBy: z.string({ message: 'Podaj imię i nazwisko pracownika' }).trim().min(3, 'Podaj imię i nazwisko pracownika').max(120),
+});
+
+router.post('/reservations/:id/mark-paid', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = manualPaymentSchema.parse(req.body);
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    // Ta sama bramka co dla płatności online. Inaczej gotówka omijałaby wymóg
+    // podpisanej umowy i pozwalała wydać sprzęt bez dokumentu.
+    const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
+    if (link.status === 'paid') {
+      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+      return;
+    }
+    if (link.status === 'unavailable' && !link.canPayManually) {
+      res.status(409).json({ success: false, message: link.reason });
+      return;
+    }
+
+    await queries.recordManualPayment({
+      reservationId: reservation.id,
+      amount: input.amount,
+      method: input.method,
+      confirmedBy: input.confirmedBy,
+    });
+
+    const nazwa = { cash: 'gotówką', transfer: 'przelewem', terminal: 'terminalem' }[input.method];
+    res.json({ success: true, message: `Zapisano wpłatę ${nazwa}. Link online przestał działać.` });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane wpłaty' });
+      return;
+    }
+    console.error('Manual payment error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać wpłaty' });
+  }
+});
+
+router.post('/reservations/:id/payment-link/send', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
+    if (link.status === 'paid') {
+      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+      return;
+    }
+    if (link.status === 'unavailable') {
+      res.status(409).json({ success: false, message: link.reason });
+      return;
+    }
+
+    const result = await sendPaymentLinkEmail(
+      reservation.email,
+      reservation.name,
+      reservation.id,
+      link.amount,
+      link.url
+    );
+    if (!result.delivered) {
+      res.status(502).json({
+        success: false,
+        message: 'Link został przygotowany, ale e-mail nie został wysłany. Skopiuj link ręcznie.',
+      });
+      return;
+    }
+
+    res.json({ success: true, message: `Link do płatności wysłany na ${reservation.email}` });
+  } catch (error) {
+    console.error('Admin payment link send error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wysłać linku do płatności' });
+  }
+});
+
+router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = termChangeSchema.parse(req.body);
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    if (reservation.status !== 'picked_up') {
+      res.status(409).json({ success: false, message: 'Termin można zmienić tylko dla wydanego sprzętu' });
+      return;
+    }
+    if (input.isIndefinite && reservation.is_indefinite) {
+      res.status(400).json({ success: false, message: 'Ten wynajem jest już bezterminowy' });
+      return;
+    }
+
+    let endDate: string | null = null;
+    let days = Number(reservation.days);
+    let basePrice = Number(reservation.base_price);
+    let totalPrice = Number(reservation.total_price);
+    if (!input.isIndefinite) {
+      if (!input.endDate || Number.isNaN(Date.parse(input.endDate))) {
+        res.status(400).json({ success: false, message: 'Podaj prawidłową datę zwrotu' });
+        return;
+      }
+      endDate = input.endDate;
+      const currentEnd = reservation.end_date ? String(reservation.end_date) : null;
+      const currentEndAt = currentEnd
+        ? Date.parse(`${currentEnd.slice(0, 10)}T${reservation.end_time || '09:00'}`)
+        : null;
+      const newEndAt = Date.parse(`${endDate}T${input.endTime}`);
+      if (currentEndAt !== null && newEndAt <= currentEndAt) {
+        res.status(400).json({ success: false, message: 'Nowy termin musi być późniejszy od obecnego terminu zwrotu' });
+        return;
+      }
+      if (Date.parse(endDate) < Date.parse(String(reservation.start_date))) {
+        res.status(400).json({ success: false, message: 'Termin zwrotu nie może być wcześniejszy od odbioru' });
+        return;
+      }
+
+      const dateDiff = Math.round(
+        (Date.parse(endDate) - Date.parse(String(reservation.start_date))) / 86_400_000
+      );
+      const [startHour, startMinute] = String(reservation.start_time || '09:00').split(':').map(Number);
+      const [endHour, endMinute] = input.endTime.split(':').map(Number);
+      const extraDay = endHour * 60 + endMinute > startHour * 60 + startMinute ? 1 : 0;
+      days = Math.max(1, dateDiff + extraDay);
+      const pickupDay = new Date(`${String(reservation.start_date)}T12:00:00`).getDay();
+      const pricing = calculateRentalItemsPrice(
+        reservationProductIds(reservation),
+        days,
+        pickupDay === 5 && days === 3
+      );
+      if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
+      basePrice = pricing.basePrice;
+      const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
+      totalPrice = basePrice + fixedFees;
+    }
+
+    const result = await queries.changeReservationTerm({
+      id: reservation.id,
+      endDate,
+      endTime: input.endTime,
+      isIndefinite: input.isIndefinite,
+      days,
+      basePrice,
+      totalPrice,
+      itemPrices: input.isIndefinite
+        ? (reservation.items || []).map((item: any) => ({ productId: String(item.product_id), itemPrice: Number(item.item_price) }))
+        : (calculateRentalItemsPrice(
+            reservationProductIds(reservation),
+            days,
+            new Date(`${String(reservation.start_date)}T12:00:00`).getDay() === 5 && days === 3
+          )?.items.map((item) => ({ productId: item.productId, itemPrice: item.itemPrice })) || []),
+      note: input.note,
+      changedBy: input.changedBy,
+    });
+    if (result.conflicts?.length) {
+      const conflict = result.conflicts[0];
+      res.status(409).json({
+        success: false,
+        message: `Nie można zmienić terminu: ${getProductName(conflict.product_id)} jest zarezerwowany od ${conflict.start_date}`,
+        data: { conflicts: result.conflicts },
+      });
+      return;
+    }
+
+    const priceDelta = totalPrice - Number(reservation.total_price);
+    const emailResult = await sendRentalTermChangedEmail({
+      email: reservation.email,
+      name: reservation.name,
+      productName: reservationProductNames(reservation),
+      endDate: input.isIndefinite ? 'bezterminowo - do odwołania' : `${endDate} ${input.endTime}`,
+      totalPrice,
+      priceDelta,
+      note: input.note,
+    });
+    res.json({
+      success: true,
+      message: input.isIndefinite ? 'Wynajem zmieniono na bezterminowy' : 'Termin wynajmu został przedłużony',
+      data: { reservation: result.reservation, priceDelta, emailDelivered: emailResult.delivered },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zmiany' });
+      return;
+    }
+    console.error('Reservation term change error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zmienić terminu wynajmu' });
   }
 });
 

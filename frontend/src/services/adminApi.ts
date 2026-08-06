@@ -240,7 +240,7 @@ export async function resendContractEmail(contractId: number) {
 export type PaymentLinkInfo =
   | { status: 'ready'; url: string; sessionId: string; amount: number; provider: string; reused: boolean }
   | { status: 'paid' }
-  | { status: 'unavailable'; reason: string };
+  | { status: 'unavailable'; reason: string; amount: number; canPayManually: boolean };
 
 export async function getPaymentLink(reservationId: number) {
   return adminFetch(`/reservations/${reservationId}/payment-link`);
@@ -250,6 +250,18 @@ export async function sendPaymentLink(reservationId: number) {
   return adminFetch(`/reservations/${reservationId}/payment-link/send`, {
     method: 'POST',
     body: JSON.stringify({}),
+  });
+}
+
+export type ManualPaymentMethod = 'cash' | 'transfer' | 'terminal';
+
+export async function markReservationPaid(
+  reservationId: number,
+  payload: { method: ManualPaymentMethod; amount: number; confirmedBy: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/mark-paid`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

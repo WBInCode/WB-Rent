@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Copy, CreditCard, ExternalLink, Loader2, Mail, RefreshCw } from 'lucide-react';
 import { getPaymentLink, sendPaymentLink, type PaymentLinkInfo } from '@/services/adminApi';
+import { ManualPaymentForm } from '@/components/ManualPaymentForm';
 
 interface PaymentLinkPanelProps {
   reservationId: number;
@@ -25,7 +26,12 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
     setInfo(
       response.success && response.data
         ? (response.data as PaymentLinkInfo)
-        : { status: 'unavailable', reason: response.message || 'Nie udało się pobrać linku' }
+        : {
+            status: 'unavailable',
+            reason: response.message || 'Nie udało się pobrać linku',
+            amount: 0,
+            canPayManually: false,
+          }
     );
     setLoading(false);
   }, [reservationId]);
@@ -80,7 +86,21 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
       )}
 
       {info?.status === 'unavailable' && (
-        <p className="text-sm text-amber-400">{info.reason}</p>
+        <>
+          <p className="text-sm text-amber-400">{info.reason}</p>
+          {info.canPayManually && (
+            <div className="mt-3">
+              <ManualPaymentForm
+                reservationId={reservationId}
+                amount={info.amount}
+                onDone={(message, tone) => {
+                  onNotify?.(message, tone);
+                  void load();
+                }}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {info?.status === 'ready' && (
@@ -120,6 +140,14 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               Wyślij mailem
             </button>
+            <ManualPaymentForm
+              reservationId={reservationId}
+              amount={info.amount}
+              onDone={(message, tone) => {
+                onNotify?.(message, tone);
+                void load();
+              }}
+            />
           </div>
 
           <p className="text-[11px] text-text-muted mt-3">
