@@ -58,6 +58,25 @@ export type PaymentLinkResult =
   | { status: 'unavailable'; reason: string; amount: number; canPayManually: boolean };
 
 /**
+ * Czy klient moze teraz sam ruszyc platnosc online. Te same warunki co
+ * resolvePaymentLink, ale bez zakladania sesji w bramce - zeby samo wyswietlenie
+ * listy rezerwacji nie tworzylo platnosci.
+ */
+export function canCustomerPayOnline(reservation: {
+  status: string;
+  payment_status?: string | null;
+  contract_status?: string | null;
+}): boolean {
+  if (reservation.payment_status === 'paid') return false;
+  if (['rejected', 'cancelled'].includes(reservation.status)) return false;
+  if (!getActiveProvider()) return false;
+  if (config.contracts.enabled && config.contracts.requireBeforePayment) {
+    return reservation.contract_status === 'signed';
+  }
+  return true;
+}
+
+/**
  * Exactly one live payment link per reservation. Minting a fresh gateway session
  * on every click would leave several openable links and invite paying twice, so
  * the pending session is reused until the amount changes or it gets paid.

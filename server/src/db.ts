@@ -1184,7 +1184,7 @@ export const queries = {
     const result = await pool.query(
             `SELECT r.id, r.product_id, r.start_date, r.end_date, r.is_indefinite, r.start_time, r.end_time,
               r.status, r.days, r.total_price, r.delivery, r.city, r.created_at,
-              r.payment_status, r.payment_provider,
+              r.payment_status, r.payment_provider, r.contract_status,
               COALESCE((SELECT json_agg(ri ORDER BY ri.position, ri.id)
             FROM reservation_items ri WHERE ri.reservation_id = r.id), '[]'::json) AS items
              FROM reservations r

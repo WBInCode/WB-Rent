@@ -141,3 +141,61 @@ export function pasujeDoFiltru(info: RentalStageInfo | undefined | null, klucz: 
   if (klucz === 'aktywne') return !ZAMKNIETE.includes(etap);
   return GRUPA[etap] === klucz;
 }
+
+/**
+ * To samo co OPIS, ale słowami klienta: obsługa czyta "Czeka na podpis klienta",
+ * klient musi przeczytać, że to ON ma coś zrobić. Wcześniej strona klienta
+ * pokazywała surowy status i najem czekający na podpis wyglądał na załatwiony.
+ */
+const OPIS_KLIENTA: Record<RentalStage, { etykieta: string; ton: StageTone; wskazowka: string | null }> = {
+  inquiry: {
+    etykieta: 'Sprawdzamy dostępność',
+    ton: 'warning',
+    wskazowka: 'Odezwiemy się z potwierdzeniem terminu.',
+  },
+  confirmed_no_contract: {
+    etykieta: 'Termin potwierdzony',
+    ton: 'info',
+    wskazowka: 'Przygotowujemy umowę — dostaniesz ją mailem do podpisu.',
+  },
+  awaiting_signature: {
+    etykieta: 'Do podpisania',
+    ton: 'warning',
+    wskazowka: 'Umowa czeka na Twój podpis — link wysłaliśmy mailem. Po podpisaniu można opłacić najem.',
+  },
+  awaiting_payment: {
+    etykieta: 'Do zapłaty',
+    ton: 'warning',
+    wskazowka: 'Umowa podpisana. Opłać najem, żeby odebrać sprzęt.',
+  },
+  ready_for_pickup: {
+    etykieta: 'Gotowe do odbioru',
+    ton: 'success',
+    wskazowka: 'Wszystko opłacone — sprzęt czeka na Ciebie w umówionym terminie.',
+  },
+  with_customer: { etykieta: 'Sprzęt u Ciebie', ton: 'info', wskazowka: null },
+  overdue: {
+    etykieta: 'Termin zwrotu minął',
+    ton: 'alert',
+    wskazowka: 'Skontaktuj się z nami, żeby ustalić zwrot lub przedłużenie.',
+  },
+  return_in_progress: {
+    etykieta: 'Sprzęt zwrócony',
+    ton: 'info',
+    wskazowka: 'Kończymy rozliczenie najmu.',
+  },
+  completed: { etykieta: 'Zakończona', ton: 'neutral', wskazowka: null },
+  rejected: { etykieta: 'Odrzucona', ton: 'error', wskazowka: null },
+  cancelled: { etykieta: 'Anulowana', ton: 'error', wskazowka: null },
+};
+
+export function opiszEtapDlaKlienta(info: RentalStageInfo | undefined | null) {
+  if (!info || !(info.stage in OPIS_KLIENTA)) {
+    return { etykieta: 'W trakcie', ton: 'neutral' as StageTone, wskazowka: null };
+  }
+  const opis = OPIS_KLIENTA[info.stage];
+  if (info.stage === 'overdue' && info.overdueDays > 0) {
+    return { ...opis, wskazowka: `${doby(info.overdueDays)} po terminie. ${opis.wskazowka ?? ''}`.trim() };
+  }
+  return opis;
+}

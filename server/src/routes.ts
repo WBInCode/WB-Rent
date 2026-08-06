@@ -14,7 +14,8 @@ import {
   type DiscountContext,
 } from './pricing.js';
 import { config } from './config.js';
-import { createPaymentForReservation } from './payments/routes.js';
+import { createPaymentForReservation, canCustomerPayOnline } from './payments/routes.js';
+import { describeRentalStage } from './reservation-stage.js';
 import {
   sendContactConfirmation,
   sendReservationConfirmation,
@@ -695,6 +696,33 @@ router.post('/notifications/product', async (req: Request, res: Response) => {
 
 // === MOJE REZERWACJE (magic-link, bez rejestracji) ===
 
+/**
+ * Klient anuluje sam tylko dopoki nic wiazacego sie nie wydarzylo. Po podpisaniu
+ * umowy albo po wplacie anulowanie jednym klikiem zostawialoby podpisany dokument
+ * i pobrane pieniadze bez zadnego rozliczenia - to musi przejsc przez obsluge.
+ */
+function powodBrakuAnulowania(reservation: {
+  status: string;
+  payment_status?: string | null;
+  contract_status?: string | null;
+  start_date: string | Date;
+}): string | null {
+  if (!['pending', 'confirmed'].includes(reservation.status)) {
+    return 'Tej rezerwacji nie można już anulować';
+  }
+  if (reservation.contract_status === 'signed') {
+    return 'Umowa została już podpisana — skontaktuj się z nami telefonicznie, żeby ustalić rezygnację';
+  }
+  if (reservation.payment_status === 'paid') {
+    return 'Rezerwacja jest opłacona — skontaktuj się z nami telefonicznie, żeby ustalić zwrot płatności';
+  }
+  const dzisiaj = new Date().toISOString().split('T')[0];
+  if (String(reservation.start_date).slice(0, 10) <= dzisiaj) {
+    return 'Rezerwacji nie można anulować w dniu rozpoczęcia — skontaktuj się z nami telefonicznie';
+  }
+  return null;
+}
+
 // Request an access link (always 200 - no email enumeration)
 router.post('/my-reservations/request-link', myReservationsLimiter, async (req: Request, res: Response) => {
   try {
@@ -732,6 +760,7 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
     }
 
     const reservations = await queries.getReservationsByEmail(email);
+    const now = Date.now();
     res.json({
       success: true,
       email,
@@ -746,6 +775,11 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
           ...r,
           items,
           productName: items.map((item: any) => item.productName).join(', '),
+          // Ten sam etap co w panelu - klient i obsluga nie moga widziec dwoch
+          // roznych wersji tego samego najmu.
+          stage: describeRentalStage(r, now),
+          canPayOnline: canCustomerPayOnline(r),
+          cancelBlockedReason: powodBrakuAnulowania(r),
         };
       }),
     });
@@ -771,14 +805,9 @@ router.post('/my-reservations/:id/cancel', async (req: Request, res: Response) =
       return;
     }
 
-    if (!['pending', 'confirmed'].includes(reservation.status)) {
-      res.status(409).json({ success: false, message: 'Tej rezerwacji nie można już anulować' });
-      return;
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    if (String(reservation.start_date) <= today) {
-      res.status(409).json({ success: false, message: 'Rezerwacji nie można anulować w dniu rozpoczęcia — skontaktuj się z nami telefonicznie' });
+    const przeszkoda = powodBrakuAnulowania(reservation);
+    if (przeszkoda) {
+      res.status(409).json({ success: false, message: przeszkoda });
       return;
     }
 

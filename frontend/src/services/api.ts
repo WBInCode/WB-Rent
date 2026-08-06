@@ -1,4 +1,6 @@
 // API Service Layer for WB-Rent
+import type { RentalStageInfo } from '@/utils/rentalStage';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 // Types
@@ -317,6 +319,12 @@ export interface MyReservation {
   created_at: string;
   payment_status?: string;
   payment_provider?: string;
+  contract_status?: string;
+  stage?: RentalStageInfo;
+  /** Serwer decyduje, czy klient moze teraz ruszyc platnosc - nie zgadujemy tu. */
+  canPayOnline?: boolean;
+  /** Powod, dla ktorego klient nie moze anulowac sam; null = moze. */
+  cancelBlockedReason?: string | null;
 }
 
 export async function requestMyReservationsLink(
