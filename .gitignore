@@ -54,3 +54,6 @@ server/storage/contracts/
 # Misc
 *.local
 .cache/
+
+# Skrypty i wydruki pomocnicze uzywane przy testach recznych
+tmp-*
