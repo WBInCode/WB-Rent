@@ -11,10 +11,8 @@ const okresNajmu = (rental: HandoverSnapshot['rental']) =>
     ? `od ${polishDate(rental.startDate)} r., godz. ${rental.startTime} — najem bezterminowy, do odwołania`
     : `od ${polishDate(rental.startDate)} r., godz. ${rental.startTime} do ${polishDate(rental.endDate)} r., godz. ${rental.endTime}`;
 
-const liczbaZdjec = (ile: number) =>
-  ile === 0
-    ? 'brak zdjęć'
-    : `${ile} ${ile === 1 ? 'zdjęcie' : ile < 5 ? 'zdjęcia' : 'zdjęć'} wykonane przy wydaniu, przechowywane w dokumentacji najmu`;
+const liczbaZdjec = () =>
+  'zdjęcia stanu Sprzętu wykonane przy wydaniu, przechowywane w dokumentacji najmu';
 
 function Wiersz({ etykieta, children }: { etykieta: string; children: React.ReactNode }) {
   return (
@@ -88,7 +86,7 @@ export function HandoverDocument({ snapshot }: { snapshot: HandoverSnapshot }) {
       <Naglowek>Stan sprzętu przy wydaniu</Naglowek>
       <p className="text-sm text-text-primary whitespace-pre-line">{snapshot.conditionNotes}</p>
       <dl className="mt-3">
-        <Wiersz etykieta="Dokumentacja zdjęciowa">{liczbaZdjec(snapshot.photoCount)}</Wiersz>
+        <Wiersz etykieta="Dokumentacja zdjęciowa">{liczbaZdjec()}</Wiersz>
       </dl>
 
       <Naglowek>Oświadczenia</Naglowek>

@@ -294,7 +294,7 @@ export function ContractSigningPage() {
 
         <div className="mt-8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8">
           <label className={`flex items-start gap-3 p-4 rounded-lg border ${hasReachedEnd ? 'border-[#b8972a]/50 bg-[#b8972a]/5' : 'border-neutral-200 bg-neutral-100'}`}>
-            <input
+            <input spellCheck={false}
               type="checkbox"
               checked={accepted}
               disabled={!hasReachedEnd}

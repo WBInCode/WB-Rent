@@ -19,7 +19,7 @@ import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, read
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
-import { availableActions, canTransition } from './reservation-transitions.js';
+import { availableActions, canPrepareHandover, canTransition } from './reservation-transitions.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -455,15 +455,21 @@ router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
 
     const now = Date.now();
     const idki = reservations.map((r: any) => r.id);
-    const zdjeciaZwrotu = await queries.countReturnPhotosForReservations(idki);
+    const zdjeciaZwrotu = await queries.countPhotosForReservations(idki, 'after');
+    const zdjeciaWydania = await queries.countPhotosForReservations(idki, 'before');
     const zProtokolem = await queries.signedProtocolsForReservations(idki, 'handover');
     const zEtapem = reservations.map((reservation: any) => {
-      const context = { returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0 };
+      const context = {
+        returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0,
+        handoverPhotos: zdjeciaWydania[reservation.id] ?? 0,
+        handoverProtocolSigned: zProtokolem.has(reservation.id),
+      };
       return {
         ...reservation,
         stage: describeRentalStage(reservation, now),
         actions: availableActions(reservation, context, now),
         handoverSigned: zProtokolem.has(reservation.id),
+        handoverPhotos: context.handoverPhotos,
       };
     });
 
@@ -496,9 +502,15 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
     }
 
     const { protocol, snapshot } = await getOrCreateHandoverDraft(reservationId);
+    const przygotowanie = canPrepareHandover(reservation);
+    const zdjecia = await queries.countReservationPhotos(reservationId, 'before');
     const akcje = availableActions(
       reservation,
-      { returnPhotos: await queries.countReservationPhotos(reservationId, 'after') },
+      {
+        returnPhotos: await queries.countReservationPhotos(reservationId, 'after'),
+        handoverPhotos: zdjecia,
+        handoverProtocolSigned: protocol.status === 'signed',
+      },
       Date.now()
     );
     const wydanie = akcje.find((akcja) => akcja.action === 'hand_over');
@@ -512,9 +524,13 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
         // Odcisk treści, którą zobaczy podpisujący — wraca przy podpisie.
         contentHash: protocol.content_hash,
         customerName: reservation.name,
-        // Protokół można podpisać tylko wtedy, gdy wydanie jest w ogóle dozwolone.
-        canSign: protocol.status === 'draft' && Boolean(wydanie?.available),
-        blockedReason: wydanie?.available ? null : wydanie?.reason || 'Wydanie nie jest teraz możliwe',
+        photoCount: zdjecia,
+        canSign: protocol.status === 'draft' && przygotowanie.ok,
+        blockedReason: przygotowanie.ok ? null : przygotowanie.reason,
+        // Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć.
+        canRelease: Boolean(wydanie?.available),
+        releaseBlockedReason: wydanie?.available ? null : wydanie?.reason ?? null,
+        released: reservation.status === 'picked_up',
       },
     });
   } catch (error) {
@@ -552,15 +568,11 @@ router.post('/reservations/:id/handover/sign', adminAuth, async (req: Request, r
       return;
     }
 
-    // Ta sama bramka co dla przycisku wydania. Podpisany protokół przesuwa
-    // rezerwację na "wydane", więc nie może ominąć warunków przejścia.
-    const przejscie = canTransition(
-      reservation,
-      'picked_up',
-      { returnPhotos: await queries.countReservationPhotos(reservationId, 'after') }
-    );
-    if (!przejscie.ok) {
-      res.status(409).json({ success: false, message: przejscie.reason });
+    // Protokół podpisuje się przy wydaniu, więc umowa musi być podpisana i najem
+    // opłacony. Samo wydanie ma warunek szerszy — sprawdzany dopiero przy nim.
+    const przygotowanie = canPrepareHandover(reservation);
+    if (!przygotowanie.ok) {
+      res.status(409).json({ success: false, message: przygotowanie.reason });
       return;
     }
 
@@ -578,8 +590,8 @@ router.post('/reservations/:id/handover/sign', adminAuth, async (req: Request, r
       success: true,
       data: wynik,
       message: wynik.emailDelivered
-        ? `Sprzęt wydany. Protokół ${wynik.protocolNumber} wysłany do klienta.`
-        : `Sprzęt wydany. Protokół ${wynik.protocolNumber} zapisany, ale e-mail nie został wysłany.`,
+        ? `Protokół ${wynik.protocolNumber} podpisany i wysłany do klienta. Dodaj zdjęcia i wydaj sprzęt.`
+        : `Protokół ${wynik.protocolNumber} podpisany, ale e-mail nie został wysłany. Dodaj zdjęcia i wydaj sprzęt.`,
     });
   } catch (error) {
     if (error instanceof ZodError) {
@@ -880,7 +892,11 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     const przejscie = canTransition(
       reservation,
       status,
-      { returnPhotos: await queries.countReservationPhotos(reservation.id, 'after') }
+      {
+        returnPhotos: await queries.countReservationPhotos(reservation.id, 'after'),
+        handoverPhotos: await queries.countReservationPhotos(reservation.id, 'before'),
+        handoverProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'handover'),
+      }
     );
     if (!przejscie.ok) {
       res.status(409).json({ success: false, message: przejscie.reason });

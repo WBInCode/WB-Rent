@@ -1875,7 +1875,19 @@ export const queries = {
     return Number(result.rows[0]?.liczba ?? 0);
   },
 
-  /** Liczba zdjec zwrotu dla wielu rezerwacji naraz - lista w panelu pyta o wszystkie. */
+  /** Liczba zdjec danej fazy dla wielu rezerwacji naraz - lista w panelu pyta o wszystkie. */
+  countPhotosForReservations: async (ids: number[], phase: 'before' | 'after'): Promise<Record<number, number>> => {
+    if (ids.length === 0) return {};
+    const result = await pool.query(
+      `SELECT reservation_id, COUNT(*)::integer AS liczba
+       FROM reservation_photos
+       WHERE reservation_id = ANY($1::int[]) AND phase = $2
+       GROUP BY reservation_id`,
+      [ids, phase]
+    );
+    return Object.fromEntries(result.rows.map((row) => [Number(row.reservation_id), Number(row.liczba)]));
+  },
+
   countReturnPhotosForReservations: async (ids: number[]): Promise<Record<number, number>> => {
     if (ids.length === 0) return {};
     const result = await pool.query(

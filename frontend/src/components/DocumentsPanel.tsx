@@ -302,7 +302,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
               {!editing && (
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-2">Plik *</label>
-                  <input
+                  <input spellCheck={false}
                     ref={fileInputRef}
                     type="file"
                     accept="application/pdf,image/jpeg,image/png,image/webp"

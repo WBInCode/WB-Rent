@@ -814,7 +814,7 @@ export function Reservation() {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <input
+                            <input spellCheck={false}
                               type="radio"
                               id="pickup-personal"
                               name="deliveryOption"
@@ -843,7 +843,7 @@ export function Reservation() {
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <input
+                            <input spellCheck={false}
                               type="radio"
                               id="pickup-delivery"
                               name="deliveryOption"
@@ -1052,7 +1052,7 @@ export function Reservation() {
                   
                   <div className="space-y-3">
                     <label className="flex items-start gap-3 cursor-pointer group">
-                      <input
+                      <input spellCheck={false}
                         type="checkbox"
                         checked={formData.acceptTerms}
                         onChange={(e) => updateField('acceptTerms', e.target.checked)}
@@ -1065,7 +1065,7 @@ export function Reservation() {
                     </label>
                     
                     <label className="flex items-start gap-3 cursor-pointer group">
-                      <input
+                      <input spellCheck={false}
                         type="checkbox"
                         checked={formData.acceptRodo}
                         onChange={(e) => updateField('acceptRodo', e.target.checked)}
@@ -1153,7 +1153,7 @@ export function Reservation() {
                                 Masz kupon rabatowy?
                               </label>
                               <div className="flex gap-2">
-                                <input
+                                <input spellCheck={false}
                                   id="couponCode"
                                   value={formData.couponCode}
                                   onChange={(event) => updateField('couponCode', event.target.value.toUpperCase())}

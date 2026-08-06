@@ -83,7 +83,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
       <div className="grid sm:grid-cols-2 gap-3">
         <label className="block">
           <span className="block text-xs text-text-muted mb-1">Kwota (zł)</span>
-          <input
+          <input spellCheck={false}
             value={kwota}
             onChange={(event) => setKwota(event.target.value)}
             inputMode="decimal"
@@ -92,7 +92,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
         </label>
         <label className="block">
           <span className="block text-xs text-text-muted mb-1">Przyjmujący wpłatę</span>
-          <input
+          <input spellCheck={false}
             value={pracownik}
             onChange={(event) => setPracownik(event.target.value)}
             placeholder="Imię i nazwisko"
@@ -102,7 +102,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
       </div>
 
       <label className="flex items-start gap-2.5 mt-4 p-3 rounded-[--radius-sm] bg-amber-500/[0.07] border border-amber-500/25 cursor-pointer">
-        <input
+        <input spellCheck={false}
           type="checkbox"
           checked={potwierdzone}
           onChange={(event) => setPotwierdzone(event.target.checked)}

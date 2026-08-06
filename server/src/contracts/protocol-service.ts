@@ -159,7 +159,6 @@ export async function saveHandoverDraft(reservationId: number, input: HandoverDr
   if (protocol.status === 'signed') throw new Error('Protokół został już podpisany');
 
   const reservation = await queries.getReservationById(reservationId);
-  const photoCount = await queries.countReservationPhotos(reservationId, 'before');
 
   const zmieniony: HandoverSnapshot = {
     ...snapshot,
@@ -167,8 +166,7 @@ export async function saveHandoverDraft(reservationId: number, input: HandoverDr
     conditionNotes: dane.conditionNotes,
     employeeName: dane.employeeName,
     lessor: { ...snapshot.lessor, representative: dane.employeeName },
-    photoCount,
-    statements: buildHandoverStatements(manualsLabel(productIdsOf(reservation)), photoCount),
+    statements: buildHandoverStatements(manualsLabel(productIdsOf(reservation))),
     edited: true,
   };
 
@@ -237,7 +235,9 @@ export async function signHandoverProtocol(data: {
     signedUserAgent: audit.signedUserAgent,
     pdfPath,
     pdfHash,
-    reservationStatus: 'picked_up',
+    // Podpis zamyka dokument, nie wydanie. Sprzęt opuszcza wypożyczalnię dopiero
+    // po zdjęciach i świadomym kliknięciu "Wydaj sprzęt".
+    reservationStatus: null,
     signedBy: finalny.employeeName,
   });
   if (!podpisany) throw new Error('Protokół został podpisany w innej sesji');

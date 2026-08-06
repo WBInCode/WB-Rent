@@ -257,7 +257,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
               {phasePhotos.length > 0 ? `${phasePhotos.length} zdjęć` : 'Brak zdjęć'}
             </p>
           </div>
-          <input
+          <input spellCheck={false}
             ref={inputRef}
             type="file"
             accept="image/*"

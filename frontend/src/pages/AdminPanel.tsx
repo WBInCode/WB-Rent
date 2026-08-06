@@ -2080,7 +2080,7 @@ export function AdminPanel() {
                     <label className="block text-sm font-medium text-text-secondary mb-2">
                       Treść
                     </label>
-                    <textarea
+                    <textarea spellCheck={false}
                       value={newPostContent}
                       onChange={(e) => setNewPostContent(e.target.value)}
                       placeholder="Treść newslettera..."
@@ -2649,7 +2649,7 @@ export function AdminPanel() {
                     <span className="block text-sm font-semibold">Powiadom klienta e-mailem</span>
                     <span className="block text-xs text-text-muted mt-1">Wyśle wiadomość odpowiadającą nowemu statusowi.</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={statusForm.notifyCustomer}
@@ -2741,7 +2741,7 @@ export function AdminPanel() {
                     <span className="block text-sm font-semibold">Zmień na wynajem bezterminowy</span>
                     <span className="block text-xs text-text-muted mt-1">Sprzęt pozostanie zablokowany do ustalenia daty zwrotu.</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={termForm.isIndefinite}
@@ -3063,7 +3063,7 @@ export function AdminPanel() {
                     <label className="block text-sm font-medium text-text-secondary mb-2">
                       Twoja odpowiedź
                     </label>
-                    <textarea
+                    <textarea spellCheck={false}
                       value={replyMessage}
                       onChange={(e) => setReplyMessage(e.target.value)}
                       placeholder="Napisz odpowiedź do klienta..."

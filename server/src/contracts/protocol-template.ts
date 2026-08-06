@@ -52,17 +52,14 @@ const OSWIADCZENIA = (manuals: string): string[] => [
   'Najemca oświadcza, że Sprzęt jest sprawny i kompletny, a jego stan odpowiada opisowi powyżej.',
   `Najemca potwierdza otrzymanie Załącznika nr 3 – ${manuals} oraz odbycie krótkiego szkolenia z obsługi Sprzętu.`,
   'Najemca zobowiązuje się używać Sprzętu zgodnie z instrukcją i przeznaczeniem oraz zwrócić go w stanie niepogorszonym ponad normalne zużycie.',
+  'Zdjęcia stanu Sprzętu wykonane przy wydaniu stanowią załącznik do niniejszego protokołu i są przechowywane w dokumentacji najmu.',
   'Protokół sporządzono w formie elektronicznej; obie Strony otrzymują go na wskazane adresy e-mail.',
 ];
 
-/** Dopisywane tylko wtedy, gdy zdjęcia naprawdę istnieją — inaczej protokół powoływałby się na nieistniejący dowód. */
-export const OSWIADCZENIE_O_ZDJECIACH =
-  'Zdjęcia stanu Sprzętu wykonane przy wydaniu stanowią integralną część niniejszego protokołu.';
-
-export function buildHandoverStatements(manuals: string, photoCount = 0): string[] {
-  const lista = OSWIADCZENIA(manuals);
-  if (photoCount === 0) return lista;
-  return [...lista.slice(0, -1), OSWIADCZENIE_O_ZDJECIACH, lista[lista.length - 1]];
+// Zdjęcia powstają przy fizycznym wydaniu, czyli już po podpisaniu protokołu,
+// dlatego dokument nie podaje ich liczby - podawałby liczbę sprzed wydania.
+export function buildHandoverStatements(manuals: string): string[] {
+  return OSWIADCZENIA(manuals);
 }
 
 /** Miejsce wydania opisane tak, jak ma trafić do dokumentu. */

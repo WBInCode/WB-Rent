@@ -53,6 +53,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
+            // Bez polskiego słownika przeglądarka podkreśla każde polskie słowo jako błąd.
+            spellCheck={props.spellCheck ?? false}
             className={cn(
               'w-full',
               'bg-bg-card border border-border',

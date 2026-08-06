@@ -198,7 +198,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
             onSubmit={handleSubmit}
             className="flex gap-2"
           >
-            <input
+            <input spellCheck={false}
               type="email"
               placeholder="Twój email"
               value={email}

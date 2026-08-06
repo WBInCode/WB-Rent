@@ -46,6 +46,27 @@ export interface ActionAvailability {
 export interface TransitionContext {
   /** Zdjęcia sprzętu po najmie — warunek zamknięcia najmu. */
   returnPhotos: number;
+  /** Zdjęcia sprzętu przy wydaniu — warunek wydania. */
+  handoverPhotos?: number;
+  /** Czy protokół wydania został podpisany przez obie Strony. */
+  handoverProtocolSigned?: boolean;
+}
+
+/**
+ * Czy można teraz przystąpić do wydania: przygotować i podpisać protokół. To co
+ * innego niż samo wydanie — wydanie wymaga dodatkowo podpisanego protokołu
+ * i zdjęć, więc bez tego rozróżnienia warunek byłby sam dla siebie przeszkodą.
+ */
+export function canPrepareHandover(
+  reservation: RentalStageInput,
+  now: number = Date.now()
+): TransitionCheck {
+  const { stage } = describeRentalStage(reservation, now);
+  if (stage === 'confirmed_no_contract') return { ok: false, reason: 'Najpierw przygotuj umowę najmu' };
+  if (stage === 'awaiting_signature') return { ok: false, reason: 'Klient nie podpisał jeszcze umowy' };
+  if (stage === 'awaiting_payment') return { ok: false, reason: 'Rezerwacja nie została opłacona' };
+  if (stage !== 'ready_for_pickup') return { ok: false, reason: 'Wydanie nie jest teraz możliwe' };
+  return { ok: true };
 }
 
 /** Etapy, z których rezerwację można jeszcze odrzucić lub anulować. */
@@ -82,7 +103,15 @@ export function availableActions(
     add('hand_over', false, 'Rezerwacja nie została opłacona');
   }
   if (stage === 'ready_for_pickup') {
-    add('hand_over', true);
+    // Wydanie zamyka trzy rzeczy naraz: podpisany protokół, zdjęcia stanu i zmianę
+    // statusu. Bez któregokolwiek z nich sprzęt nie może opuścić wypożyczalni.
+    if (!context.handoverProtocolSigned) {
+      add('hand_over', false, 'Podpiszcie protokół wydania');
+    } else if ((context.handoverPhotos ?? 0) === 0) {
+      add('hand_over', false, 'Dodaj zdjęcia wydawanego sprzętu');
+    } else {
+      add('hand_over', true);
+    }
   }
 
   if (stage === 'with_customer' || stage === 'overdue') {

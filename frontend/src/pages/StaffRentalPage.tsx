@@ -533,7 +533,7 @@ export function StaffRentalPage() {
                     <span className="block text-sm font-semibold text-text-primary">Wynajem bezterminowy</span>
                     <span className="block text-xs text-text-muted mt-0.5">Bez planowanej daty zwrotu, rozliczany według faktycznego czasu najmu</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={form.isIndefinite}
@@ -623,7 +623,7 @@ export function StaffRentalPage() {
                     <span className="block text-sm font-semibold text-text-primary">Faktura VAT</span>
                     <span className="block text-xs text-text-muted mt-0.5">Uzupełnij dane nabywcy do faktury</span>
                   </span>
-                  <input type="checkbox" checked={form.wantsInvoice} onChange={(event) => update('wantsInvoice', event.target.checked)} className="w-5 h-5 accent-gold" />
+                  <input spellCheck={false} type="checkbox" checked={form.wantsInvoice} onChange={(event) => update('wantsInvoice', event.target.checked)} className="w-5 h-5 accent-gold" />
                 </label>
                 {form.wantsInvoice && (
                   <div className="grid sm:grid-cols-2 gap-4 mt-4 p-4 rounded-lg bg-gold/5 border border-gold/20">
@@ -671,7 +671,7 @@ export function StaffRentalPage() {
                       {handoverItems.map((item, index) => (
                         <li key={index} className="flex items-center gap-2">
                           <span className="w-6 shrink-0 text-xs text-text-muted tabular-nums">{handoverMarkers[index]}</span>
-                          <input
+                          <input spellCheck={false}
                             id={`protokol-wydania-${index + 1}`}
                             aria-label={`Pozycja ${index + 1} protokołu wydania`}
                             value={item}

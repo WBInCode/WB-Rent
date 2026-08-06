@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from 'react-router';
 import {
   AlertTriangle,
   ArrowLeft,
+  Camera,
   Check,
   CheckCircle2,
   Download,
@@ -10,6 +11,7 @@ import {
   FileText,
   Loader2,
   Package,
+  PackageCheck,
   Pencil,
   Plus,
   Trash2,
@@ -25,6 +27,7 @@ import {
   isAdminLoggedIn,
   saveHandoverProtocol,
   signHandoverProtocol,
+  updateReservationStatus,
   type HandoverProtocolView,
 } from '@/services/adminApi';
 
@@ -122,10 +125,26 @@ export function HandoverProtocolPage() {
     });
     if (odpowiedz.success) {
       await wczytaj();
-      powiadom(odpowiedz.message || 'Sprzęt wydany');
+      powiadom(odpowiedz.message || 'Protokół podpisany');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       powiadom(odpowiedz.message || 'Nie udało się podpisać protokołu', 'error');
+    }
+    setZapisywanie(false);
+  };
+
+  const wydaj = async () => {
+    setZapisywanie(true);
+    const odpowiedz = await updateReservationStatus(reservationId, 'picked_up', {
+      note: `Sprzęt wydany na podstawie protokołu ${view?.snapshot.protocolNumber ?? ''}`.trim(),
+      changedBy: view?.snapshot.employeeName || 'obsługa',
+    });
+    if (odpowiedz.success) {
+      await wczytaj();
+      powiadom('Sprzęt wydany klientowi');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      powiadom(odpowiedz.message || 'Nie udało się wydać sprzętu', 'error');
     }
     setZapisywanie(false);
   };
@@ -167,6 +186,7 @@ export function HandoverProtocolPage() {
 
   const { snapshot } = view;
   const podpisany = view.status === 'signed';
+  const wydany = view.released;
   const braki = brakiDanych();
 
   const naglowek = (
@@ -192,7 +212,7 @@ export function HandoverProtocolPage() {
     </div>
   );
 
-  // === Po podpisaniu ===
+  // === Po podpisaniu protokołu: zdjęcia i dopiero wydanie ===
   if (podpisany) {
     return (
       <div className="min-h-screen bg-bg-primary px-4 py-6 sm:py-10">
@@ -201,14 +221,21 @@ export function HandoverProtocolPage() {
           {naglowek}
           {pasekKomunikatu}
 
-          <Card variant="glass" className="p-5 border-emerald-500/30 bg-emerald-500/[0.06]">
+          <Card
+            variant="glass"
+            className={`p-5 ${wydany ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-gold/30 bg-gold/[0.05]'}`}
+          >
             <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 light:text-emerald-700 shrink-0 mt-0.5" />
+              <CheckCircle2 className={`w-5 h-5 shrink-0 mt-0.5 ${wydany ? 'text-emerald-400 light:text-emerald-700' : 'text-gold'}`} />
               <div className="flex-1">
-                <p className="font-semibold text-text-primary">Protokół podpisany — sprzęt wydany</p>
+                <p className="font-semibold text-text-primary">
+                  {wydany ? 'Sprzęt wydany klientowi' : 'Protokół podpisany'}
+                </p>
                 <p className="text-sm text-text-muted mt-1">
                   {view.signedAt ? `Podpisano ${new Date(view.signedAt).toLocaleString('pl-PL')}. ` : ''}
-                  Dokument wysłaliśmy na adres klienta.
+                  {wydany
+                    ? 'Najem jest w toku — sprzęt jest u klienta.'
+                    : 'Dokument wysłaliśmy na adres klienta. Zrób zdjęcia wydawanego sprzętu i dopiero wtedy wydaj go klientowi.'}
                 </p>
                 <Button variant="secondary" size="sm" className="mt-3" onClick={() => void downloadHandoverPdf(reservationId)}>
                   <Download className="w-4 h-4 mr-2" /> Pobierz protokół
@@ -217,21 +244,53 @@ export function HandoverProtocolPage() {
             </div>
           </Card>
 
-          <HandoverDocument snapshot={snapshot} />
-
           <Card variant="glass" className="p-5 space-y-3">
-            <h2 className="font-semibold text-text-primary">Zdjęcia sprzętu</h2>
+            <div className="flex items-center gap-2">
+              <Camera className="w-4 h-4 text-gold" />
+              <h2 className="font-semibold text-text-primary">Zdjęcia wydawanego sprzętu</h2>
+            </div>
             <p className="text-xs text-text-muted">
-              Podpisany protokół odnotował {snapshot.photoCount} zdjęć. Nowe zdjęcia trafiają do dokumentacji
-              najmu, ale nie zmieniają podpisanego dokumentu.
+              {wydany
+                ? 'Zdjęcia zostają w dokumentacji najmu — przy zwrocie porównacie z nimi stan sprzętu.'
+                : 'Zrób zdjęcia sprzętu w chwili wydania. Bez nich nie da się wydać sprzętu — to jedyny dowód, w jakim stanie opuścił wypożyczalnię.'}
             </p>
             <HandoverPhotos
               reservationId={reservationId}
               takenBy={snapshot.employeeName}
               phases={['before']}
-              onNotify={(tekst, ton) => powiadom(tekst, ton)}
+              onCountChange={(liczby) => setZdjecPrzed(liczby.before)}
+              onNotify={(tekst, ton) => {
+                powiadom(tekst, ton);
+                void wczytaj();
+              }}
             />
           </Card>
+
+          {!wydany && (
+            <Card variant="glass" className="p-5 space-y-3">
+              <h2 className="font-semibold text-text-primary">Wydanie sprzętu</h2>
+              {!view.canRelease && view.releaseBlockedReason && (
+                <p className="text-xs text-amber-400 light:text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  {view.releaseBlockedReason}
+                </p>
+              )}
+              <Button
+                variant="primary"
+                className="w-full"
+                disabled={zapisywanie || !view.canRelease}
+                onClick={() => void wydaj()}
+              >
+                {zapisywanie ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
+                Wydaj sprzęt
+              </Button>
+              <p className="text-xs text-text-muted text-center">
+                Dopiero to przekazuje sprzęt klientowi w systemie i rozpoczyna najem.
+              </p>
+            </Card>
+          )}
+
+          <HandoverDocument snapshot={snapshot} />
 
           <div className="pb-8">{linkDoPanelu}</div>
         </div>
@@ -318,12 +377,15 @@ export function HandoverProtocolPage() {
                 className="flex-1"
               >
                 {zapisywanie ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
-                Podpisz i wydaj sprzęt
+                Podpisz protokół
               </Button>
               <Button variant="ghost" disabled={zapisywanie} onClick={() => setKrok('dane')}>
                 <Pencil className="w-4 h-4 mr-2" /> Popraw dane
               </Button>
             </div>
+            <p className="text-xs text-text-muted text-center">
+              Podpis zamyka dokument. Sprzęt wydacie w następnym kroku, po zdjęciach.
+            </p>
           </Card>
 
           <div className="pb-8">{linkDoPanelu}</div>

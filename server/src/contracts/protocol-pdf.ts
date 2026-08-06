@@ -234,9 +234,7 @@ export function generateHandoverPdf(
     doc.moveDown(0.3);
     row(
       'Dokumentacja zdjęciowa',
-      snapshot.photoCount > 0
-        ? `${snapshot.photoCount} ${snapshot.photoCount === 1 ? 'zdjęcie' : snapshot.photoCount < 5 ? 'zdjęcia' : 'zdjęć'} wykonane przy wydaniu, przechowywane w dokumentacji najmu`
-        : 'brak zdjęć'
+      'zdjęcia stanu Sprzętu wykonane przy wydaniu, przechowywane w dokumentacji najmu'
     );
 
     // === Oswiadczenia ===

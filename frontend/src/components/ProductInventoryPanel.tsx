@@ -269,7 +269,7 @@ export function ProductInventoryPanel({
         <div className="px-4 sm:px-5 py-3 border-b border-white/10 flex items-center justify-between gap-4 text-xs text-text-muted">
           <span>{filteredProducts.length} z {products.length} modeli</span>
           <label className="inline-flex items-center gap-2 cursor-pointer text-text-secondary">
-            <input
+            <input spellCheck={false}
               type="checkbox"
               checked={includeHidden}
               onChange={(event) => setIncludeHidden(event.target.checked)}
@@ -462,7 +462,7 @@ export function ProductInventoryPanel({
                     <label className={`mt-3 min-h-11 px-4 py-2.5 rounded-lg border border-gold/30 text-gold text-sm font-medium inline-flex items-center gap-2 cursor-pointer hover:bg-gold/10 ${uploadingImages || form.images.length >= 12 ? 'opacity-50 pointer-events-none' : ''}`}>
                       <Upload className="w-4 h-4" />
                       {uploadingImages ? 'Wysyłanie zdjęć...' : 'Wybierz zdjęcia z urządzenia'}
-                      <input
+                      <input spellCheck={false}
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
                         multiple
@@ -539,7 +539,7 @@ export function ProductInventoryPanel({
                   )}
                   <Textarea className="mt-4" label="Notatka magazynowa" value={form.inventoryNotes} onChange={(event) => setForm({ ...form, inventoryNotes: event.target.value })} />
                   <label className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
-                    <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-1 accent-[#d4a853]" />
+                    <input spellCheck={false} type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-1 accent-[#d4a853]" />
                     <span>
                       <span className="block text-sm font-medium">Widoczny i dostępny do nowych rezerwacji</span>
                       <span className="block text-xs text-text-muted mt-1">Wyłączenie ukrywa produkt w ofercie, ale zachowuje historię wynajmów i umów.</span>

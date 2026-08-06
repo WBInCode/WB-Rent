@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 process.env.NODE_ENV = 'test';
 
-const { availableActions, canTransition, ACTION_TARGET_STATUS } =
+const { availableActions, canTransition, canPrepareHandover, ACTION_TARGET_STATUS } =
   await import('../src/reservation-transitions.js');
 
 const bezZdjec = { returnPhotos: 0 };
 const zeZdjeciami = { returnPhotos: 2 };
+/** Wydanie wymaga podpisanego protokołu i zdjęć sprzętu. */
+const gotoweDoWydania = { returnPhotos: 0, handoverPhotos: 2, handoverProtocolSigned: true };
 
 const wynajem = (nadpisz: Record<string, unknown> = {}) => ({
   status: 'pending',
@@ -48,9 +50,36 @@ describe('akcje dostepne w danym momencie', () => {
     expect(wydanie?.reason).toBe('Rezerwacja nie została opłacona');
   });
 
-  it('podpisana i oplacona pozwala wydac sprzet', () => {
+  it('podpisana i oplacona pozwala przygotowac protokol wydania', () => {
     const r = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
-    expect(akcje(r)).toContain('hand_over');
+    expect(canPrepareHandover(r).ok).toBe(true);
+  });
+
+  it('bez podpisanego protokolu wydanie jest zablokowane', () => {
+    const r = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
+    const wydanie = availableActions(r, { returnPhotos: 0, handoverPhotos: 3, handoverProtocolSigned: false })
+      .find((a) => a.action === 'hand_over');
+    expect(wydanie?.available).toBe(false);
+    expect(wydanie?.reason).toBe('Podpiszcie protokół wydania');
+  });
+
+  it('z podpisanym protokolem ale bez zdjec wydanie nadal zablokowane', () => {
+    const r = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
+    const wydanie = availableActions(r, { returnPhotos: 0, handoverPhotos: 0, handoverProtocolSigned: true })
+      .find((a) => a.action === 'hand_over');
+    expect(wydanie?.available).toBe(false);
+    expect(wydanie?.reason).toBe('Dodaj zdjęcia wydawanego sprzętu');
+  });
+
+  it('protokol i zdjecia razem pozwalaja wydac sprzet', () => {
+    const r = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
+    expect(akcje(r, gotoweDoWydania)).toContain('hand_over');
+  });
+
+  it('przed podpisaniem umowy nie da sie nawet przygotowac protokolu', () => {
+    const r = wynajem({ status: 'confirmed', contract_status: 'ready' });
+    expect(canPrepareHandover(r).ok).toBe(false);
+    expect(canPrepareHandover(r).reason).toBe('Klient nie podpisał jeszcze umowy');
   });
 
   it('u klienta bez zdjec nie mozna przyjac zwrotu', () => {
@@ -88,15 +117,22 @@ describe('spojnosc panelu z API', () => {
   const umowy = ['not_prepared', 'ready', 'signed'];
   const platnosci = ['unpaid', 'paid', 'failed'];
   const zdjecia = [0, 3];
+  const protokoly = [false, true];
 
   /** Kazda kombinacja danych, jaka moze wystapic w bazie. */
   const wszystkieKombinacje = statusy.flatMap((status) =>
     umowy.flatMap((contract_status) =>
       platnosci.flatMap((payment_status) =>
-        zdjecia.map((returnPhotos) => ({
-          r: wynajem({ status, contract_status, payment_status }),
-          ctx: { returnPhotos },
-        }))
+        zdjecia.flatMap((liczbaZdjec) =>
+          protokoly.map((handoverProtocolSigned) => ({
+            r: wynajem({ status, contract_status, payment_status }),
+            ctx: {
+              returnPhotos: liczbaZdjec,
+              handoverPhotos: liczbaZdjec,
+              handoverProtocolSigned,
+            },
+          }))
+        )
       )
     )
   );
@@ -176,7 +212,7 @@ describe('bramka przejsc statusu', () => {
     expect(potwierdzenie.ok).toBe(true);
 
     const doWydania = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
-    expect(canTransition(doWydania, 'picked_up', bezZdjec).ok).toBe(true);
+    expect(canTransition(doWydania, 'picked_up', gotoweDoWydania).ok).toBe(true);
 
     const uKlienta = { ...doWydania, status: 'picked_up' };
     expect(canTransition(uKlienta, 'returned', zeZdjeciami).ok).toBe(true);

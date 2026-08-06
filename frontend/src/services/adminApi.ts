@@ -302,8 +302,13 @@ export interface HandoverProtocolView {
   /** Odcisk treści, którą zobaczył podpisujący — wraca przy podpisie. */
   contentHash: string;
   customerName: string;
+  photoCount: number;
   canSign: boolean;
   blockedReason: string | null;
+  /** Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć. */
+  canRelease: boolean;
+  releaseBlockedReason: string | null;
+  released: boolean;
 }
 
 export interface HandoverDraftPayload {

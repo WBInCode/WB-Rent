@@ -299,7 +299,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
               />
 
               <label className="flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
-                <input
+                <input spellCheck={false}
                   type="checkbox"
                   checked={form.sendEmail}
                   onChange={(event) => setForm({ ...form, sendEmail: event.target.checked })}

@@ -213,7 +213,7 @@ function Toggle({
 }) {
   return (
     <label className="flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
-      <input
+      <input spellCheck={false}
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
