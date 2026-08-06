@@ -50,6 +50,18 @@ export interface TransitionContext {
   handoverPhotos?: number;
   /** Czy protokół wydania został podpisany przez obie Strony. */
   handoverProtocolSigned?: boolean;
+  /** Czy protokół zwrotu został podpisany przez obie Strony. */
+  returnProtocolSigned?: boolean;
+}
+
+/** Czy można teraz przystąpić do zwrotu: przygotować i podpisać protokół zwrotu. */
+export function canPrepareReturn(
+  reservation: RentalStageInput,
+  now: number = Date.now()
+): TransitionCheck {
+  const { stage } = describeRentalStage(reservation, now);
+  if (stage === 'with_customer' || stage === 'overdue') return { ok: true };
+  return { ok: false, reason: 'Zwrot można przyjąć dopiero po wydaniu sprzętu' };
 }
 
 /**
@@ -115,11 +127,14 @@ export function availableActions(
   }
 
   if (stage === 'with_customer' || stage === 'overdue') {
-    add(
-      'register_return',
-      context.returnPhotos > 0,
-      context.returnPhotos > 0 ? undefined : 'Dodaj zdjęcia sprzętu po zwrocie'
-    );
+    // Zwrot, tak jak wydanie, potwierdza podpisany dokument i zdjęcia stanu.
+    if (!context.returnProtocolSigned) {
+      add('register_return', false, 'Podpiszcie protokół zwrotu');
+    } else if (context.returnPhotos === 0) {
+      add('register_return', false, 'Dodaj zdjęcia sprzętu po zwrocie');
+    } else {
+      add('register_return', true);
+    }
   }
 
   if (stage === 'return_in_progress') {

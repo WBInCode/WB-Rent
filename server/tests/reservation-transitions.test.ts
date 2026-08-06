@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 process.env.NODE_ENV = 'test';
 
-const { availableActions, canTransition, canPrepareHandover, ACTION_TARGET_STATUS } =
+const { availableActions, canTransition, canPrepareHandover, canPrepareReturn, ACTION_TARGET_STATUS } =
   await import('../src/reservation-transitions.js');
 
 const bezZdjec = { returnPhotos: 0 };
 const zeZdjeciami = { returnPhotos: 2 };
 /** Wydanie wymaga podpisanego protokołu i zdjęć sprzętu. */
 const gotoweDoWydania = { returnPhotos: 0, handoverPhotos: 2, handoverProtocolSigned: true };
+/** Zwrot też: podpisany protokoł zwrotu i zdjęcia po najmie. */
+const gotoweDoZwrotu = { returnPhotos: 2, returnProtocolSigned: true };
 
 const wynajem = (nadpisz: Record<string, unknown> = {}) => ({
   status: 'pending',
@@ -82,22 +84,36 @@ describe('akcje dostepne w danym momencie', () => {
     expect(canPrepareHandover(r).reason).toBe('Klient nie podpisał jeszcze umowy');
   });
 
-  it('u klienta bez zdjec nie mozna przyjac zwrotu', () => {
+  it('u klienta bez podpisanego protokolu nie mozna przyjac zwrotu', () => {
     const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
-    const zwrot = availableActions(r, bezZdjec).find((a) => a.action === 'register_return');
+    const zwrot = availableActions(r, zeZdjeciami).find((a) => a.action === 'register_return');
+    expect(zwrot?.available).toBe(false);
+    expect(zwrot?.reason).toBe('Podpiszcie protokół zwrotu');
+  });
+
+  it('z podpisanym protokolem ale bez zdjec zwrot nadal zablokowany', () => {
+    const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
+    const zwrot = availableActions(r, { returnPhotos: 0, returnProtocolSigned: true })
+      .find((a) => a.action === 'register_return');
     expect(zwrot?.available).toBe(false);
     expect(zwrot?.reason).toBe('Dodaj zdjęcia sprzętu po zwrocie');
   });
 
-  it('u klienta ze zdjeciami mozna przyjac zwrot', () => {
+  it('protokol zwrotu i zdjecia razem pozwalaja przyjac zwrot', () => {
     const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
-    expect(akcje(r, zeZdjeciami)).toContain('register_return');
+    expect(akcje(r, gotoweDoZwrotu)).toContain('register_return');
+  });
+
+  it('protokol zwrotu mozna przygotowac dopiero po wydaniu', () => {
+    expect(canPrepareReturn(wynajem({ status: 'confirmed' })).ok).toBe(false);
+    const uKlienta = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
+    expect(canPrepareReturn(uKlienta).ok).toBe(true);
   });
 
   it('wydanego sprzetu nie mozna juz anulowac ani odrzucic', () => {
     const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
-    expect(akcje(r, zeZdjeciami)).not.toContain('cancel');
-    expect(akcje(r, zeZdjeciami)).not.toContain('reject');
+    expect(akcje(r, gotoweDoZwrotu)).not.toContain('cancel');
+    expect(akcje(r, gotoweDoZwrotu)).not.toContain('reject');
   });
 
   it('po zwrocie zostaje tylko zamkniecie najmu', () => {
@@ -130,6 +146,7 @@ describe('spojnosc panelu z API', () => {
               returnPhotos: liczbaZdjec,
               handoverPhotos: liczbaZdjec,
               handoverProtocolSigned,
+              returnProtocolSigned: handoverProtocolSigned,
             },
           }))
         )
@@ -215,7 +232,7 @@ describe('bramka przejsc statusu', () => {
     expect(canTransition(doWydania, 'picked_up', gotoweDoWydania).ok).toBe(true);
 
     const uKlienta = { ...doWydania, status: 'picked_up' };
-    expect(canTransition(uKlienta, 'returned', zeZdjeciami).ok).toBe(true);
+    expect(canTransition(uKlienta, 'returned', gotoweDoZwrotu).ok).toBe(true);
 
     const zwrocony = { ...doWydania, status: 'returned' };
     expect(canTransition(zwrocony, 'completed', zeZdjeciami).ok).toBe(true);
@@ -231,9 +248,16 @@ describe('bramka przejsc statusu', () => {
 
   it('zwrot bez zdjec jest blokowany mimo poprawnej kolejnosci', () => {
     const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
-    const wynik = canTransition(r, 'returned', bezZdjec);
+    const wynik = canTransition(r, 'returned', { returnPhotos: 0, returnProtocolSigned: true });
     expect(wynik.ok).toBe(false);
     expect(wynik.reason).toBe('Dodaj zdjęcia sprzętu po zwrocie');
+  });
+
+  it('zwrot bez podpisanego protokolu jest blokowany mimo zdjec', () => {
+    const r = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
+    const wynik = canTransition(r, 'returned', zeZdjeciami);
+    expect(wynik.ok).toBe(false);
+    expect(wynik.reason).toBe('Podpiszcie protokół zwrotu');
   });
 
   it('odrzucenie i anulowanie dziala do momentu wydania', () => {

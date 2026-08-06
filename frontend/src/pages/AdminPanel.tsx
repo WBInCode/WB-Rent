@@ -1322,10 +1322,14 @@ export function AdminPanel() {
                         <StageActions
                           actions={reservation.actions}
                           onAction={(action) => {
-                            // Wydanie potwierdza podpisany protokół, więc akcja
-                            // prowadzi do dokumentu, a nie do samej zmiany statusu.
+                            // Wydanie i zwrot potwierdzają podpisane protokoły,
+                            // więc akcje prowadzą do dokumentów, nie do zmiany statusu.
                             if (action === 'hand_over') {
                               window.location.assign(`/admin/wydanie/${reservation.id}`);
+                              return;
+                            }
+                            if (action === 'register_return') {
+                              window.location.assign(`/admin/zwrot/${reservation.id}`);
                               return;
                             }
                             void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);

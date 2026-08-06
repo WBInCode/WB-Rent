@@ -16,10 +16,11 @@ import {
 } from './schemas.js';
 import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
 import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, readHandoverPdf } from './contracts/protocol-service.js';
+import { getOrCreateReturnDraft, saveReturnDraft, signReturnProtocol, readReturnPdf } from './contracts/return-service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
-import { availableActions, canPrepareHandover, canTransition } from './reservation-transitions.js';
+import { availableActions, canPrepareHandover, canPrepareReturn, canTransition } from './reservation-transitions.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -458,17 +459,20 @@ router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
     const zdjeciaZwrotu = await queries.countPhotosForReservations(idki, 'after');
     const zdjeciaWydania = await queries.countPhotosForReservations(idki, 'before');
     const zProtokolem = await queries.signedProtocolsForReservations(idki, 'handover');
+    const zProtokolemZwrotu = await queries.signedProtocolsForReservations(idki, 'return');
     const zEtapem = reservations.map((reservation: any) => {
       const context = {
         returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0,
         handoverPhotos: zdjeciaWydania[reservation.id] ?? 0,
         handoverProtocolSigned: zProtokolem.has(reservation.id),
+        returnProtocolSigned: zProtokolemZwrotu.has(reservation.id),
       };
       return {
         ...reservation,
         stage: describeRentalStage(reservation, now),
         actions: availableActions(reservation, context, now),
         handoverSigned: zProtokolem.has(reservation.id),
+        returnSigned: zProtokolemZwrotu.has(reservation.id),
         handoverPhotos: context.handoverPhotos,
       };
     });
@@ -617,6 +621,133 @@ router.get('/reservations/:id/handover/pdf', adminAuth, async (req: Request, res
     res.send(plik.buffer);
   } catch (error) {
     console.error('Handover pdf error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
+  }
+});
+
+// === PROTOKÓŁ ZWROTU (Załącznik nr 2) ===
+
+router.get('/reservations/:id/return', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const { protocol, snapshot } = await getOrCreateReturnDraft(reservationId);
+    const przygotowanie = canPrepareReturn(reservation);
+    const zdjecia = await queries.countReservationPhotos(reservationId, 'after');
+    const akcje = availableActions(
+      reservation,
+      {
+        returnPhotos: zdjecia,
+        handoverPhotos: await queries.countReservationPhotos(reservationId, 'before'),
+        handoverProtocolSigned: await queries.hasSignedProtocol(reservationId, 'handover'),
+        returnProtocolSigned: protocol.status === 'signed',
+      },
+      Date.now()
+    );
+    const zwrot = akcje.find((akcja) => akcja.action === 'register_return');
+
+    res.json({
+      success: true,
+      data: {
+        status: protocol.status,
+        signedAt: protocol.signed_at,
+        snapshot,
+        contentHash: protocol.content_hash,
+        customerName: reservation.name,
+        photoCount: zdjecia,
+        canSign: protocol.status === 'draft' && przygotowanie.ok,
+        blockedReason: przygotowanie.ok ? null : przygotowanie.reason,
+        canRegister: Boolean(zwrot?.available),
+        registerBlockedReason: zwrot?.available ? null : zwrot?.reason ?? null,
+        registered: ['returned', 'completed'].includes(reservation.status),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się otworzyć protokołu zwrotu';
+    console.error('Return draft error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/return', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { snapshot, contentHash } = await saveReturnDraft(Number(req.params.id), req.body);
+    res.json({ success: true, data: { snapshot, contentHash }, message: 'Protokół przygotowany do podpisu' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się zapisać protokołu';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/return/sign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    if (await queries.hasSignedProtocol(reservationId, 'return')) {
+      res.status(409).json({ success: false, message: 'Protokół zwrotu został już podpisany' });
+      return;
+    }
+
+    const przygotowanie = canPrepareReturn(reservation);
+    if (!przygotowanie.ok) {
+      res.status(409).json({ success: false, message: przygotowanie.reason });
+      return;
+    }
+
+    const { staffSignature, renterSignature, contentHash } = req.body ?? {};
+    const wynik = await signReturnProtocol({
+      reservationId,
+      contentHash: String(contentHash || ''),
+      staffSignatureDataUrl: String(staffSignature || ''),
+      renterSignatureDataUrl: String(renterSignature || ''),
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+
+    res.json({
+      success: true,
+      data: wynik,
+      message: wynik.emailDelivered
+        ? `Protokół ${wynik.protocolNumber} podpisany i wysłany do klienta. Dodaj zdjęcia i przyjmij zwrot.`
+        : `Protokół ${wynik.protocolNumber} podpisany, ale e-mail nie został wysłany. Dodaj zdjęcia i przyjmij zwrot.`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać protokołu';
+    console.error('Return sign error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.get('/reservations/:id/return/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const plik = await readReturnPdf(Number(req.params.id));
+    if (!plik) {
+      res.status(404).json({ success: false, message: 'Podpisany protokół zwrotu nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${plik.filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(plik.buffer);
+  } catch (error) {
+    console.error('Return pdf error:', error);
     res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
   }
 });
@@ -896,6 +1027,7 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         returnPhotos: await queries.countReservationPhotos(reservation.id, 'after'),
         handoverPhotos: await queries.countReservationPhotos(reservation.id, 'before'),
         handoverProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'handover'),
+        returnProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'return'),
       }
     );
     if (!przejscie.ok) {

@@ -1093,6 +1093,87 @@ export const sendHandoverProtocolEmail = async (
   ]);
 };
 
+// === PROTOKÓŁ ZWROTU (Załącznik nr 2) ===
+export const sendReturnProtocolEmail = async (
+  email: string,
+  customerName: string,
+  protocolNumber: string,
+  pdf: Buffer,
+  rozliczenie: {
+    chargesTotal: number;
+    deposit: number;
+    balance: number;
+    hasPendingValuation: boolean;
+    charges: Array<{ label: string; amount: number | null }>;
+  }
+) => {
+  const safeName = esc(customerName);
+  const safeNumber = esc(protocolNumber);
+  const kwota = (value: number) => `${value.toFixed(2).replace('.', ',')} zł`;
+  const subject = `Protokół zwrotu sprzętu ${protocolNumber} - WB-Rent`;
+
+  const pozycje = rozliczenie.charges.length > 0
+    ? `<table style="width: 100%; border-collapse: collapse; margin: 8px 0 16px;">
+         ${rozliczenie.charges.map((pozycja) => `
+           <tr>
+             <td style="padding: 6px 0; color: #e5e5e5; border-bottom: 1px solid #262626;">${esc(pozycja.label)}</td>
+             <td style="padding: 6px 0; color: #ffffff; text-align: right; white-space: nowrap; border-bottom: 1px solid #262626;">
+               ${pozycja.amount === null ? 'do wyceny' : kwota(pozycja.amount)}
+             </td>
+           </tr>`).join('')}
+         <tr>
+           <td style="padding: 8px 0; color: #a1a1aa;">Kaucja</td>
+           <td style="padding: 8px 0; color: #ffffff; text-align: right;">${kwota(rozliczenie.deposit)}</td>
+         </tr>
+       </table>`
+    : '';
+
+  const podsumowanie = rozliczenie.balance > 0
+    ? `<div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #b8972a;">
+         <p style="margin: 0; color: #f5d67b;">Do dopłaty: <strong>${kwota(rozliczenie.balance)}</strong></p>
+       </div>`
+    : rozliczenie.balance < 0
+      ? `<div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e;">
+           <p style="margin: 0; color: #bbf7d0;">Do zwrotu z kaucji: <strong>${kwota(Math.abs(rozliczenie.balance))}</strong></p>
+         </div>`
+      : `<div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e;">
+           <p style="margin: 0; color: #bbf7d0;">✓ Najem rozliczony — nie ma żadnych dopłat.</p>
+         </div>`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Protokół zwrotu sprzętu</p>
+      </div>
+      <p>Cześć <strong style="color: #b8972a;">${safeName}</strong>,</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Dziękujemy za zwrot sprzętu. W załączniku przesyłamy podpisany protokół <strong>${safeNumber}</strong>
+        wraz z rozliczeniem najmu.
+      </p>
+      ${pozycje}
+      ${podsumowanie}
+      ${rozliczenie.hasPendingValuation
+        ? `<p style="color: #e5e5e5; line-height: 1.6; font-size: 14px;">
+             Pozycje oznaczone jako „do wyceny" wskażemy kwotowo po otrzymaniu faktury z autoryzowanego
+             serwisu i prześlemy osobno.
+           </p>`
+        : ''}
+      <p style="color: #71717a; font-size: 13px;">
+        Pytania do rozliczenia? Dzwoń: 570 038 828.
+      </p>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html, [
+    {
+      filename: `protokol-zwrotu-${protocolNumber.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+      content: pdf,
+      contentType: 'application/pdf',
+    },
+  ]);
+};
+
 export const sendCouponEmail = async (
   email: string,
   coupon: {

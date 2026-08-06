@@ -356,6 +356,113 @@ export async function downloadHandoverPdf(reservationId: number) {
   URL.revokeObjectURL(url);
 }
 
+// === PROTOKÓŁ ZWROTU (Załącznik nr 2) ===
+
+export type RodzajNaleznosci = 'cleaning' | 'deep_cleaning' | 'damage' | 'missing' | 'penalty' | 'other';
+
+export interface ReturnCharge {
+  kind: RodzajNaleznosci;
+  label: string;
+  /** null = kwota znana dopiero po wycenie serwisu. */
+  amount: number | null;
+  note?: string;
+}
+
+export interface ReturnChecklist {
+  complete: boolean;
+  working: boolean;
+  clean: boolean;
+  undamaged: boolean;
+}
+
+export interface ReturnSnapshot {
+  protocolNumber: string;
+  contractNumber: string | null;
+  handoverProtocolNumber: string | null;
+  lessor: { name: string; address?: string; representative?: string };
+  renter: { name: string; email?: string; phone?: string };
+  rental: {
+    reservationId: number;
+    startDate: string;
+    startTime: string;
+    endDate: string | null;
+    endTime: string;
+    isIndefinite: boolean;
+    days: number;
+  };
+  place: string;
+  items: string[];
+  checklist: ReturnChecklist;
+  conditionAtHandover: string;
+  conditionNotes: string;
+  charges: ReturnCharge[];
+  chargesTotal: number;
+  hasPendingValuation: boolean;
+  deposit: number;
+  balance: number;
+  overdueDays: number;
+  statements: string[];
+  employeeName: string;
+}
+
+export interface ReturnProtocolView {
+  status: 'draft' | 'signed';
+  signedAt: string | null;
+  snapshot: ReturnSnapshot;
+  contentHash: string;
+  customerName: string;
+  photoCount: number;
+  canSign: boolean;
+  blockedReason: string | null;
+  canRegister: boolean;
+  registerBlockedReason: string | null;
+  registered: boolean;
+}
+
+export interface ReturnDraftPayload {
+  items: string[];
+  checklist: ReturnChecklist;
+  conditionNotes: string;
+  charges: ReturnCharge[];
+  deposit: number;
+  employeeName: string;
+}
+
+export async function getReturnProtocol(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/return`);
+}
+
+export async function saveReturnProtocol(reservationId: number, payload: ReturnDraftPayload) {
+  return adminFetch(`/reservations/${reservationId}/return`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function signReturnProtocol(
+  reservationId: number,
+  payload: { contentHash: string; staffSignature: string; renterSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/return/sign`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function downloadReturnPdf(reservationId: number) {
+  const res = await fetch(`${API_BASE}/reservations/${reservationId}/return/pdf`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Nie udało się pobrać protokołu zwrotu');
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `protokol-zwrotu-${reservationId}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export interface ReservationStatusChangePayload {
   note?: string;
   changedBy?: string;
