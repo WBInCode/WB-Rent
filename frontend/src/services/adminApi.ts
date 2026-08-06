@@ -299,6 +299,8 @@ export interface HandoverProtocolView {
   status: 'draft' | 'signed';
   signedAt: string | null;
   snapshot: HandoverSnapshot;
+  /** Odcisk treści, którą zobaczył podpisujący — wraca przy podpisie. */
+  contentHash: string;
   customerName: string;
   canSign: boolean;
   blockedReason: string | null;
@@ -323,7 +325,7 @@ export async function saveHandoverProtocol(reservationId: number, payload: Hando
 
 export async function signHandoverProtocol(
   reservationId: number,
-  payload: HandoverDraftPayload & { staffSignature: string; renterSignature: string }
+  payload: { contentHash: string; staffSignature: string; renterSignature: string }
 ) {
   return adminFetch(`/reservations/${reservationId}/handover/sign`, {
     method: 'POST',

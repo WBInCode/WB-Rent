@@ -148,11 +148,18 @@ async function buildHandoverSnapshot(reservation: any, protocolNumber: string): 
   };
 }
 
-/** Zapisuje zmiany pracownika w szkicu. Podpisanego protokołu nie da się zmienić. */
+/**
+ * Zamyka tresc protokolu przed podpisem. Od tej chwili dokument jest kompletny:
+ * zawiera takze liczbe zdjec i oswiadczenia, ktore z niej wynikaja. Klient musi
+ * zobaczyc dokladnie to, pod czym sie podpisze - inaczej podpis jest wadliwy.
+ */
 export async function saveHandoverDraft(reservationId: number, input: HandoverDraftInput) {
   const dane = handoverDraftSchema.parse(input);
   const { protocol, snapshot } = await getOrCreateHandoverDraft(reservationId);
   if (protocol.status === 'signed') throw new Error('Protokół został już podpisany');
+
+  const reservation = await queries.getReservationById(reservationId);
+  const photoCount = await queries.countReservationPhotos(reservationId, 'before');
 
   const zmieniony: HandoverSnapshot = {
     ...snapshot,
@@ -160,47 +167,53 @@ export async function saveHandoverDraft(reservationId: number, input: HandoverDr
     conditionNotes: dane.conditionNotes,
     employeeName: dane.employeeName,
     lessor: { ...snapshot.lessor, representative: dane.employeeName },
+    photoCount,
+    statements: buildHandoverStatements(manualsLabel(productIdsOf(reservation)), photoCount),
     edited: true,
   };
 
+  const tresc = JSON.stringify(zmieniony);
   const zapisany = await queries.upsertProtocolDraft({
     reservationId,
     kind: 'handover',
     number: zmieniony.protocolNumber,
-    snapshotEncrypted: encryptContractData(JSON.stringify(zmieniony)),
-    contentHash: sha256(JSON.stringify(zmieniony)),
+    snapshotEncrypted: encryptContractData(tresc),
+    contentHash: sha256(tresc),
   });
   if (!zapisany) throw new Error('Protokół został już podpisany');
-  return { protocol: zapisany, snapshot: zmieniony };
+  return { protocol: zapisany, snapshot: zmieniony, contentHash: sha256(tresc) };
 }
 
+/**
+ * Podpisuje dokladnie te tresc, ktora zostala wczesniej zapisana i pokazana na
+ * ekranie. Zadne dane dokumentu nie przychodza razem z podpisem - przychodzi
+ * tylko odcisk tresci, ktora podpisujacy mial przed oczami.
+ */
 export async function signHandoverProtocol(data: {
   reservationId: number;
-  draft: HandoverDraftInput;
+  contentHash: string;
   staffSignatureDataUrl: string;
   renterSignatureDataUrl: string;
   ip: string;
   userAgent: string;
 }) {
-  const { protocol, snapshot } = await saveHandoverDraft(data.reservationId, data.draft);
+  const protocol = await queries.getProtocol(data.reservationId, 'handover');
+  if (!protocol) throw new Error('Protokół nie został przygotowany');
+  if (protocol.status === 'signed') throw new Error('Protokół został już podpisany');
 
+  if (protocol.content_hash !== data.contentHash) {
+    throw new Error('Treść protokołu zmieniła się po wyświetleniu. Wygeneruj dokument jeszcze raz i pokaż go klientowi.');
+  }
+
+  const finalny = parseSnapshot<HandoverSnapshot>(protocol.snapshot_encrypted);
   const staffSignature = decodeSignature(data.staffSignatureDataUrl);
   const renterSignature = decodeSignature(data.renterSignatureDataUrl);
-
-  // Liczba zdjec trafia do tresci protokolu, wiec musi byc znana przed podpisem.
-  const photoCount = await queries.countReservationPhotos(data.reservationId, 'before');
-  const finalny: HandoverSnapshot = {
-    ...snapshot,
-    photoCount,
-    statements: buildHandoverStatements(manualsLabel(productIdsOf(await queries.getReservationById(data.reservationId))), photoCount),
-  };
-  const contentHash = sha256(JSON.stringify(finalny));
 
   const audit = {
     signedAt: new Date().toISOString(),
     signedIp: data.ip.slice(0, 100),
     signedUserAgent: data.userAgent.slice(0, 500),
-    contentHash,
+    contentHash: protocol.content_hash as string,
     staffSignatureHash: sha256(staffSignature),
     renterSignatureHash: sha256(renterSignature),
   };
@@ -213,16 +226,6 @@ export async function signHandoverProtocol(data: {
   const pdfPath = path.join(storageDir, `protokol-wydania-${protocol.id}-${pdfHash.slice(0, 16)}.pdf.enc`);
   // Protokol zawiera dane osobowe, wiec lezy na dysku zaszyfrowany.
   await fs.writeFile(pdfPath, encryptContractData(pdf), { mode: 0o600 });
-
-  // Zapis migawki z liczba zdjec musi poprzedzic podpis, bo po podpisie szkicu
-  // nie da sie juz zmienic.
-  await queries.upsertProtocolDraft({
-    reservationId: data.reservationId,
-    kind: 'handover',
-    number: finalny.protocolNumber,
-    snapshotEncrypted: encryptContractData(JSON.stringify(finalny)),
-    contentHash,
-  });
 
   const podpisany = await queries.signProtocol({
     id: protocol.id,

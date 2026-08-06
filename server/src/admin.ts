@@ -509,6 +509,8 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
         status: protocol.status,
         signedAt: protocol.signed_at,
         snapshot,
+        // Odcisk treści, którą zobaczy podpisujący — wraca przy podpisie.
+        contentHash: protocol.content_hash,
         customerName: reservation.name,
         // Protokół można podpisać tylko wtedy, gdy wydanie jest w ogóle dozwolone.
         canSign: protocol.status === 'draft' && Boolean(wydanie?.available),
@@ -524,8 +526,8 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
 
 router.post('/reservations/:id/handover', adminAuth, async (req: Request, res: Response) => {
   try {
-    const { snapshot } = await saveHandoverDraft(Number(req.params.id), req.body);
-    res.json({ success: true, data: { snapshot }, message: 'Zapisano protokół' });
+    const { snapshot, contentHash } = await saveHandoverDraft(Number(req.params.id), req.body);
+    res.json({ success: true, data: { snapshot, contentHash }, message: 'Protokół przygotowany do podpisu' });
   } catch (error) {
     if (error instanceof ZodError) {
       res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
@@ -562,10 +564,10 @@ router.post('/reservations/:id/handover/sign', adminAuth, async (req: Request, r
       return;
     }
 
-    const { staffSignature, renterSignature, ...draft } = req.body ?? {};
+    const { staffSignature, renterSignature, contentHash } = req.body ?? {};
     const wynik = await signHandoverProtocol({
       reservationId,
-      draft,
+      contentHash: String(contentHash || ''),
       staffSignatureDataUrl: String(staffSignature || ''),
       renterSignatureDataUrl: String(renterSignature || ''),
       ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1',
