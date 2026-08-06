@@ -29,6 +29,7 @@ import {
   createContractSession,
   getReservationContract,
   downloadContractPdf,
+  downloadHandoverPdf,
   resendContractEmail,
   getAdminProducts,
   createAdminProduct,
@@ -67,6 +68,7 @@ import {
   Calendar, 
   Mail, 
   DollarSign, 
+  ClipboardCheck,
   Clock,
   CheckCircle,
   XCircle,
@@ -167,6 +169,8 @@ interface Reservation {
   stage?: RentalStageInfo;
   /** Kroki dozwolone w tym momencie — panel nie rysuje żadnych innych. */
   actions?: ActionAvailability[];
+  /** Czy istnieje podpisany protokół wydania (Załącznik nr 1). */
+  handoverSigned?: boolean;
   created_at: string;
 }
 
@@ -1314,7 +1318,15 @@ export function AdminPanel() {
                         <p className="text-xs text-text-muted mb-1.5">Następny krok</p>
                         <StageActions
                           actions={reservation.actions}
-                          onAction={(action) => void openStatusModal(reservation, ACTION_TARGET_STATUS[action])}
+                          onAction={(action) => {
+                            // Wydanie potwierdza podpisany protokół, więc akcja
+                            // prowadzi do dokumentu, a nie do samej zmiany statusu.
+                            if (action === 'hand_over') {
+                              window.location.assign(`/admin/wydanie/${reservation.id}`);
+                              return;
+                            }
+                            void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);
+                          }}
                         />
                       </div>
 
@@ -1348,6 +1360,16 @@ export function AdminPanel() {
                               <Download className="w-4 h-4" />
                             </Button>
                           </>
+                        )}
+                        {reservation.handoverSigned && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void downloadHandoverPdf(reservation.id)}
+                            title="Pobierz podpisany protokół wydania"
+                          >
+                            <ClipboardCheck className="w-4 h-4" />
+                          </Button>
                         )}
                         <Button
                           variant="ghost"

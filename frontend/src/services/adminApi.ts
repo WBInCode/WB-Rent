@@ -270,6 +270,85 @@ export async function getReservations() {
   return adminFetch('/reservations');
 }
 
+// === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
+
+export interface HandoverSnapshot {
+  protocolNumber: string;
+  contractNumber: string | null;
+  lessor: { name: string; address?: string; representative?: string };
+  renter: { name: string; email?: string; phone?: string };
+  rental: {
+    reservationId: number;
+    startDate: string;
+    startTime: string;
+    endDate: string | null;
+    endTime: string;
+    isIndefinite: boolean;
+    days: number;
+  };
+  place: string;
+  items: string[];
+  accessories: string;
+  conditionNotes: string;
+  statements: string[];
+  employeeName: string;
+  photoCount: number;
+}
+
+export interface HandoverProtocolView {
+  status: 'draft' | 'signed';
+  signedAt: string | null;
+  snapshot: HandoverSnapshot;
+  customerName: string;
+  canSign: boolean;
+  blockedReason: string | null;
+}
+
+export interface HandoverDraftPayload {
+  items: string[];
+  conditionNotes: string;
+  employeeName: string;
+}
+
+export async function getHandoverProtocol(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/handover`);
+}
+
+export async function saveHandoverProtocol(reservationId: number, payload: HandoverDraftPayload) {
+  return adminFetch(`/reservations/${reservationId}/handover`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function signHandoverProtocol(
+  reservationId: number,
+  payload: HandoverDraftPayload & { staffSignature: string; renterSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/handover/sign`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function handoverPdfUrl(reservationId: number) {
+  return `${API_BASE}/reservations/${reservationId}/handover/pdf`;
+}
+
+export async function downloadHandoverPdf(reservationId: number) {
+  const res = await fetch(handoverPdfUrl(reservationId), { headers: authHeaders() });
+  if (!res.ok) throw new Error('Nie udało się pobrać protokołu wydania');
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `protokol-wydania-${reservationId}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export interface ReservationStatusChangePayload {
   note?: string;
   changedBy?: string;

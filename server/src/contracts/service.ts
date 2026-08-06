@@ -371,15 +371,9 @@ export async function regenerateSignedContractPdf(id: number, resendEmail = fals
   const lessorSignature = contract.lessor_signature_encrypted
     ? decryptContractData(contract.lessor_signature_encrypted)
     : undefined;
-  const handoverRenter = contract.handover_signature_encrypted
-    ? decryptContractData(contract.handover_signature_encrypted)
-    : undefined;
-  const handoverLessor = contract.handover_lessor_signature_encrypted
-    ? decryptContractData(contract.handover_lessor_signature_encrypted)
-    : undefined;
   const pdf = await generateContractPdf(
     snapshot,
-    { renter: renterSignature, lessor: lessorSignature, handoverRenter, handoverLessor },
+    { renter: renterSignature, lessor: lessorSignature },
     {
       signedAt: new Date(contract.signed_at).toISOString(),
       signedIp: contract.signed_ip || 'unknown',

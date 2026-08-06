@@ -1051,6 +1051,48 @@ export const sendSignedContractEmail = async (
   ]);
 };
 
+// === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
+export const sendHandoverProtocolEmail = async (
+  email: string,
+  customerName: string,
+  protocolNumber: string,
+  pdf: Buffer
+) => {
+  const safeName = esc(customerName);
+  const safeNumber = esc(protocolNumber);
+  const subject = `Protokół wydania sprzętu ${protocolNumber} - WB-Rent`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Protokół wydania sprzętu</p>
+      </div>
+      <p>Cześć <strong style="color: #b8972a;">${safeName}</strong>,</p>
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        W załączniku przesyłamy podpisany protokół wydania <strong>${safeNumber}</strong>.
+        Dokument potwierdza, jaki sprzęt został wydany i w jakim stanie.
+      </p>
+      <div style="background: #1a1a1a; padding: 18px; border-radius: 8px; margin: 24px 0; border-left: 4px solid #22c55e;">
+        <p style="margin: 0; color: #bbf7d0;">✓ Sprzęt wydany. Miłego korzystania!</p>
+      </div>
+      <p style="color: #e5e5e5; line-height: 1.6; font-size: 14px;">
+        Zachowaj protokół do końca najmu — przy zwrocie porównamy z nim stan sprzętu.
+      </p>
+      <p style="color: #71717a; font-size: 13px;">
+        Pytania? Dzwoń: 570 038 828.
+      </p>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html, [
+    {
+      filename: `protokol-wydania-${protocolNumber.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+      content: pdf,
+      contentType: 'application/pdf',
+    },
+  ]);
+};
+
 export const sendCouponEmail = async (
   email: string,
   coupon: {

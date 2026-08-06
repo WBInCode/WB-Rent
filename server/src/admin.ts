@@ -15,6 +15,7 @@ import {
   businessSettingsSchema,
 } from './schemas.js';
 import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
+import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, readHandoverPdf } from './contracts/protocol-service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
@@ -455,12 +456,14 @@ router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
     const now = Date.now();
     const idki = reservations.map((r: any) => r.id);
     const zdjeciaZwrotu = await queries.countReturnPhotosForReservations(idki);
+    const zProtokolem = await queries.signedProtocolsForReservations(idki, 'handover');
     const zEtapem = reservations.map((reservation: any) => {
       const context = { returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0 };
       return {
         ...reservation,
         stage: describeRentalStage(reservation, now),
         actions: availableActions(reservation, context, now),
+        handoverSigned: zProtokolem.has(reservation.id),
       };
     });
 
@@ -479,6 +482,129 @@ router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res
   }
   const changes = await queries.getReservationTermChanges(reservation.id);
   res.json({ success: true, data: changes });
+});
+
+// === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
+
+router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const { protocol, snapshot } = await getOrCreateHandoverDraft(reservationId);
+    const akcje = availableActions(
+      reservation,
+      { returnPhotos: await queries.countReservationPhotos(reservationId, 'after') },
+      Date.now()
+    );
+    const wydanie = akcje.find((akcja) => akcja.action === 'hand_over');
+
+    res.json({
+      success: true,
+      data: {
+        status: protocol.status,
+        signedAt: protocol.signed_at,
+        snapshot,
+        customerName: reservation.name,
+        // Protokół można podpisać tylko wtedy, gdy wydanie jest w ogóle dozwolone.
+        canSign: protocol.status === 'draft' && Boolean(wydanie?.available),
+        blockedReason: wydanie?.available ? null : wydanie?.reason || 'Wydanie nie jest teraz możliwe',
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się otworzyć protokołu wydania';
+    console.error('Handover draft error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/handover', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { snapshot } = await saveHandoverDraft(Number(req.params.id), req.body);
+    res.json({ success: true, data: { snapshot }, message: 'Zapisano protokół' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się zapisać protokołu';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/handover/sign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    if (await queries.hasSignedProtocol(reservationId, 'handover')) {
+      res.status(409).json({ success: false, message: 'Protokół wydania został już podpisany' });
+      return;
+    }
+
+    // Ta sama bramka co dla przycisku wydania. Podpisany protokół przesuwa
+    // rezerwację na "wydane", więc nie może ominąć warunków przejścia.
+    const przejscie = canTransition(
+      reservation,
+      'picked_up',
+      { returnPhotos: await queries.countReservationPhotos(reservationId, 'after') }
+    );
+    if (!przejscie.ok) {
+      res.status(409).json({ success: false, message: przejscie.reason });
+      return;
+    }
+
+    const { staffSignature, renterSignature, ...draft } = req.body ?? {};
+    const wynik = await signHandoverProtocol({
+      reservationId,
+      draft,
+      staffSignatureDataUrl: String(staffSignature || ''),
+      renterSignatureDataUrl: String(renterSignature || ''),
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+
+    res.json({
+      success: true,
+      data: wynik,
+      message: wynik.emailDelivered
+        ? `Sprzęt wydany. Protokół ${wynik.protocolNumber} wysłany do klienta.`
+        : `Sprzęt wydany. Protokół ${wynik.protocolNumber} zapisany, ale e-mail nie został wysłany.`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać protokołu';
+    console.error('Handover sign error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.get('/reservations/:id/handover/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const plik = await readHandoverPdf(Number(req.params.id));
+    if (!plik) {
+      res.status(404).json({ success: false, message: 'Podpisany protokół wydania nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${plik.filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(plik.buffer);
+  } catch (error) {
+    console.error('Handover pdf error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
+  }
 });
 
 // === LINK DO PŁATNOŚCI ===
@@ -724,6 +850,16 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         res.status(409).json({
           success: false,
           message: 'Nie można wydać sprzętu przed podpisaniem umowy najmu',
+        });
+        return;
+      }
+      // Wydanie potwierdza podpisany protokol, a nie samo klikniecie w panelu -
+      // inaczej sprzet wychodzilby bez dokumentu odbioru.
+      const protokol = await queries.hasSignedProtocol(Number(id), 'handover');
+      if (!protokol) {
+        res.status(409).json({
+          success: false,
+          message: 'Wydanie potwierdza podpisany protokół wydania — otwórz „Wydaj sprzęt”',
         });
         return;
       }

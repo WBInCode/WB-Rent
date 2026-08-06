@@ -17,9 +17,6 @@ export interface ContractAuditData {
 export interface ContractSignatures {
   renter: Buffer;
   lessor?: Buffer;
-  /** Second signing round, collected under Załącznik nr 1 (protokół wydania). */
-  handoverRenter?: Buffer;
-  handoverLessor?: Buffer;
 }
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));

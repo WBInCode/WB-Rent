@@ -423,6 +423,21 @@ export function StaffRentalPage() {
 
           <div className="mt-8 pt-6 border-t border-border">
             <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Package className="w-4 h-4 text-gold" /> Następny krok: wydanie sprzętu
+            </h2>
+            <p className="text-xs text-text-muted mt-1 mb-4">
+              Po podpisaniu umowy i opłaceniu najmu otwórz protokół wydania — tam dodasz zdjęcia stanu,
+              uwagi i zbierzesz oba podpisy. Podpisany protokół oznacza sprzęt jako wydany.
+            </p>
+            <Link to={`/admin/wydanie/${session.reservationId}`}>
+              <Button variant="secondary" className="w-full">
+                <FileSignature className="w-4 h-4 mr-2" /> Otwórz protokół wydania
+              </Button>
+            </Link>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
               <Camera className="w-4 h-4 text-gold" /> Dokumentacja stanu sprzętu
             </h2>
             <p className="text-xs text-text-muted mt-1 mb-4">

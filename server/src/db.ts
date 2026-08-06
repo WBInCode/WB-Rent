@@ -461,6 +461,45 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
       WHERE status = 'pending' AND contract_status IN ('ready', 'signed');
     `,
   },
+  {
+    version: 15,
+    name: 'rental-protocols',
+    sql: `
+      -- Protokol wydania i protokol zwrotu to osobne dokumenty od umowy: maja
+      -- wlasna tresc, wlasne podpisy i powstaja w innym momencie. Jedna tabela
+      -- obsluguje oba, bo roznia sie wylacznie zawartoscia migawki.
+      CREATE TABLE IF NOT EXISTS rental_protocols (
+        id SERIAL PRIMARY KEY,
+        reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('handover', 'return')),
+        number TEXT NOT NULL UNIQUE,
+        snapshot_encrypted TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'signed')),
+        staff_signature_encrypted TEXT,
+        staff_signature_hash TEXT,
+        renter_signature_encrypted TEXT,
+        renter_signature_hash TEXT,
+        signed_at TIMESTAMP,
+        signed_ip TEXT,
+        signed_user_agent TEXT,
+        pdf_path TEXT,
+        pdf_hash TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rental_protocols_kind
+        ON rental_protocols (reservation_id, kind);
+
+      -- Kolumny z migracji 13 miescily podpisy protokolu wewnatrz umowy. Protokol
+      -- jest teraz osobnym dokumentem, a te kolumny nigdy nie zostaly zapisane.
+      ALTER TABLE rental_contracts
+        DROP COLUMN IF EXISTS handover_signature_encrypted,
+        DROP COLUMN IF EXISTS handover_signature_hash,
+        DROP COLUMN IF EXISTS handover_lessor_signature_encrypted,
+        DROP COLUMN IF EXISTS handover_lessor_signature_hash;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -1592,6 +1631,7 @@ export const queries = {
     filePath: string;
     sizeBytes: number;
     fileHash: string;
+    notes?: string;
   }) => {
     const result = await pool.query(
       `INSERT INTO documents (
@@ -1600,12 +1640,13 @@ export const queries = {
          source, notes, uploaded_by
        )
        SELECT $1, 'contract', $2, $3, $4, $5, $6, 'application/pdf', $7, $8,
-              'system', 'Umowa podpisana elektronicznie w systemie.', 'system'
+              'system', $9, 'system'
        WHERE NOT EXISTS (SELECT 1 FROM documents WHERE file_path = $6)
        RETURNING *`,
       [
         data.title, data.reservationId, data.customerEmail, data.documentDate,
         data.fileName, data.filePath, data.sizeBytes, data.fileHash,
+        data.notes || 'Umowa podpisana elektronicznie w systemie.',
       ]
     );
     return result.rows[0] || null;
@@ -2035,10 +2076,6 @@ export const queries = {
            signature_hash = NULL,
            lessor_signature_encrypted = NULL,
            lessor_signature_hash = NULL,
-           handover_signature_encrypted = NULL,
-           handover_signature_hash = NULL,
-           handover_lessor_signature_encrypted = NULL,
-           handover_lessor_signature_hash = NULL,
            signed_name = NULL,
            signed_ip = NULL,
            signed_user_agent = NULL,
@@ -2159,6 +2196,137 @@ export const queries = {
       [reservationId]
     );
     return Boolean(result.rowCount);
+  },
+
+  // === PROTOKOLY (wydania i zwrotu) ===
+
+  getProtocol: async (reservationId: number, kind: string) => {
+    const result = await pool.query(
+      `SELECT * FROM rental_protocols WHERE reservation_id = $1 AND kind = $2`,
+      [reservationId, kind]
+    );
+    return result.rows[0] || null;
+  },
+
+  getProtocolById: async (id: number) => {
+    const result = await pool.query(`SELECT * FROM rental_protocols WHERE id = $1`, [id]);
+    return result.rows[0] || null;
+  },
+
+  /** Zapisuje szkic. Podpisanego protokolu nie da sie nadpisac. */
+  upsertProtocolDraft: async (data: {
+    reservationId: number;
+    kind: string;
+    number: string;
+    snapshotEncrypted: string;
+    contentHash: string;
+  }) => {
+    const result = await pool.query(
+      `INSERT INTO rental_protocols (reservation_id, kind, number, snapshot_encrypted, content_hash)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (reservation_id, kind) DO UPDATE SET
+         snapshot_encrypted = EXCLUDED.snapshot_encrypted,
+         content_hash = EXCLUDED.content_hash,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE rental_protocols.status = 'draft'
+       RETURNING *`,
+      [data.reservationId, data.kind, data.number, data.snapshotEncrypted, data.contentHash]
+    );
+    return result.rows[0] || null;
+  },
+
+  /**
+   * Podpisanie protokolu wydania jest tym samym zdarzeniem co wydanie sprzetu,
+   * wiec status rezerwacji zmienia sie w tej samej transakcji - inaczej moglby
+   * istniec podpisany protokol przy rezerwacji, ktora nadal czeka na odbior.
+   */
+  signProtocol: async (data: {
+    id: number;
+    staffSignatureEncrypted: string;
+    staffSignatureHash: string;
+    renterSignatureEncrypted: string;
+    renterSignatureHash: string;
+    signedIp: string;
+    signedUserAgent: string;
+    pdfPath: string;
+    pdfHash: string;
+    reservationStatus: string | null;
+    signedBy: string;
+  }) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE rental_protocols
+         SET status = 'signed',
+             staff_signature_encrypted = $1, staff_signature_hash = $2,
+             renter_signature_encrypted = $3, renter_signature_hash = $4,
+             signed_at = CURRENT_TIMESTAMP, signed_ip = $5, signed_user_agent = $6,
+             pdf_path = $7, pdf_hash = $8, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $9 AND status = 'draft'
+         RETURNING *`,
+        [
+          data.staffSignatureEncrypted,
+          data.staffSignatureHash,
+          data.renterSignatureEncrypted,
+          data.renterSignatureHash,
+          data.signedIp,
+          data.signedUserAgent,
+          data.pdfPath,
+          data.pdfHash,
+          data.id,
+        ]
+      );
+      const row = result.rows[0];
+      if (row && data.reservationStatus) {
+        const poprzedni = await client.query(
+          `SELECT status FROM reservations WHERE id = $1 FOR UPDATE`,
+          [row.reservation_id]
+        );
+        await client.query(
+          `UPDATE reservations SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [data.reservationStatus, row.reservation_id]
+        );
+        await client.query(
+          `INSERT INTO reservation_status_changes
+             (reservation_id, previous_status, new_status, note, changed_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            row.reservation_id,
+            poprzedni.rows[0]?.status || 'unknown',
+            data.reservationStatus,
+            `Podpisany protokół ${row.number}`,
+            data.signedBy,
+          ]
+        );
+      }
+      await client.query('COMMIT');
+      return row || null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+
+  hasSignedProtocol: async (reservationId: number, kind: string): Promise<boolean> => {
+    const result = await pool.query(
+      `SELECT 1 FROM rental_protocols WHERE reservation_id = $1 AND kind = $2 AND status = 'signed' LIMIT 1`,
+      [reservationId, kind]
+    );
+    return Boolean(result.rowCount);
+  },
+
+  /** Ktore rezerwacje z listy maja juz podpisany protokol danego rodzaju. */
+  signedProtocolsForReservations: async (ids: number[], kind: string): Promise<Set<number>> => {
+    if (ids.length === 0) return new Set();
+    const result = await pool.query(
+      `SELECT reservation_id FROM rental_protocols
+       WHERE reservation_id = ANY($1::int[]) AND kind = $2 AND status = 'signed'`,
+      [ids, kind]
+    );
+    return new Set(result.rows.map((row: any) => Number(row.reservation_id)));
   },
 };
 
