@@ -310,7 +310,7 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         price_weekend REAL NOT NULL CHECK (price_weekend >= 0),
         total_quantity INTEGER NOT NULL DEFAULT 1 CHECK (total_quantity >= 0),
         service_quantity INTEGER NOT NULL DEFAULT 0 CHECK (service_quantity >= 0 AND service_quantity <= total_quantity),
-        condition_status TEXT NOT NULL DEFAULT 'good' CHECK (condition_status IN ('good', 'attention', 'service', 'damaged')),
+        withdrawn_quantity INTEGER NOT NULL DEFAULT 0 CHECK (withdrawn_quantity >= 0),
         inventory_notes TEXT NOT NULL DEFAULT '',
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -646,6 +646,27 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
       WHERE included_accessories::text LIKE '%ml Środek do dezynfekcji%';
     `,
   },
+  {
+    version: 23,
+    name: 'withdrawn-quantity-instead-of-condition',
+    sql: `
+      -- Trzecia pula obok serwisu: sprzet sprawny, ktory wlasciciel czasowo
+      -- zdejmuje z najmu. Dotad dalo sie to zrobic tylko przez "stan techniczny",
+      -- czyli oznaczajac sprawne urzadzenie jako uszkodzone.
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS withdrawn_quantity INTEGER NOT NULL DEFAULT 0;
+
+      -- Sprzet zablokowany dotychczas stanem technicznym zostaje zablokowany.
+      UPDATE products
+      SET withdrawn_quantity = GREATEST(total_quantity - service_quantity, 0)
+      WHERE condition_status IN ('damaged', 'service');
+
+      ALTER TABLE products DROP COLUMN IF EXISTS condition_status;
+
+      ALTER TABLE products
+        ADD CONSTRAINT products_quantities_within_total
+        CHECK (service_quantity + withdrawn_quantity <= total_quantity);
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -726,8 +747,7 @@ async function seedProductCatalog(client: import('pg').PoolClient) {
  * marking a machine "uszkodzony" must actually block it.
  */
 const rentableQuantitySql = (alias = 'p') =>
-  `CASE WHEN ${alias}.condition_status IN ('damaged', 'service') THEN 0
-        ELSE GREATEST(${alias}.total_quantity - ${alias}.service_quantity, 0) END`;
+  `GREATEST(${alias}.total_quantity - ${alias}.service_quantity - ${alias}.withdrawn_quantity, 0)`;
 
 /**
  * Do kiedy sprzęt jest zajęty przez daną rezerwację.
@@ -801,7 +821,7 @@ export const queries = {
     priceWeekend: number;
     totalQuantity: number;
     serviceQuantity: number;
-    conditionStatus: string;
+    withdrawnQuantity: number;
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
@@ -813,7 +833,7 @@ export const queries = {
       `INSERT INTO products (
          id, name, description, category_id, image, images,
          price_per_day, price_next_day, price_weekend,
-         total_quantity, service_quantity, condition_status, inventory_notes, is_active,
+         total_quantity, service_quantity, withdrawn_quantity, inventory_notes, is_active,
          features, included_accessories, optional_accessories, accessory_price
        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14,
                  $15::jsonb, $16::jsonb, $17::jsonb, $18)
@@ -821,7 +841,7 @@ export const queries = {
       [
         data.id, data.name, data.description, data.categoryId, data.image, JSON.stringify(data.images),
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
-        data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
+        data.totalQuantity, data.serviceQuantity, data.withdrawnQuantity, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
         JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
@@ -841,7 +861,7 @@ export const queries = {
     priceWeekend: number;
     totalQuantity: number;
     serviceQuantity: number;
-    conditionStatus: string;
+    withdrawnQuantity: number;
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
@@ -853,7 +873,7 @@ export const queries = {
       `UPDATE products SET
          name = $2, description = $3, category_id = $4, image = $5, images = $6::jsonb,
          price_per_day = $7, price_next_day = $8, price_weekend = $9,
-         total_quantity = $10, service_quantity = $11, condition_status = $12,
+         total_quantity = $10, service_quantity = $11, withdrawn_quantity = $12,
          inventory_notes = $13, is_active = $14,
          features = $15::jsonb, included_accessories = $16::jsonb,
          optional_accessories = $17::jsonb, accessory_price = $18,
@@ -862,7 +882,7 @@ export const queries = {
       [
         id, data.name, data.description, data.categoryId, data.image, JSON.stringify(data.images),
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
-        data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
+        data.totalQuantity, data.serviceQuantity, data.withdrawnQuantity, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
         JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
@@ -1037,7 +1057,7 @@ export const queries = {
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($2::date, 'infinity'::date)
            AND ${zajetyDoSql()} > $3::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active, p.condition_status
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity, p.is_active
          HAVING p.id IS NULL
             OR NOT p.is_active
             OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
@@ -1228,7 +1248,7 @@ export const queries = {
          AND r.status IN ('pending', 'confirmed', 'picked_up')
          AND r.start_date < COALESCE($3::date, 'infinity'::date)
          AND ${zajetyDoSql()} > $4::date
-      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
+      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
        HAVING p.id IS NULL
           OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
       [data.productIds, data.id, data.endDate, data.startDate]
@@ -1279,7 +1299,7 @@ export const queries = {
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($3::date, 'infinity'::date)
            AND ${zajetyDoSql()} > $4::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
          HAVING p.id IS NULL
             OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.id, data.endDate, current.start_date]
@@ -1397,7 +1417,7 @@ export const queries = {
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < $3::date
            AND ${zajetyDoSql()} > $4::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
          HAVING p.id IS NULL
             OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.reservationId, data.newEndDate, current.end_date || current.start_date]
@@ -1559,7 +1579,7 @@ export const queries = {
   checkDateAvailability: async (data: { productId: string; startDate: string; endDate: string }) => {
     const [productResult, reservationsResult] = await Promise.all([
       pool.query(
-        `SELECT ${rentableQuantitySql()} AS rentable_quantity, p.is_active, p.condition_status
+        `SELECT ${rentableQuantitySql()} AS rentable_quantity, p.is_active
          FROM products p WHERE p.id = $1`,
         [data.productId]
       ),

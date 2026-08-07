@@ -545,7 +545,7 @@ router.get('/reservations/product/:productId', async (req: Request, res: Respons
       queries.getReservationsByProduct(productId),
     ]);
     const rentableQuantity = product && product.is_active
-      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity), 0)
+      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity) - Number(product.withdrawn_quantity || 0), 0)
       : 0;
     const blockedDates = calculateFullyBookedRanges(
       reservations.map((reservation: any) => ({

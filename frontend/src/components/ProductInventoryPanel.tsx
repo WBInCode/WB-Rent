@@ -22,7 +22,6 @@ import { addonId, normalizeAddons, type ProductAddon } from '@/data/products';
 import { deleteUploadedProductImage, uploadProductImage } from '@/services/adminApi';
 import type {
   AdminProduct,
-  ProductCondition,
   ProductInventoryPayload,
 } from '@/services/adminApi';
 
@@ -39,21 +38,6 @@ const CATEGORY_OPTIONS = [
   { value: 'ozonatory', label: 'Ozonatory i oczyszczacze' },
   { value: 'pozostale', label: 'Pozostały sprzęt' },
 ];
-
-const CONDITION_OPTIONS: Array<{ value: ProductCondition; label: string }> = [
-  { value: 'good', label: 'Sprawny' },
-  { value: 'attention', label: 'Wymaga uwagi' },
-  { value: 'service', label: 'W serwisie' },
-  { value: 'damaged', label: 'Uszkodzony' },
-];
-
-const CONDITION_STYLES: Record<ProductCondition, string> = {
-  good: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 light:text-emerald-700',
-  attention: 'bg-amber-500/10 border-amber-500/25 text-amber-300 light:text-amber-700',
-  service: 'bg-sky-500/10 border-sky-500/25 text-sky-300 light:text-sky-700',
-  damaged: 'bg-red-500/10 border-red-500/25 text-red-300 light:text-red-700',
-};
-
 const emptyProduct: ProductInventoryPayload = {
   id: '',
   name: '',
@@ -66,7 +50,7 @@ const emptyProduct: ProductInventoryPayload = {
   priceWeekend: 0,
   totalQuantity: 1,
   serviceQuantity: 0,
-  conditionStatus: 'good',
+  withdrawnQuantity: 0,
   inventoryNotes: '',
   features: [],
   includedAccessories: [],
@@ -91,7 +75,7 @@ const toPayload = (product: AdminProduct): ProductInventoryPayload => {
     priceWeekend: Number(product.price_weekend),
     totalQuantity: Number(product.total_quantity),
     serviceQuantity: Number(product.service_quantity),
-    conditionStatus: product.condition_status,
+    withdrawnQuantity: Number(product.withdrawn_quantity || 0),
     inventoryNotes: product.inventory_notes || '',
     features: Array.isArray(product.features) ? product.features : [],
     includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
@@ -108,7 +92,6 @@ export function ProductInventoryPanel({
   onDelete,
 }: ProductInventoryPanelProps) {
   const [query, setQuery] = useState('');
-  const [condition, setCondition] = useState('all');
   const [includeHidden, setIncludeHidden] = useState(true);
   const [editingId, setEditingId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductInventoryPayload | null>(null);
@@ -122,20 +105,19 @@ export function ProductInventoryPanel({
     units: result.units + Number(product.total_quantity),
     available: result.available + Number(product.available_today),
     rented: result.rented + Number(product.reserved_today),
-    service: result.service + Number(product.service_quantity),
+    service: result.service + Number(product.service_quantity) + Number(product.withdrawn_quantity || 0),
   }), { units: 0, available: 0, rented: 0, service: 0 }), [products]);
 
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('pl');
     return products.filter((product) => {
       if (!includeHidden && !product.is_active) return false;
-      if (condition !== 'all' && product.condition_status !== condition) return false;
       if (!normalized) return true;
       return `${product.name} ${product.id} ${product.category_id}`
         .toLocaleLowerCase('pl')
         .includes(normalized);
     });
-  }, [products, query, condition, includeHidden]);
+  }, [products, query, includeHidden]);
 
   const openNew = () => {
     setEditingId(undefined);
@@ -252,15 +234,6 @@ export function ProductInventoryPanel({
                 leftIcon={<Search className="w-4 h-4" />}
               />
             </div>
-            <div className="sm:w-48">
-              <Select
-                size="sm"
-                aria-label="Filtr stanu technicznego"
-                value={condition}
-                onChange={(event) => setCondition(event.target.value)}
-                options={[{ value: 'all', label: 'Każdy stan' }, ...CONDITION_OPTIONS]}
-              />
-            </div>
             <Button variant="primary" size="sm" className="shrink-0" onClick={openNew}>
               <Plus className="w-4 h-4" /> Dodaj produkt
             </Button>
@@ -294,9 +267,10 @@ export function ProductInventoryPanel({
             const available = Number(product.available_today);
             const rented = Number(product.reserved_today);
             const service = Number(product.service_quantity);
-            const usedPercent = total > 0 ? Math.min(100, ((rented + service) / total) * 100) : 100;
+            const wylaczone = Number(product.withdrawn_quantity || 0);
+            const usedPercent = total > 0 ? Math.min(100, ((rented + service + wylaczone) / total) * 100) : 100;
             return (
-              <div key={product.id} className={`grid xl:grid-cols-[minmax(300px,1.8fr)_130px_210px_180px_150px] gap-4 px-4 sm:px-5 py-4 items-center ${!product.is_active ? 'opacity-55' : ''}`}>
+              <div key={product.id} className={`grid xl:grid-cols-[minmax(300px,1.8fr)_210px_180px_150px] gap-4 px-4 sm:px-5 py-4 items-center ${!product.is_active ? 'opacity-55' : ''}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-12 h-12 rounded-lg border border-white/10 bg-white overflow-hidden shrink-0">
                     <img src={product.image || '/favicon.svg'} alt="" className="w-full h-full object-contain" />
@@ -311,15 +285,13 @@ export function ProductInventoryPanel({
                 </div>
 
                 <div>
-                  <span className={`inline-flex px-2.5 py-1 rounded-md border text-xs font-medium ${CONDITION_STYLES[product.condition_status]}`}>
-                    {CONDITION_OPTIONS.find((item) => item.value === product.condition_status)?.label}
-                  </span>
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-xs flex-wrap">
                     <strong className="text-emerald-300 light:text-emerald-700">{available} dostępne</strong>
-                    <span className="text-text-muted">{rented} wynajęte · {service} serwis</span>
+                    <span className="text-text-muted">
+                      {rented} wynajęte
+                      {service > 0 ? ` · ${service} serwis` : ''}
+                      {wylaczone > 0 ? ` · ${wylaczone} wyłączone` : ''}
+                    </span>
                   </div>
                   <div className="mt-2 h-1.5 rounded-full bg-surface-soft overflow-hidden">
                     <div className="h-full bg-gold" style={{ width: `${usedPercent}%` }} />
@@ -513,20 +485,19 @@ export function ProductInventoryPanel({
                 </section>
 
                 <section className="pt-5 border-t border-border">
-                  <h3 className="text-sm font-semibold mb-3">Magazyn i stan techniczny</h3>
+                  <h3 className="text-sm font-semibold mb-3">Magazyn</h3>
                   <div className="grid sm:grid-cols-3 gap-4">
                     <NumberInput label="Ilość całkowita" integer value={form.totalQuantity} onChange={(value) => setForm({ ...form, totalQuantity: value })} />
                     <NumberInput label="Sztuki w serwisie" integer value={form.serviceQuantity} onChange={(value) => setForm({ ...form, serviceQuantity: value })} />
-                    <Select
-                      label="Stan techniczny"
-                      value={form.conditionStatus}
-                      options={CONDITION_OPTIONS}
-                      onChange={(event) => setForm({ ...form, conditionStatus: event.target.value as ProductCondition })}
-                    />
+                    <NumberInput label="Wyłączone z użytku" integer value={form.withdrawnQuantity} onChange={(value) => setForm({ ...form, withdrawnQuantity: value })} />
                   </div>
-                  {form.serviceQuantity > form.totalQuantity && (
+                  <p className="text-xs text-text-muted mt-2">
+                    Do wynajęcia zostaje {Math.max(form.totalQuantity - form.serviceQuantity - form.withdrawnQuantity, 0)} szt.
+                    „Wyłączone z użytku” to sprawny sprzęt, który sam zdejmujesz z najmu — bez udawania usterki.
+                  </p>
+                  {form.serviceQuantity + form.withdrawnQuantity > form.totalQuantity && (
                     <div className="mt-3 p-3 rounded-lg border border-red-500/25 bg-red-500/[0.08] text-sm text-red-300 light:text-red-700 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> Liczba sztuk w serwisie nie może przekraczać stanu całkowitego.
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> Sztuki w serwisie i wyłączone z użytku nie mogą przekraczać stanu całkowitego.
                     </div>
                   )}
                   <Textarea className="mt-4" label="Notatka magazynowa" value={form.inventoryNotes} onChange={(event) => setForm({ ...form, inventoryNotes: event.target.value })} />
@@ -542,7 +513,7 @@ export function ProductInventoryPanel({
 
               <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => void closeForm()}>Anuluj</Button>
-                <Button type="submit" disabled={saving || uploadingImages || form.images.length === 0 || form.serviceQuantity > form.totalQuantity} isLoading={saving}>
+                <Button type="submit" disabled={saving || uploadingImages || form.images.length === 0 || form.serviceQuantity + form.withdrawnQuantity > form.totalQuantity} isLoading={saving}>
                   Zapisz produkt
                 </Button>
               </div>

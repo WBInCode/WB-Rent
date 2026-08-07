@@ -254,10 +254,10 @@ export async function getProductsAvailability(): Promise<ApiResponse<ProductsAva
 export async function checkDeliveryArea(
   kod: string
 ): Promise<{ wObszarze: boolean; powod: string | null; oplataZaKurs: number }> {
-  const odpowiedz = await apiFetch<{ wObszarze: boolean; powod: string | null; oplataZaKurs: number }>(
+  const odpowiedz = await apiFetch<{ data: { wObszarze: boolean; powod: string | null; oplataZaKurs: number } }>(
     `/delivery/check?kod=${encodeURIComponent(kod)}`
   );
-  return odpowiedz.data ?? { wObszarze: false, powod: 'Nie udało się sprawdzić adresu', oplataZaKurs: 20 };
+  return odpowiedz.data?.data ?? { wObszarze: false, powod: 'Nie udało się sprawdzić adresu', oplataZaKurs: 20 };
 }
 
 // === PRZEDŁUŻENIE NAJMU ===
@@ -271,17 +271,26 @@ export interface ExtensionQuote {
 }
 
 export async function quoteExtension(reservationId: number, token: string, newEndDate: string) {
-  return apiFetch<ExtensionQuote>(`/my-reservations/${reservationId}/extension/quote`, {
+  // Ta trasa pakuje treść w pole `data`, więc bez rozpakowania odbiorca dostałby
+  // kopertę zamiast listu i czytał z niej pola, których tam nie ma.
+  const odpowiedz = await apiFetch<{ data: ExtensionQuote }>(`/my-reservations/${reservationId}/extension/quote`, {
     method: 'POST',
     body: JSON.stringify({ token, newEndDate }),
   });
+  return odpowiedz.success
+    ? { success: true as const, data: odpowiedz.data?.data }
+    : { success: false as const, data: undefined, error: odpowiedz.error };
 }
 
 export async function startExtension(reservationId: number, token: string, newEndDate: string) {
-  return apiFetch<{ numerAneksu: string; doplata: number; nowaKwota: number; redirectUrl: string; wygasa: string }>(
+  type Aneks = { numerAneksu: string; doplata: number; nowaKwota: number; redirectUrl: string; wygasa: string };
+  const odpowiedz = await apiFetch<{ data: Aneks }>(
     `/my-reservations/${reservationId}/extension`,
     { method: 'POST', body: JSON.stringify({ token, newEndDate }) }
   );
+  return odpowiedz.success
+    ? { success: true as const, data: odpowiedz.data?.data }
+    : { success: false as const, data: undefined, error: odpowiedz.error };
 }
 
 // Notify me when product is available

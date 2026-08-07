@@ -286,7 +286,7 @@ router.put('/products/:id', adminAuth, async (req: Request, res: Response) => {
     // reservations point at equipment the system no longer has. The condition
     // flag is deliberately excluded - equipment breaks mid-rental and staff must
     // still be able to mark it; it only blocks new bookings.
-    const rentable = Math.max(data.totalQuantity - data.serviceQuantity, 0);
+    const rentable = Math.max(data.totalQuantity - data.serviceQuantity - data.withdrawnQuantity, 0);
     const booked = await queries.getPeakActiveReservations(id);
     if (rentable < booked) {
       res.status(409).json({

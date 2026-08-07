@@ -198,7 +198,8 @@ export const productInventorySchema = z.object({
   priceWeekend: z.number().min(0, 'Cena nie może być ujemna').max(100000),
   totalQuantity: z.number().int().min(0).max(10000),
   serviceQuantity: z.number().int().min(0).max(10000),
-  conditionStatus: z.enum(['good', 'attention', 'service', 'damaged']),
+  /** Sprzęt sprawny, ale czasowo zdjęty z najmu — decyzja właściciela, nie usterka. */
+  withdrawnQuantity: z.number().int().min(0).max(10000).default(0),
   inventoryNotes: z.string().trim().max(2000).default(''),
   features: z.array(z.string().trim().min(1).max(120))
     .max(12, 'Możesz dodać maksymalnie 12 cech')
@@ -219,8 +220,8 @@ export const productInventorySchema = z.object({
     .default([]),
   accessoryPrice: z.number().min(0, 'Cena nie może być ujemna').max(100000).default(0),
   isActive: z.boolean(),
-}).refine((data) => data.serviceQuantity <= data.totalQuantity, {
-  message: 'Liczba sztuk w serwisie nie może przekraczać stanu całkowitego',
+}).refine((data) => data.serviceQuantity + data.withdrawnQuantity <= data.totalQuantity, {
+  message: 'Sztuki w serwisie i wyłączone z użytku nie mogą przekraczać stanu całkowitego',
   path: ['serviceQuantity'],
 }).transform((data) => {
   const images = data.images?.length ? data.images : [data.image];

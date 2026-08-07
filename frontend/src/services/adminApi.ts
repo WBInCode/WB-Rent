@@ -98,6 +98,8 @@ export interface AdminProduct {
   price_weekend: number;
   total_quantity: number;
   service_quantity: number;
+  /** Sprawny sprzęt czasowo zdjęty z najmu decyzją właściciela. */
+  withdrawn_quantity: number;
   rentable_quantity: number;
   reserved_today: number;
   available_today: number;
@@ -125,7 +127,7 @@ export interface ProductInventoryPayload {
   priceWeekend: number;
   totalQuantity: number;
   serviceQuantity: number;
-  conditionStatus: ProductCondition;
+  withdrawnQuantity: number;
   inventoryNotes: string;
   features: string[];
   includedAccessories: string[];
