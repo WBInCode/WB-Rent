@@ -143,6 +143,19 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Umowa to dokument z danymi z dowodu i podpisami obu Stron. Nawet za
+ * zalogowanym pracownikiem stoi przeglądarka, więc odczyt i podpis dostają
+ * własny limit — tak samo jak publiczna ścieżka podpisu z linku.
+ */
+const umowaLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  message: { success: false, message: 'Zbyt wiele operacji na umowach. Spróbuj ponownie za chwilę.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Login endpoint
 router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { password } = req.body;
@@ -429,7 +442,7 @@ router.get('/contracts/reservation/:reservationId', adminAuth, async (req: Reque
  * Umowa do podpisania na miejscu. Klient stoi przy ladzie, więc nie ma sensu
  * odsyłać go do linku — dokument i oba podpisy idą na urządzeniu pracownika.
  */
-router.get('/reservations/:id/contract', adminAuth, async (req: Request, res: Response) => {
+router.get('/reservations/:id/contract', adminAuth, umowaLimiter, async (req: Request, res: Response) => {
   try {
     const preview = await getContractPreviewForReservation(Number(req.params.id));
     if (!preview) {
@@ -443,7 +456,7 @@ router.get('/reservations/:id/contract', adminAuth, async (req: Request, res: Re
   }
 });
 
-router.post('/reservations/:id/contract/sign', adminAuth, async (req: Request, res: Response) => {
+router.post('/reservations/:id/contract/sign', adminAuth, umowaLimiter, async (req: Request, res: Response) => {
   try {
     const result = await signContract({
       reservationId: Number(req.params.id),
