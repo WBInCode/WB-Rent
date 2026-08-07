@@ -151,6 +151,10 @@ interface Reservation {
   city: string;
   address?: string;
   delivery: number;
+  /** Dowóz i odbiór to dwa niezależne kursy. */
+  delivery_out?: number;
+  delivery_back?: number;
+  postal_code?: string;
   days: number;
   base_price: number;
   delivery_fee: number;
@@ -388,8 +392,11 @@ const ACTION_STYLE: Record<RentalAction, {
   reject: { etykieta: 'Odrzuć', Ikona: XCircle, klasa: '', drugorzedna: true },
 };
 
-/** Kolejny krok obsługi: tylko akcje, na które pozwala serwer. Zablokowane
- *  zostają widoczne z powodem, żeby było wiadomo czego brakuje. */
+/**
+ * Polecenia obsługi najmu. Brakujący dokument nie zamyka drogi — przycisk
+ * działa, a system ostrzega, czego brakuje, i zapisuje to w historii.
+ * Decyzję podejmuje pracownik stojący przy kliencie, nie panel.
+ */
 function StageActions({
   actions,
   onAction,
@@ -399,60 +406,101 @@ function StageActions({
 }) {
   // Akcje oznaczone jako automatyczne wykonuje system — przycisk tylko udawałby wybór.
   const widoczne = (actions ?? []).filter((item) => !item.automatic);
-
-  if (widoczne.length === 0) {
-    return <p className="text-xs text-text-muted italic">Brak dalszych kroków</p>;
-  }
+  if (widoczne.length === 0) return null;
 
   const glowne = widoczne.filter((item) => !ACTION_STYLE[item.action].drugorzedna);
   const drugorzedne = widoczne.filter((item) => ACTION_STYLE[item.action].drugorzedna);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <>
       {glowne.map((item) => {
         const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
         return (
           <button
             key={item.action}
             type="button"
-            disabled={!item.available}
-            title={item.reason}
+            title={item.reason ? `${item.reason} — kliknij, żeby mimo to kontynuować` : etykieta}
             onClick={() => onAction(item.action)}
-            className={`inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
-              item.available ? klasa : 'border border-border text-text-muted cursor-not-allowed opacity-60'
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
+              item.available
+                ? klasa
+                : 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
             }`}
           >
             <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
+            {!item.available && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
           </button>
         );
       })}
-      {glowne.some((item) => !item.available && item.reason) && (
-        <p className="text-[11px] text-amber-400/90 light:text-amber-800 leading-snug">
-          {glowne.find((item) => !item.available && item.reason)?.reason}
-        </p>
-      )}
-      {drugorzedne.length > 0 && (
-        <div className="flex gap-1.5">
-          {drugorzedne.map((item) => {
-            const { etykieta, Ikona } = ACTION_STYLE[item.action];
-            return (
-              <button
-                key={item.action}
-                type="button"
-                onClick={() => onAction(item.action)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-[--radius-sm] text-xs text-text-muted hover:text-error hover:bg-error/10 transition-colors"
-              >
-                <Ikona className="w-3.5 h-3.5" aria-hidden="true" /> {etykieta}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+      {drugorzedne.map((item) => {
+        const { etykieta, Ikona } = ACTION_STYLE[item.action];
+        return (
+          <button
+            key={item.action}
+            type="button"
+            title={etykieta}
+            onClick={() => onAction(item.action)}
+            className="inline-flex items-center gap-1 px-2 py-2 rounded-[--radius-sm] text-xs text-text-muted hover:text-error hover:bg-error/10 transition-colors"
+          >
+            <Ikona className="w-4 h-4" aria-hidden="true" />
+          </button>
+        );
+      })}
+    </>
   );
 }
 
 const zloty = (kwota: number) => `${kwota.toFixed(2).replace('.', ',')} zł`;
+
+/** Dowóz i odbiór to dwa osobne kursy — „z dostawą" nie mówiło, który zamówiono. */
+const opiszDojazd = (r: { delivery_out?: number; delivery_back?: number; delivery?: number }) => {
+  const dowoz = Boolean(Number(r.delivery_out ?? r.delivery ?? 0));
+  const odbior = Boolean(Number(r.delivery_back ?? r.delivery ?? 0));
+  if (dowoz && odbior) return 'dowóz i odbiór';
+  if (dowoz) return 'dowóz, zwrot w punkcie';
+  if (odbior) return 'odbiór osobisty, my odbieramy';
+  return 'bez dojazdu';
+};
+
+/** Termin i miejsce w wierszu listy — data bez dnia tygodnia nic nie mówi. */
+function TerminWiersza({
+  tytul,
+  termin,
+  miejsce,
+  bezterminowo,
+  dodatek,
+}: {
+  tytul: string;
+  termin?: TerminOpis | null;
+  miejsce?: { tryb: string; adres: string; uKlienta: boolean };
+  bezterminowo?: boolean;
+  dodatek?: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <Calendar className="w-3.5 h-3.5 text-text-muted mt-0.5 shrink-0" />
+      <div className="min-w-0 text-xs sm:text-sm">
+        <span className="text-text-muted">{tytul}: </span>
+        {bezterminowo ? (
+          <span className="text-text-primary">bezterminowo</span>
+        ) : termin ? (
+          <span className="text-text-primary">
+            <span className="capitalize">{termin.dzienTygodnia}</span> {termin.dataSlownie}
+            {termin.godzina && `, godz. ${termin.godzina}`}
+            {dodatek && <span className="text-text-muted"> · {dodatek}</span>}
+          </span>
+        ) : (
+          <span className="text-text-muted">do ustalenia</span>
+        )}
+        {miejsce && (
+          <span className="block text-text-muted truncate" title={miejsce.adres}>
+            {miejsce.uKlienta ? 'u klienta' : 'w punkcie'} — {miejsce.adres}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** Termin z dniem tygodnia i adresem — data sama nie mówi, gdzie się stawić. */
 function TerminBox({
@@ -721,11 +769,31 @@ export function AdminPanel() {
     event.preventDefault();
     if (!statusFor) return;
     setStatusSaving(true);
-    const response = await updateReservationStatus(statusFor.id, statusForm.targetStatus, {
+
+    const wykonaj = (force: boolean) => updateReservationStatus(statusFor.id, statusForm.targetStatus, {
       note: statusForm.note.trim(),
       changedBy: statusForm.changedBy.trim(),
       notifyCustomer: statusForm.notifyCustomer,
+      force,
     });
+
+    let response = await wykonaj(false);
+
+    // Braki dokumentów nie zamykają drogi — pracownik przy kliencie decyduje sam,
+    // a pominięte warunki trafiają do historii rezerwacji.
+    const braki = (response.data as { pominiete?: string[]; mozliwoscWymuszenia?: boolean } | undefined);
+    if (!response.success && braki?.mozliwoscWymuszenia) {
+      const potwierdzone = window.confirm(
+        `Nie wszystko jest gotowe:\n\n• ${braki.pominiete?.join('\n• ')}\n\n`
+        + 'Kontynuować mimo to? Pominięte warunki zostaną zapisane w historii rezerwacji.'
+      );
+      if (!potwierdzone) {
+        setStatusSaving(false);
+        return;
+      }
+      response = await wykonaj(true);
+    }
+
     if (response.success) {
       localStorage.setItem('wb-rent-employee-name', statusForm.changedBy.trim());
       setReservations((current) => current.map((reservation) =>
@@ -1397,11 +1465,24 @@ export function AdminPanel() {
                         </div>
                       )}
                       
+                      {/* Termin i miejsce widoczne od razu — bez rozwijania szczegółów
+                          nie dało się odczytać, na kiedy i gdzie umówiony jest klient. */}
+                      <div className="grid sm:grid-cols-2 gap-x-5 gap-y-2 mt-2.5">
+                        <TerminWiersza
+                          tytul="Odbiór"
+                          termin={reservation.terminy?.odbior}
+                          miejsce={reservation.terminy?.miejsca.odbior}
+                        />
+                        <TerminWiersza
+                          tytul="Zwrot"
+                          termin={reservation.terminy?.zwrot}
+                          miejsce={reservation.terminy?.miejsca.zwrot}
+                          bezterminowo={Boolean(reservation.is_indefinite)}
+                          dodatek={reservation.is_indefinite ? undefined : `${reservation.days} ${reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'}`}
+                        />
+                      </div>
+
                       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs sm:text-sm text-text-secondary mt-2">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-text-muted" />
-                          {reservation.start_date} {reservation.start_time || '09:00'} → {reservation.is_indefinite ? 'bezterminowo' : `${reservation.end_date} ${reservation.end_time || '09:00'} (${reservation.days} ${reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'})`}
-                        </span>
                         <span className="flex items-center gap-1.5">
                           <Phone className="w-3.5 h-3.5 text-text-muted" />
                           {reservation.phone}
@@ -1415,12 +1496,12 @@ export function AdminPanel() {
                       <div className="sm:text-right min-w-[110px]">
                         <p className="text-xl sm:text-2xl font-bold text-gold">{reservation.total_price} zł</p>
                         <p className="text-xs text-text-muted">
-                          {reservation.is_indefinite ? 'kwota bieżąca' : reservation.delivery ? 'z dostawą' : 'odbiór osobisty'}
+                          {reservation.is_indefinite ? 'kwota bieżąca' : opiszDojazd(reservation)}
                         </p>
                       </div>
 
-                      <div className="w-full sm:w-[210px] shrink-0">
-                        <p className="text-xs text-text-muted mb-1.5">Następny krok</p>
+                      {/* Wszystkie polecenia w jednym pasku po prawej. */}
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <StageActions
                           actions={reservation.actions}
                           onAction={(action) => {
@@ -1437,9 +1518,6 @@ export function AdminPanel() {
                             void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);
                           }}
                         />
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
                             variant="outline"
@@ -1496,9 +1574,6 @@ export function AdminPanel() {
                         >
                           <History className="w-4 h-4" />
                         </Button>
-                        {/* Polecenia obsługi najmu są w jednym miejscu — w kolumnie
-                            „Kolejny krok". Powtórzone tutaj kazały zgadywać, czym
-                            różni się „Wydaj" od „Wydaj sprzęt". */}
                       </div>
                     </div>
                   </div>

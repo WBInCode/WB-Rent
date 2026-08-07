@@ -70,6 +70,11 @@ const statusChangeSchema = z.object({
   note: z.string().trim().max(500).optional(),
   changedBy: z.string().trim().max(120).optional(),
   notifyCustomer: z.boolean().optional(),
+  /**
+   * Świadome pominięcie warunków. System nie zastępuje decyzji pracownika —
+   * ma go ostrzec i zapisać, co zostało pominięte, a nie zamykać drogę.
+   */
+  force: z.boolean().optional(),
 });
 
 const reservationProductIds = (reservation: any): string[] => {
@@ -1097,37 +1102,20 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       return;
     }
 
+    // Warunki, które normalnie wstrzymują przejście. Pracownik może je pominąć
+    // świadomie (force) — wtedy trafiają do historii, żeby było wiadomo, co i kto
+    // pominął. Bez tego system decydowałby za obsługę stojącą przy kliencie.
+    const pominiete: string[] = [];
+
     if (status === 'picked_up' && config.contracts.enabled) {
-      const signed = await queries.hasSignedContract(Number(id));
-      if (!signed) {
-        res.status(409).json({
-          success: false,
-          message: 'Nie można wydać sprzętu przed podpisaniem umowy najmu',
-        });
-        return;
-      }
-      // Wydanie potwierdza podpisany protokol, a nie samo klikniecie w panelu -
-      // inaczej sprzet wychodzilby bez dokumentu odbioru.
-      const protokol = await queries.hasSignedProtocol(Number(id), 'handover');
-      if (!protokol) {
-        res.status(409).json({
-          success: false,
-          message: 'Wydanie potwierdza podpisany protokół wydania — otwórz „Wydaj sprzęt”',
-        });
-        return;
-      }
+      if (!await queries.hasSignedContract(Number(id))) pominiete.push('brak podpisanej umowy najmu');
+      if (!await queries.hasSignedProtocol(Number(id), 'handover')) pominiete.push('brak podpisanego protokołu wydania');
     }
 
     if (status === 'returned' && reservation.is_indefinite) {
-      res.status(409).json({
-        success: false,
-        message: 'Najpierw ustal faktyczny termin zwrotu i rozlicz wynajem bezterminowy',
-      });
-      return;
+      pominiete.push('nieustalony termin zwrotu wynajmu bezterminowego');
     }
 
-    // Jedna bramka na kolejnosc statusow i warunki biznesowe. Panel rysuje tylko
-    // dozwolone przyciski, ale API musi bronic sie samo.
     const przejscie = canTransition(
       reservation,
       status,
@@ -1138,8 +1126,23 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         returnProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'return'),
       }
     );
-    if (!przejscie.ok) {
+    if (!przejscie.ok && przejscie.reason && !pominiete.includes(przejscie.reason)) {
+      pominiete.push(przejscie.reason);
+    }
+
+    // Kolejność statusów to nie warunek biznesowy tylko spójność danych —
+    // tego nie da się pominąć, bo powstałby stan nie do odtworzenia.
+    if (przejscie.kolejnoscBledna) {
       res.status(409).json({ success: false, message: przejscie.reason });
+      return;
+    }
+
+    if (pominiete.length > 0 && !input.force) {
+      res.status(409).json({
+        success: false,
+        message: `Nie wszystko jest gotowe: ${pominiete.join(', ')}`,
+        data: { pominiete, mozliwoscWymuszenia: true },
+      });
       return;
     }
 
@@ -1163,10 +1166,15 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     
     const notifyCustomer = input.notifyCustomer
       ?? ['confirmed', 'rejected', 'picked_up', 'returned'].includes(status);
+    // Pominięte warunki zostają w historii — przy sporze trzeba wiedzieć,
+    // że sprzęt wyszedł np. bez podpisanego protokołu i kto tak zdecydował.
+    const notatka = input.note || DOMYSLNA_NOTATKA[status] || `Status zmieniono na: ${status}`;
     const updateResult = await queries.updateReservationStatus({
       id: Number(id),
       status,
-      note: input.note || DOMYSLNA_NOTATKA[status] || `Status zmieniono na: ${status}`,
+      note: pominiete.length > 0
+        ? `${notatka} — WYMUSZONO mimo: ${pominiete.join(', ')}`
+        : notatka,
       changedBy: input.changedBy || 'Panel administratora',
       notifyCustomer,
     });

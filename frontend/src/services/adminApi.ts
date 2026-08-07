@@ -495,6 +495,8 @@ export interface ReservationStatusChangePayload {
   note?: string;
   changedBy?: string;
   notifyCustomer?: boolean;
+  /** Świadome pominięcie brakujących warunków — trafia do historii rezerwacji. */
+  force?: boolean;
 }
 
 // Update reservation status

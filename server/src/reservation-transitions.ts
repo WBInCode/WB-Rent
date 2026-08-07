@@ -99,9 +99,10 @@ export function canPrepareHandover(
   const { stage } = describeRentalStage(reservation, now);
   if (stage === 'confirmed_no_contract') return { ok: false, reason: 'Najpierw przygotuj umowę najmu' };
   if (stage === 'awaiting_signature') return { ok: false, reason: 'Klient nie podpisał jeszcze umowy' };
-  if (stage === 'awaiting_payment') return { ok: false, reason: 'Rezerwacja nie została opłacona' };
-  if (stage !== 'ready_for_pickup') return { ok: false, reason: 'Wydanie nie jest teraz możliwe' };
-  return { ok: true };
+  // Przy ladzie klient bierze sprzęt i płaci w dowolnej kolejności, więc protokół
+  // można spisać także przed wpłatą. Samo wydanie nadal pilnuje płatności.
+  if (stage === 'awaiting_payment' || stage === 'ready_for_pickup') return { ok: true };
+  return { ok: false, reason: 'Wydanie nie jest teraz możliwe' };
 }
 
 /** Etapy, z których rezerwację można jeszcze odrzucić lub anulować. */
@@ -140,6 +141,7 @@ export function availableActions(
     add('hand_over', false, 'Klient nie podpisał jeszcze umowy');
   }
   if (stage === 'awaiting_payment') {
+    // Protokół można spisać wcześniej, ale sprzęt wychodzi po zapłacie.
     add('hand_over', false, 'Rezerwacja nie została opłacona');
   }
   if (stage === 'ready_for_pickup') {
@@ -191,6 +193,11 @@ export function availableActions(
 export interface TransitionCheck {
   ok: boolean;
   reason?: string;
+  /**
+   * Przejście niemożliwe z powodu kolejności statusów, a nie braku dokumentu.
+   * Tego pracownik nie może pominąć — powstałby stan nie do odtworzenia.
+   */
+  kolejnoscBledna?: boolean;
 }
 
 /**
@@ -204,17 +211,18 @@ export function canTransition(
   now: number = Date.now()
 ): TransitionCheck {
   if (reservation.status === targetStatus) {
-    return { ok: false, reason: 'Rezerwacja ma już ten status' };
+    return { ok: false, reason: 'Rezerwacja ma już ten status', kolejnoscBledna: true };
   }
 
   const allowedFrom = ALLOWED_FROM[targetStatus];
   if (!allowedFrom) {
-    return { ok: false, reason: `Nieznany status: ${targetStatus}` };
+    return { ok: false, reason: `Nieznany status: ${targetStatus}`, kolejnoscBledna: true };
   }
   if (!allowedFrom.includes(reservation.status)) {
     return {
       ok: false,
       reason: `Nie można przejść z „${STATUS_PL[reservation.status] ?? reservation.status}” do „${STATUS_PL[targetStatus] ?? targetStatus}”`,
+      kolejnoscBledna: true,
     };
   }
 

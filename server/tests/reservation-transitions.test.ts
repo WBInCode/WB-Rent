@@ -169,6 +169,54 @@ describe('zamkniecie najmu bez pytania pracownika', () => {
   });
 });
 
+describe('dwie sciezki obslugi: rezerwacja z gory i klient przy ladzie', () => {
+  it('protokol wydania mozna spisac przed zaplata - przy ladzie kolejnosc bywa odwrotna', () => {
+    const nieoplacona = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'unpaid' });
+    expect(canPrepareHandover(nieoplacona).ok).toBe(true);
+  });
+
+  it('samo wydanie sprzetu nadal czeka na platnosc', () => {
+    const nieoplacona = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'unpaid' });
+    const wydanie = availableActions(nieoplacona, gotoweDoWydania).find((a) => a.action === 'hand_over');
+    expect(wydanie?.available).toBe(false);
+    expect(wydanie?.reason).toBe('Rezerwacja nie została opłacona');
+  });
+
+  it('bez podpisanej umowy protokolu nie ma z czego spisac', () => {
+    const bezUmowy = wynajem({ status: 'confirmed', contract_status: 'ready' });
+    expect(canPrepareHandover(bezUmowy).ok).toBe(false);
+  });
+});
+
+describe('braki wstrzymuja, ale nie zamykaja drogi', () => {
+  it('zla kolejnosc statusow jest nie do pominiecia - powstalby stan nie do odtworzenia', () => {
+    const zapytanie = wynajem();
+    const wynik = canTransition(zapytanie, 'returned', zeZdjeciami);
+    expect(wynik.ok).toBe(false);
+    expect(wynik.kolejnoscBledna).toBe(true);
+  });
+
+  it('ten sam status to tez blad kolejnosci, nie brak dokumentu', () => {
+    const wynik = canTransition(wynajem({ status: 'confirmed' }), 'confirmed', bezZdjec);
+    expect(wynik.kolejnoscBledna).toBe(true);
+  });
+
+  it('brak dokumentu wstrzymuje, ale nie jest bledem kolejnosci - pracownik moze wymusic', () => {
+    const gotowa = wynajem({ status: 'confirmed', contract_status: 'signed', payment_status: 'paid' });
+    const wynik = canTransition(gotowa, 'picked_up', { returnPhotos: 0, handoverPhotos: 0, handoverProtocolSigned: false });
+    expect(wynik.ok).toBe(false);
+    expect(wynik.kolejnoscBledna).toBeUndefined();
+    expect(wynik.reason).toBe('Podpiszcie protokół wydania');
+  });
+
+  it('brak zdjec zwrotu tez jest do pominiecia', () => {
+    const uKlienta = wynajem({ status: 'picked_up', contract_status: 'signed', payment_status: 'paid' });
+    const wynik = canTransition(uKlienta, 'returned', { returnPhotos: 0, returnProtocolSigned: true });
+    expect(wynik.ok).toBe(false);
+    expect(wynik.kolejnoscBledna).toBeUndefined();
+  });
+});
+
 describe('spojnosc panelu z API', () => {
   const statusy = ['pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected', 'cancelled'];
   const umowy = ['not_prepared', 'ready', 'signed'];
