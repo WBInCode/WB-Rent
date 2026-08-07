@@ -101,6 +101,8 @@ export function HandoverProtocolPage() {
   }, [reservationId]);
 
   useEffect(() => {
+    // Pobranie danych to synchronizacja z serwerem, a nie wyliczanie stanu z propsów.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (Number.isFinite(reservationId)) void wczytaj();
   }, [reservationId, wczytaj]);
 

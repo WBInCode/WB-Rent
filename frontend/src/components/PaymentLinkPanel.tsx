@@ -36,6 +36,8 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
     setLoading(false);
   }, [reservationId]);
 
+  // Pobranie danych to synchronizacja z serwerem, a nie wyliczanie stanu z propsów.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
   const copy = async () => {

@@ -148,6 +148,8 @@ export function Reservation() {
   // Apply pre-fill data when it changes
   useEffect(() => {
     if (preFillData) {
+      // Dane z widgetu kosztu przychodzą spoza Reacta — to synchronizacja, nie wyliczenie.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData(prev => ({
         ...prev,
         categoryId: preFillData.categoryId,
@@ -277,6 +279,7 @@ export function Reservation() {
   // Fetch blocked (reserved) date ranges when product changes
   useEffect(() => {
     if (!formData.productId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBlockedRanges([]);
       return;
     }
@@ -301,6 +304,7 @@ export function Reservation() {
   useEffect(() => {
     // Reset if missing required fields
     if (!formData.productId || !formData.startDate || !formData.endDate || rentalDays === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAvailabilityStatus('idle');
       setAvailabilityMessage(null);
       return;
@@ -417,6 +421,7 @@ export function Reservation() {
   useEffect(() => {
     const dowolnyKurs = formData.deliveryOut || formData.deliveryBack;
     if (!dowolnyKurs) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDeliveryDistanceStatus('idle');
       setDeliveryDistanceMessage(null);
       return;

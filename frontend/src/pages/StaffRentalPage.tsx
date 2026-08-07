@@ -181,15 +181,18 @@ export function StaffRentalPage() {
 
   // "a) <urządzenie>:" jest nagłówkiem grupy - pozycje numerujemy w obrębie grupy.
   const handoverMarkers = useMemo(() => {
+    const znaczniki: string[] = [];
     let number = 0;
-    return handoverItems.map((item) => {
+    for (const item of handoverItems) {
       if (/^[a-z]\)/.test(item)) {
         number = 0;
-        return '';
+        znaczniki.push('');
+        continue;
       }
       number += 1;
-      return `${number}.`;
-    });
+      znaczniki.push(`${number}.`);
+    }
+    return znaczniki;
   }, [handoverItems]);
 
   const selectedProducts = useMemo(() => form.productIds

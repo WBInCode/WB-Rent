@@ -39,6 +39,8 @@ export function DoplatyPanel({ reservationId, onNotify }: DoplatyPanelProps) {
     setLadowanie(false);
   }, [reservationId]);
 
+  // Pobranie danych to synchronizacja z serwerem, a nie wyliczanie stanu z propsów.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void wczytaj(); }, [wczytaj]);
 
   const dodaj = async (event: React.FormEvent) => {
