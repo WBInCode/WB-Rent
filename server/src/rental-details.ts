@@ -78,10 +78,11 @@ export function opiszMiejsca(rezerwacja: {
   const adres = rezerwacja.address?.trim() || '';
   const miasto = rezerwacja.city?.trim() || '';
   const kod = rezerwacja.postal_code?.trim() || '';
-  // Klient zwykle wpisuje miasto w adresie - dopisanie go drugi raz dawalo
-  // "ul. Cicha 3, 35-001 Rzeszów, Rzeszów".
+  // Klient zwykle wpisuje kod i miasto w samym adresie — dopisanie ich drugi raz
+  // dawało „ul. Cicha 3, 35-518 Rzeszów, 35-001 Rzeszów".
+  const adresMaKod = /\d{2}-\d{3}/.test(adres);
   const ogon = [
-    kod && !adres.includes(kod) ? kod : null,
+    kod && !adresMaKod ? kod : null,
     miasto && miasto !== 'Nie podano' && !adres.toLowerCase().includes(miasto.toLowerCase()) ? miasto : null,
   ].filter(Boolean).join(' ');
   const adresKlienta = [adres, ogon].filter(Boolean).join(', ');

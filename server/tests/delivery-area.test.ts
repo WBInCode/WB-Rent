@@ -74,6 +74,11 @@ describe('miejsca odbioru i zwrotu przy dwóch kursach', () => {
     expect(opiszMiejsca({ address: 'ul. Cicha 3, 35-001 Rzeszów', city: 'Rzeszów', postal_code: '35-001', delivery_out: 1 }).odbior.adres)
       .toBe('ul. Cicha 3, 35-001 Rzeszów');
   });
+
+  it('nie dokleja drugiego kodu, gdy adres ma już własny', () => {
+    expect(opiszMiejsca({ address: 'ul. Cicha 3, 35-518 Rzeszów', city: 'Rzeszów', postal_code: '35-001', delivery_out: 1 }).odbior.adres)
+      .toBe('ul. Cicha 3, 35-518 Rzeszów');
+  });
 });
 
 describe('rozpis kosztów nazywa kursy po imieniu', () => {
