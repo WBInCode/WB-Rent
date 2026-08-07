@@ -306,6 +306,8 @@ export interface HandoverProtocolView {
   contentHash: string;
   customerName: string;
   photoCount: number;
+  /** Umowa najmu podpisywana jest na tym samym ekranie — to pierwszy krok wydania. */
+  contractStatus: 'missing' | 'ready' | 'signed';
   canSign: boolean;
   blockedReason: string | null;
   /** Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć. */
@@ -322,6 +324,21 @@ export interface HandoverDraftPayload {
 
 export async function getHandoverProtocol(reservationId: number) {
   return adminFetch(`/reservations/${reservationId}/handover`);
+}
+
+/** Umowa do przeczytania i podpisania przy ladzie — bez odsyłania klienta do linku. */
+export async function getReservationContractPreview(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/contract`);
+}
+
+export async function signReservationContract(
+  reservationId: number,
+  payload: { renterSignature: string; lessorSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/contract/sign`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, accepted: true }),
+  });
 }
 
 export async function saveHandoverProtocol(reservationId: number, payload: HandoverDraftPayload) {

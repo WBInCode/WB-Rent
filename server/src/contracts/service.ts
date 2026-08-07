@@ -242,6 +242,23 @@ export async function getContractPreview(token: string) {
   };
 }
 
+/**
+ * Podgląd dla pracownika przy ladzie. Token podpisu leży w bazie wyłącznie
+ * jako skrót, więc umowy nie da się tu odszukać tak jak z linku — a klient
+ * stoi obok i nie ma czego otwierać na swoim telefonie.
+ */
+export async function getContractPreviewForReservation(reservationId: number) {
+  const contract = await queries.getContractByReservationId(reservationId);
+  if (!contract) return null;
+  return {
+    id: contract.id as number,
+    status: contract.status as string,
+    contentHash: contract.content_hash as string,
+    signedAt: contract.signed_at as string | null,
+    snapshot: parseSnapshot(contract.snapshot_encrypted),
+  };
+}
+
 const decodeSignature = (dataUrl: string): Buffer => {
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) throw new Error('Podpis musi być obrazem PNG');
@@ -254,7 +271,9 @@ const decodeSignature = (dataUrl: string): Buffer => {
 };
 
 export async function signContract(data: {
-  token: string;
+  token?: string;
+  /** Podpis przy ladzie: pracownik jest zalogowany, więc linku z tokenem nie ma. */
+  reservationId?: number;
   renterSignatureDataUrl: string;
   lessorSignatureDataUrl: string;
   accepted: boolean;
@@ -262,11 +281,18 @@ export async function signContract(data: {
   userAgent: string;
 }) {
   if (!data.accepted) throw new Error('Wymagana jest akceptacja pełnej treści umowy');
-  const contract = await queries.getContractByTokenHash(signingTokenHash(data.token));
+  const naMiejscu = data.reservationId !== undefined;
+  const contract = naMiejscu
+    ? await queries.getContractByReservationId(data.reservationId!)
+    : await queries.getContractByTokenHash(signingTokenHash(String(data.token)));
   if (!contract) throw new Error('Sesja podpisu nie istnieje');
   if (contract.status === 'signed') throw new Error('Umowa została już podpisana');
   if (contract.status !== 'ready') throw new Error('Umowa nie jest gotowa do podpisu');
-  if (new Date(contract.signing_expires_at).getTime() < Date.now()) throw new Error('Sesja podpisu wygasła');
+  // Termin ważności pilnuje linku wysłanego klientowi. Przy ladzie obie Strony
+  // stoją nad dokumentem, więc wygasły link nie jest powodem, by odmawiać podpisu.
+  if (!naMiejscu && new Date(contract.signing_expires_at).getTime() < Date.now()) {
+    throw new Error('Sesja podpisu wygasła');
+  }
 
   const renterSignature = decodeSignature(data.renterSignatureDataUrl);
   const lessorSignature = decodeSignature(data.lessorSignatureDataUrl);

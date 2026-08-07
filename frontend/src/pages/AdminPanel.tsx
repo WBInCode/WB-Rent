@@ -437,20 +437,29 @@ function StageActions({
       })}
       {glowne.map((item) => {
         const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
+        // Wydanie i zwrot prowadzą na własny ekran, gdzie po kolei robi się
+        // umowę, płatność, protokół i zdjęcia. Niedokończony krok to nie
+        // wykroczenie, więc przycisk nie straszy — mówi, co jest dalej.
+        const przezProces = item.action === 'hand_over' || item.action === 'register_return';
+        const ostrzega = !item.available && !przezProces;
         return (
           <button
             key={item.action}
             type="button"
-            title={item.reason ? `${item.reason} — kliknij, żeby mimo to kontynuować` : etykieta}
+            title={item.available
+              ? etykieta
+              : item.reason
+                ? przezProces ? `${etykieta} — następny krok: ${item.reason.toLowerCase()}` : `${item.reason} — kliknij, żeby mimo to kontynuować`
+                : etykieta}
             onClick={() => onAction(item.action)}
             className={`inline-flex items-center justify-center gap-1.5 min-w-[104px] px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
-              item.available
-                ? klasa
-                : 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
+              ostrzega
+                ? 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
+                : klasa
             }`}
           >
             <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
-            {!item.available && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
+            {ostrzega && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
           </button>
         );
       })}

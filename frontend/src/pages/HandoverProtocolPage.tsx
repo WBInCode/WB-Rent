@@ -20,14 +20,19 @@ import { Button, Card, Input, Textarea } from '@/components/ui';
 import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { HandoverDocument } from '@/components/HandoverDocument';
+import { ContractDocument } from '@/components/ContractDocument';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
 import ThemeToggle from '@/components/ThemeToggle';
+import type { ContractPreviewResponse } from '@/services/api';
 import {
+  createContractSession,
   downloadHandoverPdf,
   getHandoverProtocol,
+  getReservationContractPreview,
   isAdminLoggedIn,
   saveHandoverProtocol,
   signHandoverProtocol,
+  signReservationContract,
   updateReservationStatus,
   type HandoverProtocolView,
 } from '@/services/adminApi';
@@ -63,6 +68,22 @@ export function HandoverProtocolPage() {
   const podpisPracownika = useRef<SignatureFieldHandle>(null);
   const podpisKlienta = useRef<SignatureFieldHandle>(null);
 
+  // Umowa najmu podpisywana przy ladzie — pierwszy krok wydania.
+  const [umowa, setUmowa] = useState<ContractPreviewResponse | null>(null);
+  const [zaakceptowana, setZaakceptowana] = useState(false);
+  const [maPodpisWynajmujacego, setMaPodpisWynajmujacego] = useState(false);
+  const [maPodpisNajemcy, setMaPodpisNajemcy] = useState(false);
+  const podpisWynajmujacego = useRef<SignatureFieldHandle>(null);
+  const podpisNajemcy = useRef<SignatureFieldHandle>(null);
+  const [daneUmowy, setDaneUmowy] = useState({
+    renterAddress: '',
+    documentType: 'dowod_osobisty' as 'dowod_osobisty' | 'paszport',
+    documentNumber: '',
+    pesel: '',
+    deposit: 0,
+    accessories: '',
+  });
+
   const wczytaj = useCallback(async () => {
     setLadowanie(true);
     const odpowiedz = await getHandoverProtocol(reservationId);
@@ -83,6 +104,19 @@ export function HandoverProtocolPage() {
     if (Number.isFinite(reservationId)) void wczytaj();
   }, [reservationId, wczytaj]);
 
+  // Treść umowy pobierana dopiero wtedy, gdy jest co podpisywać.
+  useEffect(() => {
+    if (view?.contractStatus !== 'ready') return;
+    let anulowane = false;
+    void getReservationContractPreview(reservationId).then((odpowiedz) => {
+      if (anulowane) return;
+      if (odpowiedz.success && odpowiedz.data) setUmowa(odpowiedz.data as ContractPreviewResponse);
+    });
+    return () => {
+      anulowane = true;
+    };
+  }, [reservationId, view?.contractStatus]);
+
   if (!isAdminLoggedIn()) return <Navigate to="/admin" replace />;
   if (!Number.isFinite(reservationId)) return <Navigate to="/admin" replace />;
 
@@ -97,6 +131,58 @@ export function HandoverProtocolPage() {
     if (stan.trim().length < 2) braki.push('opis stanu sprzętu');
     if (wydajacy.trim().length < 3) braki.push('imię i nazwisko wydającego');
     return braki;
+  };
+
+  /** Umowa dla rezerwacji złożonej przez stronę — dane spisujemy przy ladzie. */
+  const przygotujUmowe = async () => {
+    const braki = [
+      daneUmowy.renterAddress.trim().length < 5 && 'adres zamieszkania',
+      !/^\d{11}$/.test(daneUmowy.pesel) && 'PESEL (11 cyfr)',
+      daneUmowy.accessories.trim().length < 2 && 'wydawane akcesoria',
+      wydajacy.trim().length < 3 && 'imię i nazwisko wydającego',
+    ].filter(Boolean) as string[];
+    if (braki.length > 0) {
+      powiadom(`Uzupełnij: ${braki.join(', ')}`, 'error');
+      return;
+    }
+    setZapisywanie(true);
+    const odpowiedz = await createContractSession({
+      reservationId,
+      renterAddress: daneUmowy.renterAddress.trim(),
+      documentType: daneUmowy.documentType,
+      documentNumber: daneUmowy.documentNumber.trim(),
+      pesel: daneUmowy.pesel,
+      employeeName: wydajacy.trim(),
+      deposit: Number(daneUmowy.deposit),
+      accessories: daneUmowy.accessories.trim(),
+      conditionNotes: stan.trim() || 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
+      handoverItems: pozycje.map((pozycja) => pozycja.trim()).filter(Boolean),
+    });
+    if (odpowiedz.success) {
+      await wczytaj();
+    } else {
+      powiadom(odpowiedz.message || 'Nie udało się przygotować umowy', 'error');
+    }
+    setZapisywanie(false);
+  };
+
+  const podpiszUmowe = async () => {
+    if (!podpisWynajmujacego.current || !podpisNajemcy.current) return;
+    setZapisywanie(true);
+    const odpowiedz = await signReservationContract(reservationId, {
+      lessorSignature: podpisWynajmujacego.current.toDataURL(),
+      renterSignature: podpisNajemcy.current.toDataURL(),
+    });
+    if (odpowiedz.success) {
+      setUmowa(null);
+      setZaakceptowana(false);
+      await wczytaj();
+      powiadom('Umowa podpisana. Teraz protokół wydania.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      powiadom(odpowiedz.message || 'Nie udało się podpisać umowy', 'error');
+    }
+    setZapisywanie(false);
   };
 
   const generuj = async () => {
@@ -217,6 +303,167 @@ export function HandoverProtocolPage() {
     </div>
   );
 
+  // === Umowa najmu: pierwszy krok wydania, podpisywany tu, a nie z linku ===
+  if (!wydany && view.contractStatus !== 'signed') {
+    return (
+      <div className="min-h-screen bg-bg-primary px-4 py-6 sm:py-10">
+        <div className="max-w-3xl mx-auto space-y-5">
+          {powrot}
+          {naglowek}
+          {pasekKomunikatu}
+
+          <KrokiWydania aktywny="umowa" />
+
+          {view.contractStatus === 'missing' ? (
+            <Card variant="glass" className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-gold" />
+                <h2 className="font-semibold text-text-primary">Dane do umowy najmu</h2>
+              </div>
+              <p className="text-xs text-text-muted">
+                Przepisz dane z dokumentu tożsamości klienta. Po zapisaniu umowa pojawi się tu do podpisania.
+              </p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Adres zamieszkania najemcy"
+                    value={daneUmowy.renterAddress}
+                    onChange={(event) => setDaneUmowy((current) => ({ ...current, renterAddress: event.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1.5">Rodzaj dokumentu</label>
+                  <select
+                    value={daneUmowy.documentType}
+                    onChange={(event) => setDaneUmowy((current) => ({
+                      ...current,
+                      documentType: event.target.value as 'dowod_osobisty' | 'paszport',
+                    }))}
+                    className="w-full h-11 px-3 rounded-lg bg-surface-soft border border-border text-text-primary focus:outline-none focus:border-gold"
+                  >
+                    <option value="dowod_osobisty">Dowód osobisty</option>
+                    <option value="paszport">Paszport</option>
+                  </select>
+                </div>
+                <Input
+                  label="PESEL"
+                  value={daneUmowy.pesel}
+                  onChange={(event) => setDaneUmowy((current) => ({
+                    ...current,
+                    pesel: event.target.value.replace(/\D/g, '').slice(0, 11),
+                  }))}
+                  inputMode="numeric"
+                  hint="11 cyfr"
+                  required
+                />
+                <Input
+                  label="Numer dokumentu (opcjonalnie)"
+                  value={daneUmowy.documentNumber}
+                  onChange={(event) => setDaneUmowy((current) => ({
+                    ...current,
+                    documentNumber: event.target.value.toUpperCase(),
+                  }))}
+                />
+                <Input
+                  label="Kaucja (zł)"
+                  type="number"
+                  min={0}
+                  value={String(daneUmowy.deposit)}
+                  onChange={(event) => setDaneUmowy((current) => ({ ...current, deposit: Number(event.target.value) }))}
+                />
+                <div className="sm:col-span-2">
+                  <Textarea
+                    label="Wydawane akcesoria"
+                    rows={2}
+                    value={daneUmowy.accessories}
+                    onChange={(event) => setDaneUmowy((current) => ({ ...current, accessories: event.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                className="w-full"
+                disabled={zapisywanie}
+                onClick={() => void przygotujUmowe()}
+              >
+                {zapisywanie ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileSignature className="w-4 h-4 mr-2" />}
+                Przygotuj umowę do podpisu
+              </Button>
+            </Card>
+          ) : !umowa ? (
+            <Card variant="glass" className="p-8 flex justify-center">
+              <Loader2 className="w-6 h-6 text-gold animate-spin" />
+            </Card>
+          ) : (
+            <>
+              <div className="bg-white text-[#171717] shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-10 py-8 rounded-[--radius-sm]">
+                <ContractDocument snapshot={umowa.snapshot} />
+
+                <div className="mt-10 pt-8 border-t-2 border-[#b8972a]">
+                  <h2 className="text-lg font-bold text-[#8b6914] text-center">OŚWIADCZENIE I PODPISY STRON</h2>
+                  <p className="text-sm text-neutral-600 leading-6 mt-3 sm:text-justify">
+                    Strony oświadczają, że zapoznały się z pełną treścią powyższej umowy, dane są prawidłowe,
+                    a sprzęt i akcesoria są zgodne z opisem.
+                  </p>
+                  <div className="mt-6 grid lg:grid-cols-2 gap-5">
+                    <SignatureField
+                      ref={podpisWynajmujacego}
+                      title="Podpis Wynajmującego"
+                      signerName={umowa.snapshot.lessor.representative}
+                      ariaLabel="Pole podpisu Wynajmującego pod umową"
+                      onStateChange={setMaPodpisWynajmujacego}
+                    />
+                    <SignatureField
+                      ref={podpisNajemcy}
+                      title="Podpis Najemcy"
+                      signerName={umowa.snapshot.renter.name}
+                      ariaLabel="Pole podpisu Najemcy pod umową"
+                      onStateChange={setMaPodpisNajemcy}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Card variant="glass" className="p-5 space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={zaakceptowana}
+                    onChange={(event) => setZaakceptowana(event.target.checked)}
+                    className="mt-1 w-4 h-4 accent-gold shrink-0"
+                  />
+                  <span className="text-sm text-text-secondary">
+                    Klient przeczytał umowę i akceptuje wszystkie jej postanowienia.
+                  </span>
+                </label>
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  disabled={zapisywanie || !zaakceptowana || !maPodpisWynajmujacego || !maPodpisNajemcy}
+                  onClick={() => void podpiszUmowe()}
+                >
+                  {zapisywanie ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileSignature className="w-4 h-4 mr-2" />}
+                  Podpisz umowę
+                </Button>
+                {(!maPodpisWynajmujacego || !maPodpisNajemcy || !zaakceptowana) && (
+                  <p className="text-xs text-text-muted text-center">
+                    Brakuje: {[
+                      !maPodpisWynajmujacego && 'podpisu Wynajmującego',
+                      !maPodpisNajemcy && 'podpisu Najemcy',
+                      !zaakceptowana && 'potwierdzenia',
+                    ].filter(Boolean).join(', ')}
+                  </p>
+                )}
+              </Card>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // === Po podpisaniu protokołu: zdjęcia i dopiero wydanie ===
   if (podpisany) {
     return (
@@ -225,6 +472,8 @@ export function HandoverProtocolPage() {
           {powrot}
           {naglowek}
           {pasekKomunikatu}
+
+          <KrokiWydania aktywny="wydanie" />
 
           <Card
             variant="glass"
@@ -327,6 +576,8 @@ export function HandoverProtocolPage() {
           {naglowek}
           {pasekKomunikatu}
 
+          <KrokiWydania aktywny="protokol" />
+
           <Card variant="glass" className="p-4 border-gold/30 bg-gold/[0.05]">
             <p className="text-sm text-text-primary">
               <strong>Pokaż ten dokument klientowi.</strong> Poniżej jest pełna treść protokołu w wersji, którą
@@ -421,6 +672,8 @@ export function HandoverProtocolPage() {
         {powrot}
         {naglowek}
         {pasekKomunikatu}
+
+        <KrokiWydania aktywny="protokol" />
 
         {!view.canSign && (
           <Card variant="glass" className="p-4 border-amber-500/30 bg-amber-500/[0.06]">
@@ -562,6 +815,41 @@ export function HandoverProtocolPage() {
         <div className="pb-8">{linkDoPanelu}</div>
       </div>
     </div>
+  );
+}
+
+/** Wydanie to jedna droga: umowa, płatność, protokół, zdjęcia. Pasek mówi, gdzie jesteśmy. */
+function KrokiWydania({ aktywny }: { aktywny: 'umowa' | 'protokol' | 'wydanie' }) {
+  const kroki: Array<{ klucz: 'umowa' | 'protokol' | 'wydanie'; etykieta: string }> = [
+    { klucz: 'umowa', etykieta: 'Umowa najmu' },
+    { klucz: 'protokol', etykieta: 'Protokół wydania' },
+    { klucz: 'wydanie', etykieta: 'Płatność i wydanie' },
+  ];
+  const biezacy = kroki.findIndex((krok) => krok.klucz === aktywny);
+  return (
+    <ol className="flex items-center gap-2 text-xs">
+      {kroki.map((krok, index) => {
+        const zrobiony = index < biezacy;
+        const teraz = index === biezacy;
+        return (
+          <li key={krok.klucz} className="flex items-center gap-2 min-w-0">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[--radius-sm] border whitespace-nowrap ${
+                teraz
+                  ? 'border-gold/50 bg-gold/10 text-gold font-medium'
+                  : zrobiony
+                    ? 'border-emerald-500/30 text-emerald-400 light:text-emerald-700'
+                    : 'border-border text-text-muted'
+              }`}
+            >
+              {zrobiony ? <Check className="w-3.5 h-3.5" /> : <span className="tabular-nums">{index + 1}.</span>}
+              <span className="hidden sm:inline">{krok.etykieta}</span>
+            </span>
+            {index < kroki.length - 1 && <span className="text-text-muted">›</span>}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

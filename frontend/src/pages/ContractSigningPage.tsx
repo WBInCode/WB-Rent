@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
+import { ContractDocument } from '@/components/ContractDocument';
 import { pl } from '@/utils/typography';
 import {
   getContractPreview,
@@ -22,11 +23,6 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const money = (value: number) => `${value.toFixed(2).replace('.', ',')} zł`;
-
-const polishDate = (value: string) => {
-  const [year, month, day] = value.slice(0, 10).split('-');
-  return day && month && year ? `${day}.${month}.${year}` : value;
-};
 
 export function ContractSigningPage() {
   const { token = '' } = useParams<{ token: string }>();
@@ -228,37 +224,7 @@ export function ContractSigningPage() {
 
       <main className="max-w-5xl mx-auto px-3 sm:px-6 py-6 sm:py-10">
         <div className="bg-white shadow-[0_18px_60px_rgba(0,0,0,0.14)] border border-black/10 px-5 sm:px-12 py-8 sm:py-12">
-          <div className="text-center border-b border-[#b8972a] pb-6 mb-7">
-            <img src="/wb-rent-logo.svg" alt="WB-Rent" className="h-16 sm:h-20 mx-auto" />
-            <h1 className="text-2xl sm:text-3xl font-bold mt-3">UMOWA NAJMU SPRZĘTU</h1>
-            <p className="text-sm text-neutral-500 mt-2">nr&nbsp;{snapshot.contractNumber}</p>
-          </div>
-
-          <div className="space-y-4 text-sm leading-6 text-neutral-800">
-            <p>{pl(`Umowa najmu zawarta w dniu ${polishDate(snapshot.generatedAt)} r. w Rzeszowie pomiędzy:`)}</p>
-            <PartyBlock lines={lessorLines(snapshot)} />
-            <p>a</p>
-            <PartyBlock lines={renterLines(snapshot)} />
-            <p>{pl('zwanymi dalej łącznie „Stronami", o następującej treści:')}</p>
-          </div>
-
-          <div className="mt-7 space-y-6">
-            {snapshot.clauses.map((clause) => (
-              <article key={clause.number}>
-                <h3 className="text-center font-bold text-[15px] leading-5">§{clause.number}</h3>
-                <h4 className="text-center font-bold text-sm mb-2">{pl(clause.title)}</h4>
-                {clause.points?.length ? (
-                  <ol className="space-y-1.5 text-sm leading-6 text-neutral-700">
-                    {clause.points.map((point, index) => (
-                      <ClausePoint key={index} index={index} point={point} />
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="text-sm leading-6 text-neutral-700 sm:text-justify">{pl(clause.text || '')}</p>
-                )}
-              </article>
-            ))}
-          </div>
+          <ContractDocument snapshot={snapshot} />
 
           <div className="mt-10 pt-8 border-t-2 border-[#b8972a]">
             <h2 className="text-lg font-bold text-[#8b6914] text-center">OŚWIADCZENIE I PODPISY STRON</h2>
@@ -335,69 +301,6 @@ export function ContractSigningPage() {
         </Link>
       </main>
     </div>
-  );
-}
-
-type Snapshot = ContractPreviewResponse['snapshot'];
-
-const lessorLines = (snapshot: Snapshot): string[] => [
-  `${snapshot.lessor.name} z siedzibą w Rzeszowie,`,
-  `${snapshot.lessor.address},`,
-  `NIP ${snapshot.lessor.nip},`,
-  `reprezentowaną przez: ${snapshot.lessor.representative},`,
-  'zwaną dalej „Wynajmującym",',
-];
-
-const renterLines = (snapshot: Snapshot): string[] => {
-  const documentLabel = snapshot.renter.documentType === 'dowod_osobisty' ? 'dowodem osobistym' : 'paszportem';
-  return [
-    `${snapshot.renter.name},`,
-    `zamieszkałym/ą: ${snapshot.renter.address},`,
-    snapshot.renter.pesel ? `PESEL ${snapshot.renter.pesel},` : '',
-    snapshot.renter.documentNumber
-      ? `legitymującym/ą się ${documentLabel} nr ${snapshot.renter.documentNumber},`
-      : '',
-    `e-mail: ${snapshot.renter.email},`,
-    `tel. ${snapshot.renter.phone},`,
-    'zwanym/ą dalej „Najemcą",',
-  ].filter(Boolean);
-};
-
-function PartyBlock({ lines }: { lines: string[] }) {
-  return (
-    <div>
-      {lines.map((line, index) => (
-        <p key={index}>{pl(line)}</p>
-      ))}
-    </div>
-  );
-}
-
-/** One ustęp; embedded newlines become separate lines, "a) …" becomes a sub-list. */
-function ClausePoint({ index, point }: { index: number; point: string }) {
-  return (
-    <li>
-      {point.split('\n').map((line, lineIndex) => {
-        const sub = /^([a-z]\))[\u00A0\s]*(.*)$/s.exec(line);
-        if (sub) {
-          return (
-            <div key={lineIndex} className="flex gap-2 pl-7">
-              <span className="shrink-0">{sub[1]}</span>
-              <span>{pl(sub[2])}</span>
-            </div>
-          );
-        }
-        if (lineIndex === 0) {
-          return (
-            <div key={lineIndex} className="flex gap-2">
-              <span className="shrink-0 w-5 tabular-nums">{index + 1}.</span>
-              <span className="sm:text-justify">{pl(line)}</span>
-            </div>
-          );
-        }
-        return <div key={lineIndex} className="pl-7 sm:text-justify">{pl(line)}</div>;
-      })}
-    </li>
   );
 }
 

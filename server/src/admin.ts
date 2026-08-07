@@ -14,7 +14,7 @@ import {
   couponCreateSchema,
   businessSettingsSchema,
 } from './schemas.js';
-import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
+import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, getContractPreviewForReservation, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail, signContract } from './contracts/service.js';
 import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, readHandoverPdf } from './contracts/protocol-service.js';
 import { getOrCreateReturnDraft, saveReturnDraft, signReturnProtocol, readReturnPdf } from './contracts/return-service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
@@ -425,6 +425,47 @@ router.get('/contracts/reservation/:reservationId', adminAuth, async (req: Reque
   }
 });
 
+/**
+ * Umowa do podpisania na miejscu. Klient stoi przy ladzie, więc nie ma sensu
+ * odsyłać go do linku — dokument i oba podpisy idą na urządzeniu pracownika.
+ */
+router.get('/reservations/:id/contract', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const preview = await getContractPreviewForReservation(Number(req.params.id));
+    if (!preview) {
+      res.status(404).json({ success: false, message: 'Umowa nie została przygotowana' });
+      return;
+    }
+    res.json({ success: true, data: preview });
+  } catch (error) {
+    console.error('Contract preview (admin) error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się otworzyć umowy' });
+  }
+});
+
+router.post('/reservations/:id/contract/sign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await signContract({
+      reservationId: Number(req.params.id),
+      renterSignatureDataUrl: String(req.body?.renterSignature || ''),
+      lessorSignatureDataUrl: String(req.body?.lessorSignature || ''),
+      accepted: req.body?.accepted === true,
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        || req.socket.remoteAddress || 'unknown',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+    res.json({
+      success: true,
+      message: 'Umowa podpisana przez obie Strony.',
+      data: { contractNumber: result.contractNumber, pdfHash: result.pdfHash },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać umowy';
+    const status = /już podpisana|nie istnieje/.test(message) ? 409 : 400;
+    res.status(status).json({ success: false, message });
+  }
+});
+
 router.get('/contracts/:id/pdf', adminAuth, async (req: Request, res: Response) => {
   try {
     const pdf = await readSignedContractPdfById(Number(req.params.id));
@@ -551,6 +592,7 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
     const { protocol, snapshot } = await getOrCreateHandoverDraft(reservationId);
     const przygotowanie = canPrepareHandover(reservation);
     const zdjecia = await queries.countReservationPhotos(reservationId, 'before');
+    const umowa = await queries.getContractByReservationId(reservationId);
     const akcje = availableActions(
       reservation,
       {
@@ -572,6 +614,9 @@ router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Re
         contentHash: protocol.content_hash,
         customerName: reservation.name,
         photoCount: zdjecia,
+        // Umowa podpisywana jest na tym samym ekranie, więc jej stan jest
+        // pierwszym krokiem wydania, a nie osobną sprawą gdzie indziej.
+        contractStatus: (umowa?.status ?? 'missing') as 'missing' | 'ready' | 'signed',
         canSign: protocol.status === 'draft' && przygotowanie.ok,
         blockedReason: przygotowanie.ok ? null : przygotowanie.reason,
         // Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć.
