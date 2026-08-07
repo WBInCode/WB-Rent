@@ -1,4 +1,4 @@
-import { useState, useEffect, useEffectEvent } from 'react';
+import { useState, useEffect, useMemo, useEffectEvent } from 'react';
 import { 
   adminLogin, 
   adminLogout, 
@@ -31,6 +31,7 @@ import {
   createContractSession,
   getReservationContract,
   downloadContractPdf,
+  downloadHandoverPdf,
   resendContractEmail,
   getAdminProducts,
   createAdminProduct,
@@ -41,7 +42,7 @@ import {
   type CreateContractPayload,
 } from '@/services/adminApi';
 import { products } from '@/data/products';
-import { Button, Card, Badge, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, Badge, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import { AdminAvailabilityCalendar } from '@/components/AdminAvailabilityCalendar';
 import { ProductInventoryPanel } from '@/components/ProductInventoryPanel';
 import DocumentsPanel from '@/components/DocumentsPanel';
@@ -50,6 +51,10 @@ import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import ThemeToggle from '@/components/ThemeToggle';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
+import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
+import { DoplatyPanel } from '@/components/DoplatyPanel';
+import { opiszEtap, pasujeDoFiltru, FILTRY, type KluczFiltru, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
+import { ACTION_TARGET_STATUS, type ActionAvailability, type RentalAction } from '@/utils/rentalActions';
 import {
   BarChart,
   Bar,
@@ -67,6 +72,7 @@ import {
   Calendar, 
   Mail, 
   DollarSign, 
+  ClipboardCheck,
   Clock,
   CheckCircle,
   XCircle,
@@ -96,7 +102,6 @@ import {
   Menu,
   ChevronRight,
   ShieldCheck,
-  RotateCcw,
   CalendarPlus,
   History,
   Infinity as InfinityIcon,
@@ -105,6 +110,8 @@ import {
   Ticket,
   FolderArchive,
   Building2,
+  AlertTriangle,
+  PackageCheck,
 } from 'lucide-react';
 
 type AdminTab = 'reservations' | 'products' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'documents' | 'discounts' | 'coupons' | 'business' | 'settings';
@@ -146,6 +153,10 @@ interface Reservation {
   city: string;
   address?: string;
   delivery: number;
+  /** Dowóz i odbiór to dwa niezależne kursy. */
+  delivery_out?: number;
+  delivery_back?: number;
+  postal_code?: string;
   days: number;
   base_price: number;
   delivery_fee: number;
@@ -161,7 +172,43 @@ interface Reservation {
   payment_status?: string;
   payment_provider?: string;
   contract_status?: 'not_prepared' | 'ready' | 'signed';
+  /** Etap najmu wyliczony przez serwer z umowy, płatności i terminu. */
+  stage?: RentalStageInfo;
+  /** Kroki dozwolone w tym momencie — panel nie rysuje żadnych innych. */
+  actions?: ActionAvailability[];
+  /** Czy istnieje podpisany protokół wydania (Załącznik nr 1). */
+  handoverSigned?: boolean;
+  /** Rozpis należności wyliczony przez serwer — ten sam co w mailu i umowie. */
+  koszty?: KosztyOpis;
+  /** Terminy i miejsca odbioru oraz zwrotu. */
+  terminy?: {
+    odbior: TerminOpis | null;
+    zwrot: TerminOpis | null;
+    miejsca: { odbior: MiejsceOpis; zwrot: MiejsceOpis };
+  };
   created_at: string;
+}
+
+interface TerminOpis {
+  data: string;
+  dataSlownie: string;
+  dzienTygodnia: string;
+  godzina: string;
+  pelny: string;
+  weekend: boolean;
+}
+
+interface MiejsceOpis {
+  tryb: string;
+  adres: string;
+  uKlienta: boolean;
+}
+
+interface KosztyOpis {
+  pozycje: Array<{ klucz: string; etykieta: string; opis?: string; kwota: number }>;
+  suma: number;
+  korektaReczna: { kwota: number; powod: string } | null;
+  kaucja: number;
 }
 
 interface ReservationTermChange {
@@ -196,6 +243,12 @@ const nextDay = (value?: string | null) => {
   date.setDate(date.getDate() + 1);
   return formatLocalDate(date);
 };
+
+/** Godziny wydania i zwrotu — te same, które widzi klient przy rezerwacji. */
+const GODZINY = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+];
 
 interface Contact {
   id: number;
@@ -294,25 +347,256 @@ const STATUS_COLORS: Record<string, 'warning' | 'success' | 'error' | 'default' 
   archived: 'default',
 };
 
-const RESERVATION_STATUS_OPTIONS = [
-  { value: 'pending', label: 'Oczekuje' },
-  { value: 'confirmed', label: 'Potwierdzona' },
-  { value: 'picked_up', label: 'Wydane' },
-  { value: 'returned', label: 'Zwrócone' },
-  { value: 'completed', label: 'Zakończona' },
-  { value: 'rejected', label: 'Odrzucona' },
-  { value: 'cancelled', label: 'Anulowana' },
-];
-
-const STATUS_DESCRIPTIONS: Record<string, string> = {
-  pending: 'Przywraca rezerwację do kolejki oczekujących.',
-  confirmed: 'Potwierdza termin i gotowość realizacji rezerwacji.',
-  picked_up: 'Oznacza sprzęt jako wydany. Wymaga podpisanej umowy.',
-  returned: 'Potwierdza fizyczny zwrot sprzętu i zwalnia termin.',
-  completed: 'Kończy proces po zwrocie i rozliczeniu wynajmu.',
-  rejected: 'Odrzuca rezerwację i zwalnia sprzęt dla innych klientów.',
-  cancelled: 'Anuluje rezerwację i zwalnia zajęty termin.',
+const STAGE_BADGE_STYLE: Record<StageTone, string> = {
+  neutral: 'bg-surface-soft border-border-hover text-text-secondary',
+  info: 'bg-sky-500/10 border-sky-400/30 text-sky-300 light:text-sky-700',
+  warning: 'bg-amber-500/10 border-amber-400/30 text-amber-300 light:text-amber-700',
+  success: 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 light:text-emerald-700',
+  error: 'bg-red-500/10 border-red-400/30 text-red-300 light:text-red-700',
+  alert: 'bg-red-500/20 border-red-400/60 text-red-200 light:text-red-800',
 };
+
+/** Jedna plakietka opisujaca faktyczny etap najmu zamiast trzech osobnych statusow. */
+function StageBadge({ info }: { info?: RentalStageInfo }) {
+  const { etykieta, ton, szczegol } = opiszEtap(info);
+  return (
+    <span className={`inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-[--radius-sm] border text-xs font-medium ${STAGE_BADGE_STYLE[ton]}`}>
+      <span className="inline-flex items-center gap-1.5">
+        {ton === 'alert' && <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />}
+        {etykieta}
+      </span>
+      {szczegol && <span className="text-[11px] font-normal opacity-80">{szczegol}</span>}
+    </span>
+  );
+}
+
+const ACTION_STYLE: Record<RentalAction, {
+  etykieta: string;
+  Ikona: typeof Check;
+  klasa: string;
+  drugorzedna?: boolean;
+}> = {
+  confirm: {
+    etykieta: 'Potwierdź',
+    Ikona: CheckCircle,
+    klasa: 'bg-gold text-gold-contrast hover:bg-gold-light',
+  },
+  hand_over: {
+    etykieta: 'Wydaj',
+    Ikona: PackageCheck,
+    klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
+  },
+  register_return: {
+    etykieta: 'Zwrot',
+    Ikona: Undo2,
+    klasa: 'bg-sky-500 text-black hover:bg-sky-400',
+  },
+  complete: {
+    etykieta: 'Zakończ',
+    Ikona: CheckCircle,
+    klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
+  },
+  cancel: { etykieta: 'Anuluj rezerwację', Ikona: XCircle, klasa: '', drugorzedna: true },
+  reject: { etykieta: 'Odrzuć', Ikona: XCircle, klasa: '', drugorzedna: true },
+};
+
+/**
+ * Polecenia obsługi najmu. Brakujący dokument nie zamyka drogi — przycisk
+ * działa, a system ostrzega, czego brakuje, i zapisuje to w historii.
+ * Decyzję podejmuje pracownik stojący przy kliencie, nie panel.
+ */
+function StageActions({
+  actions,
+  onAction,
+}: {
+  actions?: ActionAvailability[];
+  onAction: (action: RentalAction) => void;
+}) {
+  // Akcje oznaczone jako automatyczne wykonuje system — przycisk tylko udawałby wybór.
+  const widoczne = (actions ?? []).filter((item) => !item.automatic);
+  if (widoczne.length === 0) return null;
+
+  const glowne = widoczne.filter((item) => !ACTION_STYLE[item.action].drugorzedna);
+  const drugorzedne = widoczne.filter((item) => ACTION_STYLE[item.action].drugorzedna);
+
+  return (
+    <>
+      {/* Anulowanie idzie przed poleceniem głównym — inaczej ostatni przycisk
+          w wierszu raz byłby akcją, raz krzyżykiem, i kolumna by pływała. */}
+      {drugorzedne.map((item) => {
+        const { etykieta, Ikona } = ACTION_STYLE[item.action];
+        return (
+          <button
+            key={item.action}
+            type="button"
+            title={etykieta}
+            onClick={() => onAction(item.action)}
+            className="inline-flex items-center gap-1 px-2 py-2 rounded-[--radius-sm] text-xs text-text-muted hover:text-error hover:bg-error/10 transition-colors"
+          >
+            <Ikona className="w-4 h-4" aria-hidden="true" />
+          </button>
+        );
+      })}
+      {glowne.map((item) => {
+        const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
+        // Wydanie i zwrot prowadzą na własny ekran, gdzie po kolei robi się
+        // umowę, płatność, protokół i zdjęcia. Niedokończony krok to nie
+        // wykroczenie, więc przycisk nie straszy — mówi, co jest dalej.
+        const przezProces = item.action === 'hand_over' || item.action === 'register_return';
+        const ostrzega = !item.available && !przezProces;
+        return (
+          <button
+            key={item.action}
+            type="button"
+            title={item.available
+              ? etykieta
+              : item.reason
+                ? przezProces ? `${etykieta} — następny krok: ${item.reason.toLowerCase()}` : `${item.reason} — kliknij, żeby mimo to kontynuować`
+                : etykieta}
+            onClick={() => onAction(item.action)}
+            className={`inline-flex items-center justify-center gap-1.5 min-w-[104px] px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
+              ostrzega
+                ? 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
+                : klasa
+            }`}
+          >
+            <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
+            {ostrzega && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+const zloty = (kwota: number) => `${kwota.toFixed(2).replace('.', ',')} zł`;
+
+/** Dowóz i odbiór to dwa osobne kursy — „z dostawą" nie mówiło, który zamówiono. */
+const opiszDojazd = (r: { delivery_out?: number; delivery_back?: number; delivery?: number }) => {
+  const dowoz = Boolean(Number(r.delivery_out ?? r.delivery ?? 0));
+  const odbior = Boolean(Number(r.delivery_back ?? r.delivery ?? 0));
+  if (dowoz && odbior) return 'dowóz i odbiór';
+  if (dowoz) return 'dowóz, zwrot w punkcie';
+  if (odbior) return 'odbiór osobisty, my odbieramy';
+  return 'bez dojazdu';
+};
+
+/** Termin i miejsce w wierszu listy — data bez dnia tygodnia nic nie mówi. */
+function TerminWiersza({
+  tytul,
+  termin,
+  miejsce,
+  bezterminowo,
+  dodatek,
+}: {
+  tytul: string;
+  termin?: TerminOpis | null;
+  miejsce?: { tryb: string; adres: string; uKlienta: boolean };
+  bezterminowo?: boolean;
+  dodatek?: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      <Calendar className="w-3.5 h-3.5 text-text-muted mt-0.5 shrink-0" />
+      <div className="min-w-0 text-xs sm:text-sm">
+        <span className="text-text-muted">{tytul}: </span>
+        {bezterminowo ? (
+          <span className="text-text-primary">bezterminowo</span>
+        ) : termin ? (
+          <span className="text-text-primary">
+            <span className="capitalize">{termin.dzienTygodnia}</span> {termin.dataSlownie}
+            {termin.godzina && `, godz. ${termin.godzina}`}
+            {dodatek && <span className="text-text-muted"> · {dodatek}</span>}
+          </span>
+        ) : (
+          <span className="text-text-muted">do ustalenia</span>
+        )}
+        {miejsce && (
+          <span className="block text-text-muted truncate" title={miejsce.adres}>
+            {miejsce.uKlienta ? 'u klienta' : 'w punkcie'} — {miejsce.adres}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Termin z dniem tygodnia i adresem — data sama nie mówi, gdzie się stawić. */
+function TerminBox({
+  tytul,
+  termin,
+  miejsce,
+  bezterminowo,
+}: {
+  tytul: string;
+  termin?: TerminOpis | null;
+  miejsce?: { tryb: string; adres: string };
+  bezterminowo?: boolean;
+}) {
+  return (
+    <div className="p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
+      <p className="text-[11px] uppercase tracking-wide text-gold mb-2">{tytul}</p>
+      {bezterminowo ? (
+        <p className="text-text-primary font-medium">Najem bezterminowy — do odwołania</p>
+      ) : termin ? (
+        <>
+          <p className="text-text-primary font-medium capitalize">{termin.dzienTygodnia}</p>
+          <p className="text-text-primary">{termin.dataSlownie}</p>
+          {termin.godzina && <p className="text-text-secondary">godz. {termin.godzina}</p>}
+        </>
+      ) : (
+        <p className="text-text-muted">termin do ustalenia</p>
+      )}
+      {miejsce && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <p className="text-xs text-text-muted">{miejsce.tryb}</p>
+          <p className="text-text-secondary text-[13px] mt-0.5">{miejsce.adres}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Pełny rozpis należności — te same pozycje co w mailu i w umowie. */
+function RozpisKosztow({ koszty }: { koszty?: KosztyOpis }) {
+  if (!koszty) return null;
+  return (
+    <div className="p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
+      <p className="text-[11px] uppercase tracking-wide text-gold mb-3">Podsumowanie kosztów</p>
+      <div className="space-y-1.5">
+        {koszty.pozycje.map((pozycja) => (
+          <div key={pozycja.klucz} className="flex justify-between gap-4">
+            <span className="text-text-secondary">
+              {pozycja.etykieta}
+              {pozycja.opis && <span className="text-text-muted text-xs block">{pozycja.opis}</span>}
+            </span>
+            <span className={`whitespace-nowrap ${pozycja.kwota < 0 ? 'text-emerald-400 light:text-emerald-700' : 'text-text-primary'}`}>
+              {zloty(pozycja.kwota)}
+            </span>
+          </div>
+        ))}
+        {koszty.korektaReczna && (
+          <div className="flex justify-between gap-4">
+            <span className="text-text-secondary">
+              {koszty.korektaReczna.powod}
+              <span className="text-text-muted text-xs block">korekta ceny</span>
+            </span>
+            <span className="text-text-primary whitespace-nowrap">{zloty(koszty.korektaReczna.kwota)}</span>
+          </div>
+        )}
+      </div>
+      <div className="flex justify-between gap-4 mt-3 pt-3 border-t border-border">
+        <span className="font-semibold text-text-primary">Razem do zapłaty</span>
+        <span className="font-semibold text-gold whitespace-nowrap">{zloty(koszty.suma)}</span>
+      </div>
+      {koszty.kaucja > 0 && (
+        <p className="text-xs text-text-muted mt-2">
+          Dodatkowo kaucja zwrotna {zloty(koszty.kaucja)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const CUSTOMER_STATUS_EMAILS = ['confirmed', 'rejected', 'picked_up', 'returned'];
 
@@ -370,17 +654,17 @@ export function AdminPanel() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [inventoryProducts, setInventoryProducts] = useState<AdminProduct[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<KluczFiltru>('aktywne');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [employeeNameDraft, setEmployeeNameDraft] = useState('');
 
   const [statusFor, setStatusFor] = useState<Reservation | null>(null);
-  const [statusHistoryOnly, setStatusHistoryOnly] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusHistory, setStatusHistory] = useState<ReservationStatusChange[]>([]);
   const [statusForm, setStatusForm] = useState({
     targetStatus: 'pending',
     note: '',
-    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    changedBy: employeeNameDraft,
     notifyCustomer: false,
   });
 
@@ -392,7 +676,7 @@ export function AdminPanel() {
     endTime: '09:00',
     isIndefinite: false,
     note: '',
-    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    changedBy: employeeNameDraft,
   });
 
   // Employee-assisted rental contract / kiosk flow
@@ -409,7 +693,7 @@ export function AdminPanel() {
     documentType: 'dowod_osobisty',
     documentNumber: '',
     pesel: '',
-    employeeName: localStorage.getItem('wb-rent-employee-name') || '',
+    employeeName: employeeNameDraft,
     deposit: 300,
     accessories: '',
     conditionNotes: 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
@@ -475,25 +759,14 @@ export function AdminPanel() {
 
   const openStatusModal = async (reservation: Reservation, targetStatus: string) => {
     if (targetStatus === reservation.status) return;
-    setStatusHistoryOnly(false);
     setStatusFor(reservation);
     setStatusHistory([]);
     setStatusForm({
       targetStatus,
       note: '',
-      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+      changedBy: employeeNameDraft,
       notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(targetStatus),
     });
-    const response = await getReservationStatusChanges(reservation.id);
-    if (response.success && Array.isArray(response.data)) {
-      setStatusHistory(response.data);
-    }
-  };
-
-  const openStatusHistory = async (reservation: Reservation) => {
-    setStatusHistoryOnly(true);
-    setStatusFor(reservation);
-    setStatusHistory([]);
     const response = await getReservationStatusChanges(reservation.id);
     if (response.success && Array.isArray(response.data)) {
       setStatusHistory(response.data);
@@ -504,13 +777,33 @@ export function AdminPanel() {
     event.preventDefault();
     if (!statusFor) return;
     setStatusSaving(true);
-    const response = await updateReservationStatus(statusFor.id, statusForm.targetStatus, {
+
+    const wykonaj = (force: boolean) => updateReservationStatus(statusFor.id, statusForm.targetStatus, {
       note: statusForm.note.trim(),
       changedBy: statusForm.changedBy.trim(),
       notifyCustomer: statusForm.notifyCustomer,
+      force,
     });
+
+    let response = await wykonaj(false);
+
+    // Braki dokumentów nie zamykają drogi — pracownik przy kliencie decyduje sam,
+    // a pominięte warunki trafiają do historii rezerwacji.
+    const braki = (response.data as { pominiete?: string[]; mozliwoscWymuszenia?: boolean } | undefined);
+    if (!response.success && braki?.mozliwoscWymuszenia) {
+      const potwierdzone = window.confirm(
+        `Nie wszystko jest gotowe:\n\n• ${braki.pominiete?.join('\n• ')}\n\n`
+        + 'Kontynuować mimo to? Pominięte warunki zostaną zapisane w historii rezerwacji.'
+      );
+      if (!potwierdzone) {
+        setStatusSaving(false);
+        return;
+      }
+      response = await wykonaj(true);
+    }
+
     if (response.success) {
-      localStorage.setItem('wb-rent-employee-name', statusForm.changedBy.trim());
+      setEmployeeNameDraft(statusForm.changedBy.trim());
       setReservations((current) => current.map((reservation) =>
         reservation.id === statusFor.id
           ? { ...reservation, status: statusForm.targetStatus }
@@ -535,7 +828,7 @@ export function AdminPanel() {
       endTime: reservation.end_time || '09:00',
       isIndefinite: false,
       note: '',
-      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+      changedBy: employeeNameDraft,
     });
     const response = await getReservationTermChanges(reservation.id);
     if (response.success && Array.isArray(response.data)) {
@@ -555,7 +848,7 @@ export function AdminPanel() {
       changedBy: termForm.changedBy.trim(),
     });
     if (response.success) {
-      localStorage.setItem('wb-rent-employee-name', termForm.changedBy.trim());
+      setEmployeeNameDraft(termForm.changedBy.trim());
       const delta = Number(response.data?.priceDelta || 0);
       showToast(
         'success',
@@ -599,7 +892,7 @@ export function AdminPanel() {
       deposit: Number(contractForm.deposit),
     });
     if (response.success && response.data) {
-      localStorage.setItem('wb-rent-employee-name', contractForm.employeeName);
+      setEmployeeNameDraft(contractForm.employeeName.trim());
       setContractSession(response.data);
       showToast('success', 'Umowa gotowa do podpisu');
       void loadData();
@@ -697,12 +990,17 @@ export function AdminPanel() {
     return () => clearInterval(interval);
   }, [isLoggedIn]);
 
+  const widoczneRezerwacje = useMemo(
+    () => reservations.filter((reservation: Reservation) => pasujeDoFiltru(reservation.stage, statusFilter)),
+    [reservations, statusFilter]
+  );
+
   const loadData = async () => {
     setLoading(true);
     try {
       const [statsRes, reservationsRes, productsRes, contactsRes, revenueRes, subscribersRes, postsRes, notificationsRes] = await Promise.all([
         getStats(),
-        getReservations(statusFilter !== 'all' ? statusFilter : undefined),
+        getReservations(),
         getAdminProducts(),
         getContacts(),
         getRevenue(),
@@ -900,7 +1198,7 @@ export function AdminPanel() {
     {
       label: 'Operacje',
       items: [
-        { id: 'reservations' as const, label: 'Rezerwacje', icon: Calendar, badge: reservations.length },
+        { id: 'reservations' as const, label: 'Rezerwacje', icon: Calendar, badge: reservations.filter((r: Reservation) => pasujeDoFiltru(r.stage, 'aktywne')).length || undefined },
         { id: 'products' as const, label: 'Produkty i magazyn', icon: Package, badge: inventoryProducts.filter((product) => Number(product.available_today) === 0).length || undefined },
         { id: 'calendar' as const, label: 'Kalendarz', icon: CalendarDays, badge: undefined },
         { id: 'revenue' as const, label: 'Przychody', icon: TrendingUp, badge: undefined },
@@ -943,8 +1241,9 @@ export function AdminPanel() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center p-4 sm:p-6">
-        <div className="w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-[--radius-sm] overflow-hidden border border-border shadow-2xl bg-bg-secondary">
-          <div className="relative p-8 sm:p-10 bg-bg-primary border-b md:border-b-0 md:border-r border-border overflow-hidden">
+        <ThemeToggle className="fixed top-4 right-4 z-10" />
+        <div className="w-full max-w-4xl grid md:grid-cols-[0.85fr_1.15fr] rounded-[--radius-sm] overflow-hidden border border-border shadow-2xl bg-bg-card">
+          <div className="relative p-8 sm:p-10 bg-bg-secondary border-b md:border-b-0 md:border-r border-border overflow-hidden">
             <div className="absolute -right-20 -bottom-20 w-64 h-64 rounded-full bg-gold/10 blur-3xl" aria-hidden="true" />
             <img src="/logo.png" alt="WB-Rent" className="h-14 w-auto relative" />
             <div className="relative mt-12">
@@ -955,7 +1254,7 @@ export function AdminPanel() {
               </p>
             </div>
             <div className="relative mt-10 space-y-3 text-xs text-text-muted">
-              <div className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-green-400" /> Szyfrowana sesja pracownika</div>
+              <div className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-green-400 light:text-green-700" /> Szyfrowana sesja pracownika</div>
               <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-gold" /> Automatyczne wylogowanie po 8 godzinach</div>
             </div>
           </div>
@@ -1001,7 +1300,7 @@ export function AdminPanel() {
         />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[258px] bg-bg-primary border-r border-border flex flex-col transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[258px] bg-bg-secondary border-r border-border flex flex-col transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="h-[82px] px-5 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="WB-Rent" className="h-10 w-auto" />
@@ -1024,7 +1323,7 @@ export function AdminPanel() {
         <nav className="flex-1 px-3 pb-5 overflow-y-auto" aria-label="Moduły panelu">
           {navigationGroups.map((group) => (
             <div key={group.label} className="mb-5">
-              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted/70">{group.label}</p>
+              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-secondary">{group.label}</p>
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const Icon = item.icon;
@@ -1035,13 +1334,13 @@ export function AdminPanel() {
                       type="button"
                       onClick={() => selectTab(item.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                        active ? 'bg-gold/12 text-gold border border-gold/20' : 'text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-soft'
+                        active ? 'bg-gold/12 text-gold-light light:text-gold-dark border border-gold/20' : 'text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-soft'
                       }`}
                     >
                       <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
                       <span className="font-medium">{item.label}</span>
                       {item.badge !== undefined && (
-                        <span className={`ml-auto min-w-5 h-5 px-1.5 rounded-md text-[10px] font-bold flex items-center justify-center ${active ? 'bg-gold text-black' : 'bg-surface-strong text-text-muted'}`}>
+                        <span className={`ml-auto min-w-5 h-5 px-1.5 rounded-md text-[10px] font-bold flex items-center justify-center ${active ? 'bg-gold text-gold-contrast' : 'bg-surface-soft text-text-muted'}`}>
                           {item.badge}
                         </span>
                       )}
@@ -1056,7 +1355,7 @@ export function AdminPanel() {
 
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-surface-soft">
-            <div className="w-8 h-8 rounded-lg bg-green-500/10 text-green-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-green-500/10 text-green-400 light:text-green-700 flex items-center justify-center">
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -1068,7 +1367,7 @@ export function AdminPanel() {
       </aside>
 
       <div className="min-h-screen lg:pl-[258px]">
-        <header className="sticky top-0 z-30 h-[82px] bg-bg-primary/95 backdrop-blur-xl border-b border-border">
+        <header className="sticky top-0 z-30 h-[82px] bg-bg-secondary/95 backdrop-blur-xl border-b border-border">
           <div className="h-full px-4 sm:px-6 xl:px-8 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <button type="button" className="lg:hidden p-2 rounded-lg border border-border text-text-secondary" onClick={() => setSidebarOpen(true)} aria-label="Otwórz menu">
@@ -1081,7 +1380,7 @@ export function AdminPanel() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2">
-              <ThemeToggle />
+              <ThemeToggle className="h-9 w-9" />
               <Button variant="ghost" size="sm" onClick={loadData} disabled={loading} aria-label="Odśwież dane">
                 <RefreshCw className={`w-4 h-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">Odśwież</span>
@@ -1096,7 +1395,7 @@ export function AdminPanel() {
 
         <main className="px-4 sm:px-6 xl:px-8 py-6 xl:py-8 max-w-[1600px] mx-auto">
           {stats && activeTab !== 'products' && (
-            <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden mb-7 divide-x divide-y xl:divide-y-0 divide-border">
+            <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden mb-7 divide-x divide-y xl:divide-y-0 divide-border">
               <Metric icon={<Calendar className="w-5 h-5" />} label="Wszystkie rezerwacje" value={stats.reservations.total} tone="gold" />
               <Metric icon={<Clock className="w-5 h-5" />} label="Wymagają decyzji" value={stats.reservations.pending} tone="amber" />
               <Metric icon={<DollarSign className="w-5 h-5" />} label="Przychód dzisiaj" value={`${stats.revenue.today} zł`} tone="green" />
@@ -1108,29 +1407,22 @@ export function AdminPanel() {
         {activeTab === 'reservations' && (
           <div className="space-y-4">
             {/* Filter */}
-            <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-x-auto">
+            <div className="flex items-center gap-2 p-2 rounded-[--radius-sm] border border-border bg-bg-card overflow-x-auto">
               <div className="flex gap-1.5 items-center min-w-max">
-              {['all', 'pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected'].map((status) => (
-                <Button
-                  key={status}
-                  variant={statusFilter === status ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => {
-                    setStatusFilter(status);
-                    if (status !== 'all') {
-                      getReservations(status).then(res => {
-                        if (res.success) setReservations(res.data);
-                      });
-                    } else {
-                      getReservations().then(res => {
-                        if (res.success) setReservations(res.data);
-                      });
-                    }
-                  }}
-                >
-                  {status === 'all' ? 'Wszystkie' : STATUS_LABELS[status]}
-                </Button>
-              ))}
+              {FILTRY.map((filtr) => {
+                const ile = reservations.filter((r: Reservation) => pasujeDoFiltru(r.stage, filtr.klucz)).length;
+                return (
+                  <Button
+                    key={filtr.klucz}
+                    variant={statusFilter === filtr.klucz ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setStatusFilter(filtr.klucz)}
+                  >
+                    {filtr.etykieta}
+                    <span className={`ml-1.5 tabular-nums ${ile === 0 ? 'opacity-40' : 'opacity-70'}`}>{ile}</span>
+                  </Button>
+                );
+              })}
               </div>
               <div className="ml-auto shrink-0 pl-2 border-l border-border">
                 <Button
@@ -1139,16 +1431,16 @@ export function AdminPanel() {
                   onClick={() => {
                     exportToCsv(
                       `rezerwacje-${new Date().toISOString().slice(0, 10)}.csv`,
-                      ['ID', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
-                      reservations.map(r => [
-                        r.id, STATUS_LABELS[r.status] || r.status, reservationProductLabel(r),
+                      ['ID', 'Etap', 'Status', 'Produkt', 'Od', 'Do', 'Godz. odbioru', 'Godz. zwrotu', 'Klient', 'Email', 'Telefon', 'Miasto', 'Dostawa', 'Dni', 'Cena bazowa', 'Dostawa (zł)', 'Razem', 'Faktura', 'NIP', 'Utworzono'],
+                      widoczneRezerwacje.map(r => [
+                        r.id, opiszEtap(r.stage).etykieta, STATUS_LABELS[r.status] || r.status, reservationProductLabel(r),
                         r.start_date, r.end_date, r.start_time || '', r.end_time || '',
                         r.name, r.email, r.phone, r.city, r.delivery ? 'tak' : 'nie',
                         r.days, r.base_price, r.delivery_fee, r.total_price,
                         r.wants_invoice ? 'tak' : 'nie', r.invoice_nip || '', r.created_at,
                       ])
                     );
-                    showToast('success', `Wyeksportowano ${reservations.length} rezerwacji`);
+                    showToast('success', `Wyeksportowano ${widoczneRezerwacje.length} rezerwacji`);
                   }}
                 >
                   <FileText className="w-4 h-4 mr-2" />
@@ -1158,25 +1450,18 @@ export function AdminPanel() {
             </div>
 
             {/* Reservations list */}
-            {reservations.length === 0 ? (
+            {widoczneRezerwacje.length === 0 ? (
               <Card variant="glass" className="p-12 text-center border-dashed">
-                <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold flex items-center justify-center mx-auto mb-4">
+                <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold-light light:text-gold-dark flex items-center justify-center mx-auto mb-4">
                   <Calendar className="w-6 h-6" />
                 </div>
                 <h3 className="font-semibold">Brak rezerwacji w tym widoku</h3>
                 <p className="text-sm text-text-muted mt-1">Zmień filtr lub utwórz nowy wynajem.</p>
               </Card>
             ) : (
-              reservations
-                .filter((reservation) => {
-                  // W zakładce "Wszystkie" nie pokazuj odrzuconych i zakończonych
-                  if (statusFilter === 'all') {
-                    return !['rejected', 'completed', 'cancelled'].includes(reservation.status);
-                  }
-                  return true;
-                })
+              widoczneRezerwacje
                 .map((reservation) => (
-                <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-border bg-bg-secondary">
+                <Card key={reservation.id} variant="glass" padding="none" className="overflow-hidden border-border bg-bg-card">
                   <div className="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5">
                     {/* Main info */}
                     <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
@@ -1189,26 +1474,10 @@ export function AdminPanel() {
                       </div>
                       <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-2">
-                        <Badge variant={STATUS_COLORS[reservation.status] || 'default'}>
-                          {STATUS_LABELS[reservation.status] || reservation.status}
-                        </Badge>
-                        {reservation.payment_status === 'paid' && (
-                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Opłacona{reservation.payment_provider ? ` (${reservation.payment_provider})` : ''}</Badge>
-                        )}
-                        {reservation.payment_status === 'pending' && (
-                          <Badge variant="warning">Płatność w toku</Badge>
-                        )}
-                        {(reservation.payment_status === 'failed' || reservation.payment_status === 'cancelled') && (
-                          <Badge variant="error">Płatność nieudana</Badge>
-                        )}
+                        <StageBadge info={reservation.stage} />
+                        {/* Zwrot pieniędzy nie jest etapem najmu, więc stoi obok. */}
                         {reservation.payment_status === 'refunded' && (
                           <Badge variant="default">Zwrócona</Badge>
-                        )}
-                        {reservation.contract_status === 'ready' && (
-                          <Badge variant="warning">Umowa czeka na podpis</Badge>
-                        )}
-                        {reservation.contract_status === 'signed' && (
-                          <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Umowa podpisana</Badge>
                         )}
                         {reservation.status === 'picked_up' && (
                           <Button
@@ -1246,11 +1515,24 @@ export function AdminPanel() {
                         </div>
                       )}
                       
+                      {/* Termin i miejsce widoczne od razu — bez rozwijania szczegółów
+                          nie dało się odczytać, na kiedy i gdzie umówiony jest klient. */}
+                      <div className="grid sm:grid-cols-2 gap-x-5 gap-y-2 mt-2.5">
+                        <TerminWiersza
+                          tytul="Odbiór"
+                          termin={reservation.terminy?.odbior}
+                          miejsce={reservation.terminy?.miejsca.odbior}
+                        />
+                        <TerminWiersza
+                          tytul="Zwrot"
+                          termin={reservation.terminy?.zwrot}
+                          miejsce={reservation.terminy?.miejsca.zwrot}
+                          bezterminowo={Boolean(reservation.is_indefinite)}
+                          dodatek={reservation.is_indefinite ? undefined : `${reservation.days} ${reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'}`}
+                        />
+                      </div>
+
                       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs sm:text-sm text-text-secondary mt-2">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-text-muted" />
-                          {reservation.start_date} {reservation.start_time || '09:00'} → {reservation.is_indefinite ? 'bezterminowo' : `${reservation.end_date} ${reservation.end_time || '09:00'} (${reservation.days} ${reservation.days === 1 ? 'doba' : reservation.days < 5 ? 'doby' : 'dób'})`}
-                        </span>
                         <span className="flex items-center gap-1.5">
                           <Phone className="w-3.5 h-3.5 text-text-muted" />
                           {reservation.phone}
@@ -1259,34 +1541,26 @@ export function AdminPanel() {
                       </div>
                     </div>
 
-                    {/* Price & actions */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 xl:pl-4 xl:border-l xl:border-border">
-                      <div className="sm:text-right min-w-[110px]">
-                        <p className="text-xl sm:text-2xl font-bold text-gold">{reservation.total_price} zł</p>
+                    {/* Stałe szerokości kolumn — liczba ikon bywa różna, a kwota
+                        i polecenie muszą stać w tym samym miejscu w każdym wierszu. */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shrink-0 xl:pl-4 xl:border-l xl:border-border">
+                      <div className="sm:text-right sm:w-[130px] shrink-0">
+                        <p className="text-xl sm:text-2xl font-bold text-gold whitespace-nowrap">{reservation.total_price} zł</p>
                         <p className="text-xs text-text-muted">
-                          {reservation.is_indefinite ? 'kwota bieżąca' : reservation.delivery ? 'z dostawą' : 'odbiór osobisty'}
+                          {reservation.is_indefinite ? 'kwota bieżąca' : opiszDojazd(reservation)}
                         </p>
                       </div>
 
-                      <div className="w-full sm:w-[190px] shrink-0">
-                        <Select
-                          id={`reservation-status-${reservation.id}`}
-                          label="Status wynajmu"
-                          value={reservation.status}
-                          options={RESERVATION_STATUS_OPTIONS}
-                          onChange={(event) => void openStatusModal(reservation, event.target.value)}
-                        />
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5">
+                      {/* Do czterech ikon — bez stałej szerokości wylewały się na kwotę. */}
+                      <div className="flex flex-nowrap items-center justify-end gap-1 sm:w-[208px] shrink-0">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={() => openContractModal(reservation)}
                             title="Przygotuj umowę i uruchom ekran podpisu"
                           >
-                            <FileSignature className="w-4 h-4 mr-1.5" /> Umowa
+                            <FileSignature className="w-4 h-4 text-gold-light light:text-gold-dark" />
                           </Button>
                         )}
                         {reservation.contract_status === 'signed' && (
@@ -1309,6 +1583,16 @@ export function AdminPanel() {
                             </Button>
                           </>
                         )}
+                        {reservation.handoverSigned && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void downloadHandoverPdf(reservation.id)}
+                            title="Pobierz podpisany protokół wydania"
+                          >
+                            <ClipboardCheck className="w-4 h-4" />
+                          </Button>
+                        )}
                         {reservation.payment_status === 'paid' && (
                           <Button
                             variant="ghost"
@@ -1327,80 +1611,32 @@ export function AdminPanel() {
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void openStatusHistory(reservation)}
-                          title="Historia zmian statusu"
-                        >
-                          <History className="w-4 h-4" />
-                        </Button>
-                        
-                        {/* Pending: Potwierdź lub Odrzuć */}
-                        {reservation.status === 'pending' && (
-                          <>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleStatusChange(reservation.id, 'confirmed', 'reservation')}
-                              title="Potwierdź rezerwację"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleStatusChange(reservation.id, 'rejected', 'reservation')}
-                              title="Odrzuć rezerwację"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
-                        
-                        {/* Confirmed: Wydaj sprzęt */}
-                        {reservation.status === 'confirmed' && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'picked_up', 'reservation')}
-                            title="Oznacz jako wydane"
-                            disabled={reservation.contract_status !== 'signed'}
-                          >
-                            <Package className="w-4 h-4 mr-1.5" /> Wydaj
-                          </Button>
-                        )}
-                        
-                        {/* Picked up: Oznacz jako zwrócone */}
-                        {reservation.status === 'picked_up' && !reservation.is_indefinite && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'returned', 'reservation')}
-                            title="Oznacz jako zwrócone"
-                          >
-                            <RotateCcw className="w-4 h-4 mr-1.5" /> Zwrot
-                          </Button>
-                        )}
-                        
-                        {/* Returned: Zakończ (rozlicz) */}
-                        {reservation.status === 'returned' && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'completed', 'reservation')}
-                            title="Zakończ i rozlicz"
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1.5" /> Zakończ
-                          </Button>
-                        )}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-1.5 sm:w-[150px] shrink-0">
+                        <StageActions
+                          actions={reservation.actions}
+                          onAction={(action) => {
+                            // Wydanie i zwrot potwierdzają podpisane protokoły,
+                            // więc akcje prowadzą do dokumentów, nie do zmiany statusu.
+                            if (action === 'hand_over') {
+                              window.location.assign(`/admin/wydanie/${reservation.id}`);
+                              return;
+                            }
+                            if (action === 'register_return') {
+                              window.location.assign(`/admin/zwrot/${reservation.id}`);
+                              return;
+                            }
+                            void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
 
                   {/* Expanded details */}
                   {expandedId === reservation.id && (
-                    <div className="mt-4 pt-4 border-t border-border grid md:grid-cols-2 gap-4 text-sm">
+                    <div className="px-4 sm:px-5 pb-5 pt-4 mt-1 border-t border-border grid md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <p className="text-text-muted mb-1">Email:</p>
                         <p className="text-text-primary">{reservation.email}</p>
@@ -1409,24 +1645,25 @@ export function AdminPanel() {
                         <p className="text-text-muted mb-1">Telefon:</p>
                         <p className="text-text-primary">{reservation.phone}</p>
                       </div>
-                      <div>
-                        <p className="text-text-muted mb-1">Miasto:</p>
-                        <p className="text-text-primary">{reservation.city}</p>
+
+                      <div className="md:col-span-2 grid sm:grid-cols-2 gap-4">
+                        <TerminBox
+                          tytul="Odbiór sprzętu"
+                          termin={reservation.terminy?.odbior}
+                          miejsce={reservation.terminy?.miejsca.odbior}
+                        />
+                        <TerminBox
+                          tytul="Zwrot sprzętu"
+                          termin={reservation.terminy?.zwrot}
+                          miejsce={reservation.terminy?.miejsca.zwrot}
+                          bezterminowo={Boolean(reservation.is_indefinite)}
+                        />
                       </div>
-                      {reservation.address && (
-                        <div>
-                          <p className="text-text-muted mb-1">Adres dostawy:</p>
-                          <p className="text-text-primary">{reservation.address}</p>
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-text-muted mb-1">Cena bazowa:</p>
-                        <p className="text-text-primary">{reservation.base_price} zł</p>
+
+                      <div className="md:col-span-2">
+                        <RozpisKosztow koszty={reservation.koszty} />
                       </div>
-                      <div>
-                        <p className="text-text-muted mb-1">Dostawa:</p>
-                        <p className="text-text-primary">{reservation.delivery_fee} zł</p>
-                      </div>
+
                       {reservation.notes && (
                         <div className="md:col-span-2">
                           <p className="text-text-muted mb-1">Notatki:</p>
@@ -1434,9 +1671,22 @@ export function AdminPanel() {
                         </div>
                       )}
                       <div className="md:col-span-2">
-                        <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
-                        <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
+                        <PaymentLinkPanel reservationId={reservation.id} onNotify={notifyPanel} />
                       </div>
+                      {/* Doplaty maja sens po zwrocie — wtedy znamy koszt naprawy. */}
+                      {['returned', 'completed'].includes(reservation.status) && (
+                        <div className="md:col-span-2">
+                          <DoplatyPanel reservationId={reservation.id} onNotify={notifyPanel} />
+                        </div>
+                      )}
+                      {/* Zdjęcia mają sens dopiero, gdy sprzęt fizycznie krąży —
+                          przed wydaniem nie ma czego sfotografować. */}
+                      {['picked_up', 'returned', 'completed'].includes(reservation.status) && (
+                        <div className="md:col-span-2">
+                          <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
+                          <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
+                        </div>
+                      )}
                       {reservationItems(reservation).length > 1 && (
                         <div className="md:col-span-2 p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
                           <p className="text-text-muted mb-3">Pozycje na umowie:</p>
@@ -1452,7 +1702,7 @@ export function AdminPanel() {
                       )}
                       {reservation.wants_invoice === 1 && (
                         <div className="md:col-span-2 mt-4 p-4 bg-gold/10 border border-gold/30 rounded-lg">
-                          <p className="text-gold font-semibold mb-3 flex items-center gap-2">
+                          <p className="text-gold-light light:text-gold-dark font-semibold mb-3 flex items-center gap-2">
                             <FileText className="w-4 h-4" />
                             Dane do faktury
                           </p>
@@ -1638,7 +1888,7 @@ export function AdminPanel() {
         {/* Revenue Tab */}
         {activeTab === 'revenue' && (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 xl:grid-cols-4 border border-border rounded-[--radius-sm] overflow-hidden bg-bg-secondary divide-x divide-y xl:divide-y-0 divide-border">
+            <div className="grid grid-cols-2 xl:grid-cols-4 border border-border rounded-[--radius-sm] overflow-hidden bg-bg-card divide-x divide-y xl:divide-y-0 divide-border">
               <RevenueMetric icon={<DollarSign className="w-5 h-5" />} label="Dzisiaj" value={revenueData?.today || 0} tone="green" />
               <RevenueMetric icon={<Calendar className="w-5 h-5" />} label="Ten miesiąc" value={revenueData?.month || 0} tone="blue" />
               <RevenueMetric icon={<TrendingUp className="w-5 h-5" />} label="Całkowity przychód" value={revenueData?.total || 0} tone="gold" />
@@ -1651,7 +1901,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
                 <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-green-500/20">
-                    <TrendingUp className="w-5 h-5 text-green-400" />
+                    <TrendingUp className="w-5 h-5 text-green-400 light:text-green-700" />
                   </div>
                   Przychody miesięczne
                 </h3>
@@ -1744,7 +1994,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-6 relative overflow-hidden min-w-0">
                 <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-amber-500/20">
-                    <Package className="w-5 h-5 text-amber-400" />
+                    <Package className="w-5 h-5 text-amber-400 light:text-amber-700" />
                   </div>
                   Liczba rezerwacji
                 </h3>
@@ -1832,7 +2082,7 @@ export function AdminPanel() {
             <Card variant="glass" className="p-6 relative overflow-hidden">
               <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                 <div className="p-2 rounded-[--radius-sm] bg-gold/10">
-                  <Calendar className="w-5 h-5 text-gold" />
+                  <Calendar className="w-5 h-5 text-gold-light light:text-gold-dark" />
                 </div>
                 Szczegóły miesięczne
               </h3>
@@ -1853,7 +2103,7 @@ export function AdminPanel() {
                         <Package className="w-3 h-3" />
                         {item.count} {item.count === 1 ? 'rezerwacja' : item.count < 5 ? 'rezerwacje' : 'rezerwacji'}
                       </p>
-                      <p className="text-2xl font-bold text-green-400">
+                      <p className="text-2xl font-bold text-green-400 light:text-green-700">
                         {item.revenue.toLocaleString('pl-PL')} zł
                       </p>
                     </div>
@@ -1875,7 +2125,7 @@ export function AdminPanel() {
             <Card variant="glass" className="p-6">
               <h3 className="text-lg font-semibold text-gold mb-4">Automatyczne przypomnienia</h3>
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
-                <p className="text-green-400 font-medium mb-1 flex items-center gap-2"><CheckCircle className="w-4 h-4" aria-hidden="true" /> Automatyczne przypomnienia włączone</p>
+                <p className="text-green-400 light:text-green-700 font-medium mb-1 flex items-center gap-2"><CheckCircle className="w-4 h-4" aria-hidden="true" /> Automatyczne przypomnienia włączone</p>
                 <p className="text-text-muted text-sm">
                   System automatycznie wysyła przypomnienia codziennie o 9:00:
                 </p>
@@ -1927,13 +2177,13 @@ export function AdminPanel() {
               <h3 className="text-lg font-semibold text-gold mb-4">Typy przypomnień</h3>
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                  <h4 className="text-blue-400 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o odbiorze</h4>
+                  <h4 className="text-blue-400 light:text-blue-700 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o odbiorze</h4>
                   <p className="text-text-muted text-sm">
                     Wysyłane do klientów z potwierdzoną rezerwacją, którzy mają odebrać sprzęt następnego dnia.
                   </p>
                 </div>
                 <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
-                  <h4 className="text-orange-400 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o zwrocie</h4>
+                  <h4 className="text-orange-400 light:text-orange-700 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o zwrocie</h4>
                   <p className="text-text-muted text-sm">
                     Wysyłane do klientów, którzy mają zwrócić sprzęt następnego dnia.
                   </p>
@@ -1951,7 +2201,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-green-500/10">
-                    <Users className="w-5 h-5 text-green-500" />
+                    <Users className="w-5 h-5 text-green-500 light:text-green-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">
@@ -1964,7 +2214,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-blue-500/10">
-                    <FileText className="w-5 h-5 text-blue-500" />
+                    <FileText className="w-5 h-5 text-blue-500 light:text-blue-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">{newsletterPosts.length}</p>
@@ -1975,7 +2225,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-gold/10">
-                    <Send className="w-5 h-5 text-gold" />
+                    <Send className="w-5 h-5 text-gold-light light:text-gold-dark" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">
@@ -2022,7 +2272,7 @@ export function AdminPanel() {
                     <label className="block text-sm font-medium text-text-secondary mb-2">
                       Treść
                     </label>
-                    <textarea
+                    <textarea spellCheck={false}
                       value={newPostContent}
                       onChange={(e) => setNewPostContent(e.target.value)}
                       placeholder="Treść newslettera..."
@@ -2089,7 +2339,7 @@ export function AdminPanel() {
                               <span>Wysłano: {new Date(post.sent_at).toLocaleDateString('pl-PL')}</span>
                             )}
                             {post.sent_count > 0 && (
-                              <span className="text-green-400 inline-flex items-center gap-1.5"><Check className="w-3.5 h-3.5" aria-hidden="true" /> Wysłano do {post.sent_count} osób</span>
+                              <span className="text-green-400 light:text-green-700 inline-flex items-center gap-1.5"><Check className="w-3.5 h-3.5" aria-hidden="true" /> Wysłano do {post.sent_count} osób</span>
                             )}
                           </div>
                         </div>
@@ -2151,7 +2401,7 @@ export function AdminPanel() {
                               });
                             }}
                           >
-                            <Trash2 className="w-4 h-4 text-red-400" />
+                            <Trash2 className="w-4 h-4 text-red-400 light:text-red-700" />
                           </Button>
                         </div>
                       </div>
@@ -2207,7 +2457,7 @@ export function AdminPanel() {
                                 });
                               }}
                             >
-                              <Trash2 className="w-4 h-4 text-red-400" />
+                              <Trash2 className="w-4 h-4 text-red-400 light:text-red-700" />
                             </Button>
                           </td>
                         </tr>
@@ -2236,7 +2486,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                    <Bell className="w-5 h-5 text-yellow-400" />
+                    <Bell className="w-5 h-5 text-yellow-400 light:text-yellow-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-gold">
@@ -2249,7 +2499,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <CheckCircle className="w-5 h-5 text-green-400 light:text-green-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-gold">
@@ -2262,7 +2512,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-                    <Package className="w-5 h-5 text-blue-400" />
+                    <Package className="w-5 h-5 text-blue-400 light:text-blue-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-gold">
@@ -2304,8 +2554,8 @@ export function AdminPanel() {
                           <td className="py-3 px-2">
                             <span className={`px-2 py-1 rounded-full text-xs ${
                               notification.status === 'waiting' 
-                                ? 'bg-yellow-500/20 text-yellow-400' 
-                                : 'bg-green-500/20 text-green-400'
+                                ? 'bg-yellow-500/20 text-yellow-400 light:text-yellow-700' 
+                                : 'bg-green-500/20 text-green-400 light:text-green-700'
                             }`}>
                               {notification.status === 'waiting' ? 'Oczekuje' : 'Wysłano'}
                             </span>
@@ -2340,7 +2590,7 @@ export function AdminPanel() {
                                   }}
                                   title="Wyślij powiadomienia dla tego produktu"
                                 >
-                                  <Send className="w-4 h-4 text-blue-400" />
+                                  <Send className="w-4 h-4 text-blue-400 light:text-blue-700" />
                                 </Button>
                               )}
                               <Button
@@ -2358,7 +2608,7 @@ export function AdminPanel() {
                                   });
                                 }}
                               >
-                                <Trash2 className="w-4 h-4 text-red-400" />
+                                <Trash2 className="w-4 h-4 text-red-400 light:text-red-700" />
                               </Button>
                             </div>
                           </td>
@@ -2524,8 +2774,8 @@ export function AdminPanel() {
             <form onSubmit={handleManualStatusChange} className="p-6">
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div>
-                  <p className="text-xs uppercase text-gold font-semibold">{statusHistoryOnly ? 'Historia procesu' : 'Ręczna zmiana'} • rezerwacja #{statusFor.id}</p>
-                  <h2 className="text-xl font-bold mt-1">{statusHistoryOnly ? 'Historia zmian statusu' : 'Zmień status wynajmu'}</h2>
+                  <p className="text-xs uppercase text-gold font-semibold">Ręczna zmiana • rezerwacja #{statusFor.id}</p>
+                  <h2 className="text-xl font-bold mt-1">Zmień status wynajmu</h2>
                   <p className="text-sm text-text-muted mt-1">
                     {statusFor.name} • {reservationProductLabel(statusFor)}
                   </p>
@@ -2535,7 +2785,6 @@ export function AdminPanel() {
                 </Button>
               </div>
 
-              {!statusHistoryOnly && <>
               <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-3 items-end mb-6">
                 <div className="p-4 rounded-[--radius-sm] bg-surface-soft border border-border">
                   <p className="text-[11px] uppercase text-text-muted mb-2">Obecny status</p>
@@ -2552,29 +2801,18 @@ export function AdminPanel() {
                 </div>
               </div>
 
-              <Select
-                id="manual-reservation-status"
-                label="Wybierz status"
-                value={statusForm.targetStatus}
-                options={RESERVATION_STATUS_OPTIONS.filter((option) => option.value !== statusFor.status)}
-                onChange={(event) => setStatusForm((current) => ({
-                  ...current,
-                  targetStatus: event.target.value,
-                  notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(event.target.value),
-                }))}
-              />
-
-              <div className="mt-4 p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
-                {STATUS_DESCRIPTIONS[statusForm.targetStatus]}
+              <div className="p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
+                {statusFor.name} • {reservationProductLabel(statusFor)} • {statusFor.start_date}
+                {statusFor.end_date ? ` – ${statusFor.end_date}` : ''}
               </div>
 
               {statusForm.targetStatus === 'picked_up' && statusFor.contract_status !== 'signed' && (
-                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300">
+                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300 light:text-red-700">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> Wydanie zostanie zablokowane, dopóki umowa nie będzie podpisana.
                 </div>
               )}
               {statusForm.targetStatus === 'returned' && statusFor.is_indefinite && (
-                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300">
+                <div className="mt-3 p-3 rounded-[--radius-sm] bg-red-500/[0.08] border border-red-500/25 flex items-start gap-2 text-sm text-red-300 light:text-red-700">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> Najpierw ustal faktyczny termin zwrotu wynajmu bezterminowego.
                 </div>
               )}
@@ -2588,13 +2826,12 @@ export function AdminPanel() {
                   required
                 />
                 <Textarea
-                  label="Powód zmiany"
+                  label="Notatka (opcjonalnie)"
                   value={statusForm.note}
                   onChange={(event) => setStatusForm((current) => ({ ...current, note: event.target.value }))}
-                  placeholder="Np. korekta po rozmowie z klientem"
+                  placeholder="Np. klient odebrał dzień później"
                   rows={3}
-                  minLength={3}
-                  required
+                  maxLength={500}
                 />
               </div>
 
@@ -2604,7 +2841,7 @@ export function AdminPanel() {
                     <span className="block text-sm font-semibold">Powiadom klienta e-mailem</span>
                     <span className="block text-xs text-text-muted mt-1">Wyśle wiadomość odpowiadającą nowemu statusowi.</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={statusForm.notifyCustomer}
@@ -2613,9 +2850,8 @@ export function AdminPanel() {
                   />
                 </label>
               )}
-              </>}
 
-              {(statusHistoryOnly || statusHistory.length > 0) && (
+              {statusHistory.length > 0 && (
                 <div className="mt-6 pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
                     <History className="w-4 h-4 text-gold" /> Ostatnie zmiany statusu
@@ -2636,7 +2872,7 @@ export function AdminPanel() {
                           <span className="text-text-muted">{new Date(change.created_at).toLocaleString('pl-PL')}</span>
                         </div>
                         <p className="text-text-muted mt-1">{change.changed_by} • {change.note}</p>
-                        {change.notify_customer && <p className="text-green-400 mt-1">Klient został powiadomiony</p>}
+                        {change.notify_customer && <p className="text-green-400 light:text-green-700 mt-1">Klient został powiadomiony</p>}
                       </div>
                     ))}
                   </div>}
@@ -2644,15 +2880,15 @@ export function AdminPanel() {
               )}
 
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 mt-6">
-                <Button type="button" variant="ghost" onClick={() => setStatusFor(null)}>{statusHistoryOnly ? 'Zamknij' : 'Anuluj'}</Button>
-                {!statusHistoryOnly && <Button
+                <Button type="button" variant="ghost" onClick={() => setStatusFor(null)}>Anuluj</Button>
+                <Button
                   type="submit"
                   variant="primary"
-                  disabled={statusSaving || statusForm.changedBy.trim().length < 3 || statusForm.note.trim().length < 3}
+                  disabled={statusSaving || statusForm.changedBy.trim().length < 3}
                 >
                   {statusSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                   Zapisz status
-                </Button>}
+                </Button>
               </div>
             </form>
           </Card>
@@ -2677,14 +2913,14 @@ export function AdminPanel() {
               </div>
 
               <div className="grid sm:grid-cols-2 gap-px rounded-lg overflow-hidden border border-border bg-surface-strong mb-6">
-                <div className="bg-bg-secondary p-4">
+                <div className="bg-bg-card p-4">
                   <p className="text-[11px] uppercase text-text-muted">Obecny termin</p>
                   <p className="font-semibold mt-1 flex items-center gap-2">
                     {termFor.is_indefinite ? <InfinityIcon className="w-4 h-4 text-gold" /> : <Calendar className="w-4 h-4 text-gold" />}
                     {termFor.is_indefinite ? 'Bezterminowo' : `${termFor.end_date} ${termFor.end_time || '09:00'}`}
                   </p>
                 </div>
-                <div className="bg-bg-secondary p-4">
+                <div className="bg-bg-card p-4">
                   <p className="text-[11px] uppercase text-text-muted">Bieżąca wartość</p>
                   <p className="font-semibold text-gold mt-1">{Number(termFor.total_price).toFixed(2)} zł</p>
                 </div>
@@ -2696,7 +2932,7 @@ export function AdminPanel() {
                     <span className="block text-sm font-semibold">Zmień na wynajem bezterminowy</span>
                     <span className="block text-xs text-text-muted mt-1">Sprzęt pozostanie zablokowany do ustalenia daty zwrotu.</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={termForm.isIndefinite}
@@ -2708,19 +2944,18 @@ export function AdminPanel() {
 
               {!termForm.isIndefinite && (
                 <div className="grid sm:grid-cols-2 gap-4 mb-5">
-                  <Input
+                  <DatePicker
                     label={termFor.is_indefinite ? 'Ustalona data zwrotu' : 'Nowa data zwrotu'}
-                    type="date"
-                    min={termFor.is_indefinite ? termFor.start_date : nextDay(termFor.end_date)}
+                    minDate={termFor.is_indefinite ? termFor.start_date : nextDay(termFor.end_date)}
                     value={termForm.endDate}
-                    onChange={(event) => setTermForm((current) => ({ ...current, endDate: event.target.value }))}
+                    onChange={(value) => setTermForm((current) => ({ ...current, endDate: value }))}
                     required
                   />
-                  <Input
+                  <Select
                     label="Godzina zwrotu"
-                    type="time"
                     value={termForm.endTime}
                     onChange={(event) => setTermForm((current) => ({ ...current, endTime: event.target.value }))}
+                    options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
                     required
                   />
                 </div>
@@ -2815,7 +3050,7 @@ export function AdminPanel() {
 
               {contractSession ? (
                 <div className="py-6 text-center">
-                  <CheckCircle className={`w-14 h-14 mx-auto mb-4 ${contractSignedId ? 'text-green-500' : 'text-gold'}`} />
+                  <CheckCircle className={`w-14 h-14 mx-auto mb-4 ${contractSignedId ? 'text-green-500 light:text-green-700' : 'text-gold'}`} />
                   <h3 className="text-xl font-semibold text-text-primary">
                     {contractSignedId ? 'Umowa podpisana' : 'Umowa gotowa do podpisu'}
                   </h3>
@@ -2881,18 +3116,7 @@ export function AdminPanel() {
                         required
                       />
                       <Input
-                        label="Numer dokumentu"
-                        value={contractForm.documentNumber}
-                        onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
-                        placeholder="ABC 123456"
-                        minLength={3}
-                        maxLength={30}
-                        pattern="[\p{L}\p{N} \-]{3,30}"
-                        hint="Minimum 3 znaki, np. ABC 123456"
-                        required
-                      />
-                      <Input
-                        label="PESEL (opcjonalnie)"
+                        label="PESEL"
                         value={contractForm.pesel || ''}
                         onChange={(event) => setContractForm((current) => ({ ...current, pesel: event.target.value.replace(/\D/g, '').slice(0, 11) }))}
                         placeholder="11 cyfr"
@@ -2900,7 +3124,16 @@ export function AdminPanel() {
                         minLength={11}
                         maxLength={11}
                         pattern="[0-9]{11}"
-                        hint="Dokładnie 11 cyfr albo pozostaw puste"
+                        hint="Dokładnie 11 cyfr — identyfikuje Najemcę w umowie"
+                        required
+                      />
+                      <Input
+                        label="Numer dokumentu tożsamości (opcjonalnie)"
+                        value={contractForm.documentNumber}
+                        onChange={(event) => setContractForm((current) => ({ ...current, documentNumber: event.target.value.toUpperCase() }))}
+                        placeholder="ABC 123456"
+                        maxLength={30}
+                        hint="Możesz zostawić puste — Najemcę identyfikuje PESEL"
                       />
                     </div>
                   </div>
@@ -3005,8 +3238,8 @@ export function AdminPanel() {
               {/* Reply success message */}
               {replySuccess ? (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-6 text-center">
-                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-lg font-semibold text-green-400">
+                  <CheckCircle className="w-12 h-12 text-green-500 light:text-green-700 mx-auto mb-3" />
+                  <p className="text-lg font-semibold text-green-400 light:text-green-700">
                     Odpowiedź wysłana!
                   </p>
                   <p className="text-sm text-text-muted mt-1">
@@ -3020,7 +3253,7 @@ export function AdminPanel() {
                     <label className="block text-sm font-medium text-text-secondary mb-2">
                       Twoja odpowiedź
                     </label>
-                    <textarea
+                    <textarea spellCheck={false}
                       value={replyMessage}
                       onChange={(e) => setReplyMessage(e.target.value)}
                       placeholder="Napisz odpowiedź do klienta..."
@@ -3120,10 +3353,10 @@ export function AdminPanel() {
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className={`px-5 py-3 rounded-[--radius-sm] shadow-xl border flex items-center gap-3 ${
             toast.type === 'success' 
-              ? 'bg-green-500/20 border-green-500/50 text-green-400' 
+              ? 'bg-green-500/20 border-green-500/50 text-green-400 light:text-green-700' 
               : toast.type === 'error' 
-                ? 'bg-red-500/20 border-red-500/50 text-red-400'
-                : 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                ? 'bg-red-500/20 border-red-500/50 text-red-400 light:text-red-700'
+                : 'bg-blue-500/20 border-blue-500/50 text-blue-400 light:text-blue-700'
           }`}>
             {toast.type === 'success' && <CheckCircle className="w-5 h-5" />}
             {toast.type === 'error' && <XCircle className="w-5 h-5" />}
@@ -3146,7 +3379,7 @@ export function AdminPanel() {
             <div className="p-6">
               <div className="text-center mb-6">
                 <div className="w-14 h-14 rounded-full bg-gold/20 flex items-center justify-center mx-auto mb-4">
-                  <AlertCircle className="w-7 h-7 text-gold" />
+                  <AlertCircle className="w-7 h-7 text-gold-light light:text-gold-dark" />
                 </div>
                 <h3 className="text-lg font-bold text-text-primary mb-2">Potwierdzenie</h3>
                 <p className="text-text-muted">{confirmModal.message}</p>
@@ -3190,10 +3423,10 @@ function Metric({
   tone: 'gold' | 'amber' | 'green' | 'blue';
 }) {
   const tones = {
-    gold: 'bg-gold/10 text-gold',
-    amber: 'bg-amber-500/10 text-amber-400',
-    green: 'bg-green-500/10 text-green-400',
-    blue: 'bg-sky-500/10 text-sky-400',
+    gold: 'bg-gold/10 text-gold-light light:text-gold-dark',
+    amber: 'bg-amber-500/10 text-amber-400 light:text-amber-700',
+    green: 'bg-green-500/10 text-green-400 light:text-green-700',
+    blue: 'bg-sky-500/10 text-sky-400 light:text-sky-700',
   };
   return (
     <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0">
@@ -3218,10 +3451,10 @@ function RevenueMetric({
   tone: 'green' | 'blue' | 'gold' | 'amber';
 }) {
   const tones = {
-    green: 'bg-green-500/10 text-green-400',
-    blue: 'bg-sky-500/10 text-sky-400',
-    gold: 'bg-gold/10 text-gold',
-    amber: 'bg-amber-500/10 text-amber-400',
+    green: 'bg-green-500/10 text-green-400 light:text-green-700',
+    blue: 'bg-sky-500/10 text-sky-400 light:text-sky-700',
+    gold: 'bg-gold/10 text-gold-light light:text-gold-dark',
+    amber: 'bg-amber-500/10 text-amber-400 light:text-amber-700',
   };
   return (
     <div className="p-4 sm:p-5 flex items-center gap-3 min-w-0">

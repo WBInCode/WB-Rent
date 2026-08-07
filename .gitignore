@@ -41,8 +41,9 @@ playwright-report/
 blob-report/
 
 # Private runtime artifacts (contracts contain identity data)
-storage/contracts/
-server/storage/contracts/
+# Caly katalog, nie tylko umowy: leza tu takze protokoly i zdjecia sprzetu.
+storage/
+server/storage/
 
 # Database
 *.db
@@ -54,3 +55,6 @@ server/storage/contracts/
 # Misc
 *.local
 .cache/
+
+# Skrypty i wydruki pomocnicze uzywane przy testach recznych
+tmp-*

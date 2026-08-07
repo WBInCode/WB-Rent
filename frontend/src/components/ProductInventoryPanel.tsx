@@ -18,10 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { addonId, normalizeAddons, type ProductAddon } from '@/data/products';
 import { deleteUploadedProductImage, uploadProductImage } from '@/services/adminApi';
 import type {
   AdminProduct,
-  ProductCondition,
   ProductInventoryPayload,
 } from '@/services/adminApi';
 
@@ -38,21 +38,6 @@ const CATEGORY_OPTIONS = [
   { value: 'ozonatory', label: 'Ozonatory i oczyszczacze' },
   { value: 'pozostale', label: 'Pozostały sprzęt' },
 ];
-
-const CONDITION_OPTIONS: Array<{ value: ProductCondition; label: string }> = [
-  { value: 'good', label: 'Sprawny' },
-  { value: 'attention', label: 'Wymaga uwagi' },
-  { value: 'service', label: 'W serwisie' },
-  { value: 'damaged', label: 'Uszkodzony' },
-];
-
-const CONDITION_STYLES: Record<ProductCondition, string> = {
-  good: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
-  attention: 'bg-amber-500/10 border-amber-500/25 text-amber-300',
-  service: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
-  damaged: 'bg-red-500/10 border-red-500/25 text-red-300',
-};
-
 const emptyProduct: ProductInventoryPayload = {
   id: '',
   name: '',
@@ -65,7 +50,7 @@ const emptyProduct: ProductInventoryPayload = {
   priceWeekend: 0,
   totalQuantity: 1,
   serviceQuantity: 0,
-  conditionStatus: 'good',
+  withdrawnQuantity: 0,
   inventoryNotes: '',
   features: [],
   includedAccessories: [],
@@ -90,11 +75,11 @@ const toPayload = (product: AdminProduct): ProductInventoryPayload => {
     priceWeekend: Number(product.price_weekend),
     totalQuantity: Number(product.total_quantity),
     serviceQuantity: Number(product.service_quantity),
-    conditionStatus: product.condition_status,
+    withdrawnQuantity: Number(product.withdrawn_quantity || 0),
     inventoryNotes: product.inventory_notes || '',
     features: Array.isArray(product.features) ? product.features : [],
     includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
-    optionalAccessories: Array.isArray(product.optional_accessories) ? product.optional_accessories : [],
+    optionalAccessories: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
     accessoryPrice: Number(product.accessory_price || 0),
     isActive: Boolean(product.is_active),
   };
@@ -107,7 +92,6 @@ export function ProductInventoryPanel({
   onDelete,
 }: ProductInventoryPanelProps) {
   const [query, setQuery] = useState('');
-  const [condition, setCondition] = useState('all');
   const [includeHidden, setIncludeHidden] = useState(true);
   const [editingId, setEditingId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductInventoryPayload | null>(null);
@@ -121,20 +105,19 @@ export function ProductInventoryPanel({
     units: result.units + Number(product.total_quantity),
     available: result.available + Number(product.available_today),
     rented: result.rented + Number(product.reserved_today),
-    service: result.service + Number(product.service_quantity),
+    service: result.service + Number(product.service_quantity) + Number(product.withdrawn_quantity || 0),
   }), { units: 0, available: 0, rented: 0, service: 0 }), [products]);
 
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('pl');
     return products.filter((product) => {
       if (!includeHidden && !product.is_active) return false;
-      if (condition !== 'all' && product.condition_status !== condition) return false;
       if (!normalized) return true;
       return `${product.name} ${product.id} ${product.category_id}`
         .toLocaleLowerCase('pl')
         .includes(normalized);
     });
-  }, [products, query, condition, includeHidden]);
+  }, [products, query, includeHidden]);
 
   const openNew = () => {
     setEditingId(undefined);
@@ -225,16 +208,16 @@ export function ProductInventoryPanel({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden">
         <div className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y xl:divide-y-0 divide-border">
           <InventoryMetric icon={<Boxes className="w-5 h-5" />} label="Wszystkie sztuki" value={totals.units} />
-          <InventoryMetric icon={<Package className="w-5 h-5" />} label="Dostępne dzisiaj" value={totals.available} tone="text-emerald-300" />
+          <InventoryMetric icon={<Package className="w-5 h-5" />} label="Dostępne dzisiaj" value={totals.available} tone="text-emerald-300 light:text-emerald-700" />
           <InventoryMetric icon={<Eye className="w-5 h-5" />} label="Wynajęte dzisiaj" value={totals.rented} tone="text-gold" />
-          <InventoryMetric icon={<Wrench className="w-5 h-5" />} label="Wyłączone / serwis" value={totals.service} tone="text-sky-300" />
+          <InventoryMetric icon={<Wrench className="w-5 h-5" />} label="Wyłączone / serwis" value={totals.service} tone="text-sky-300 light:text-sky-700" />
         </div>
       </div>
 
-      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
         <div className="p-4 sm:p-5 border-b border-border flex flex-col xl:flex-row xl:items-center gap-3">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Flota i stany magazynowe</h2>
@@ -251,15 +234,6 @@ export function ProductInventoryPanel({
                 leftIcon={<Search className="w-4 h-4" />}
               />
             </div>
-            <div className="sm:w-48">
-              <Select
-                size="sm"
-                aria-label="Filtr stanu technicznego"
-                value={condition}
-                onChange={(event) => setCondition(event.target.value)}
-                options={[{ value: 'all', label: 'Każdy stan' }, ...CONDITION_OPTIONS]}
-              />
-            </div>
             <Button variant="primary" size="sm" className="shrink-0" onClick={openNew}>
               <Plus className="w-4 h-4" /> Dodaj produkt
             </Button>
@@ -269,11 +243,11 @@ export function ProductInventoryPanel({
         <div className="px-4 sm:px-5 py-3 border-b border-border flex items-center justify-between gap-4 text-xs text-text-muted">
           <span>{filteredProducts.length} z {products.length} modeli</span>
           <label className="inline-flex items-center gap-2 cursor-pointer text-text-secondary">
-            <input
+            <input spellCheck={false}
               type="checkbox"
               checked={includeHidden}
               onChange={(event) => setIncludeHidden(event.target.checked)}
-              className="accent-gold"
+              className="accent-[#d4a853]"
             />
             Pokaż ukryte
           </label>
@@ -293,11 +267,12 @@ export function ProductInventoryPanel({
             const available = Number(product.available_today);
             const rented = Number(product.reserved_today);
             const service = Number(product.service_quantity);
-            const usedPercent = total > 0 ? Math.min(100, ((rented + service) / total) * 100) : 100;
+            const wylaczone = Number(product.withdrawn_quantity || 0);
+            const usedPercent = total > 0 ? Math.min(100, ((rented + service + wylaczone) / total) * 100) : 100;
             return (
-              <div key={product.id} className={`grid xl:grid-cols-[minmax(300px,1.8fr)_130px_210px_180px_150px] gap-4 px-4 sm:px-5 py-4 items-center ${!product.is_active ? 'opacity-55' : ''}`}>
+              <div key={product.id} className={`grid xl:grid-cols-[minmax(300px,1.8fr)_210px_180px_150px] gap-4 px-4 sm:px-5 py-4 items-center ${!product.is_active ? 'opacity-55' : ''}`}>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-12 h-12 rounded-lg border border-border bg-white overflow-hidden shrink-0">
+                  <div className="w-12 h-12 rounded-lg border border-white/10 bg-white overflow-hidden shrink-0">
                     <img src={product.image || '/favicon.svg'} alt="" className="w-full h-full object-contain" />
                   </div>
                   <div className="min-w-0">
@@ -310,17 +285,15 @@ export function ProductInventoryPanel({
                 </div>
 
                 <div>
-                  <span className={`inline-flex px-2.5 py-1 rounded-md border text-xs font-medium ${CONDITION_STYLES[product.condition_status]}`}>
-                    {CONDITION_OPTIONS.find((item) => item.value === product.condition_status)?.label}
-                  </span>
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <strong className="text-emerald-300">{available} dostępne</strong>
-                    <span className="text-text-muted">{rented} wynajęte · {service} serwis</span>
+                  <div className="flex items-center gap-2 text-xs flex-wrap">
+                    <strong className="text-emerald-300 light:text-emerald-700">{available} dostępne</strong>
+                    <span className="text-text-muted">
+                      {rented} wynajęte
+                      {service > 0 ? ` · ${service} serwis` : ''}
+                      {wylaczone > 0 ? ` · ${wylaczone} wyłączone` : ''}
+                    </span>
                   </div>
-                  <div className="mt-2 h-1.5 rounded-full bg-surface-strong overflow-hidden">
+                  <div className="mt-2 h-1.5 rounded-full bg-surface-soft overflow-hidden">
                     <div className="h-full bg-gold" style={{ width: `${usedPercent}%` }} />
                   </div>
                   <p className="text-[10px] text-text-muted mt-1">Stan całkowity: {total}</p>
@@ -337,7 +310,7 @@ export function ProductInventoryPanel({
                     <Pencil className="w-4 h-4" />
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => onDelete(product)} aria-label={`Usuń ${product.name}`} title="Usuń produkt">
-                    <Trash2 className="w-4 h-4 text-red-300" />
+                    <Trash2 className="w-4 h-4 text-red-300 light:text-red-700" />
                   </Button>
                 </div>
               </div>
@@ -426,7 +399,7 @@ export function ProductInventoryPanel({
                                 <button type="button" disabled={index === form.images.length - 1} onClick={() => moveImage(index, index + 1)} className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft disabled:opacity-25" title="Przesuń później" aria-label={`Przesuń zdjęcie ${index + 1} później`}>
                                   <ArrowDown className="w-4 h-4" />
                                 </button>
-                                <button type="button" disabled={form.images.length <= 1} onClick={() => void removeImage(index)} className="ml-auto p-2 rounded-md text-red-300 hover:bg-red-500/10 disabled:opacity-25" title={form.images.length <= 1 ? 'Produkt musi zachować co najmniej jedno zdjęcie' : 'Usuń z galerii'} aria-label={`Usuń zdjęcie ${index + 1}`}>
+                                <button type="button" disabled={form.images.length <= 1} onClick={() => void removeImage(index)} className="ml-auto p-2 rounded-md text-red-300 light:text-red-700 hover:bg-red-500/10 disabled:opacity-25" title={form.images.length <= 1 ? 'Produkt musi zachować co najmniej jedno zdjęcie' : 'Usuń z galerii'} aria-label={`Usuń zdjęcie ${index + 1}`}>
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
@@ -436,8 +409,8 @@ export function ProductInventoryPanel({
                       </div>
                     ) : (
                       <div className="p-6 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.05] text-center">
-                        <Images className="w-7 h-7 mx-auto text-amber-300" />
-                        <p className="text-sm text-amber-200 mt-2">Dodaj co najmniej jedno zdjęcie produktu</p>
+                        <Images className="w-7 h-7 mx-auto text-amber-300 light:text-amber-700" />
+                        <p className="text-sm text-amber-200 light:text-amber-800 mt-2">Dodaj co najmniej jedno zdjęcie produktu</p>
                       </div>
                     )}
 
@@ -459,10 +432,10 @@ export function ProductInventoryPanel({
                       </Button>
                     </div>
 
-                    <label className={`mt-3 min-h-11 px-4 py-2.5 rounded-lg border border-gold/30 text-gold text-sm font-medium inline-flex items-center gap-2 cursor-pointer hover:bg-gold/10 ${uploadingImages || form.images.length >= 12 ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <label className={`mt-3 min-h-11 px-4 py-2.5 rounded-lg border border-gold/30 text-gold-light light:text-gold-dark text-sm font-medium inline-flex items-center gap-2 cursor-pointer hover:bg-gold/10 ${uploadingImages || form.images.length >= 12 ? 'opacity-50 pointer-events-none' : ''}`}>
                       <Upload className="w-4 h-4" />
                       {uploadingImages ? 'Wysyłanie zdjęć...' : 'Wybierz zdjęcia z urządzenia'}
-                      <input
+                      <input spellCheck={false}
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
                         multiple
@@ -504,42 +477,32 @@ export function ProductInventoryPanel({
                       values={form.includedAccessories}
                       onChange={(values) => setForm({ ...form, includedAccessories: values })}
                     />
-                    <ListEditor
-                      label="Akcesoria dodatkowo płatne"
-                      placeholder={'środek czyszczący RM 780'}
+                    <AddonEditor
                       values={form.optionalAccessories}
                       onChange={(values) => setForm({ ...form, optionalAccessories: values })}
-                    />
-                  </div>
-                  <div className="grid sm:grid-cols-3 gap-4 mt-4">
-                    <NumberInput
-                      label="Cena akcesorium (zł)"
-                      value={form.accessoryPrice}
-                      onChange={(value) => setForm({ ...form, accessoryPrice: value })}
                     />
                   </div>
                 </section>
 
                 <section className="pt-5 border-t border-border">
-                  <h3 className="text-sm font-semibold mb-3">Magazyn i stan techniczny</h3>
+                  <h3 className="text-sm font-semibold mb-3">Magazyn</h3>
                   <div className="grid sm:grid-cols-3 gap-4">
                     <NumberInput label="Ilość całkowita" integer value={form.totalQuantity} onChange={(value) => setForm({ ...form, totalQuantity: value })} />
                     <NumberInput label="Sztuki w serwisie" integer value={form.serviceQuantity} onChange={(value) => setForm({ ...form, serviceQuantity: value })} />
-                    <Select
-                      label="Stan techniczny"
-                      value={form.conditionStatus}
-                      options={CONDITION_OPTIONS}
-                      onChange={(event) => setForm({ ...form, conditionStatus: event.target.value as ProductCondition })}
-                    />
+                    <NumberInput label="Wyłączone z użytku" integer value={form.withdrawnQuantity} onChange={(value) => setForm({ ...form, withdrawnQuantity: value })} />
                   </div>
-                  {form.serviceQuantity > form.totalQuantity && (
-                    <div className="mt-3 p-3 rounded-lg border border-red-500/25 bg-red-500/[0.08] text-sm text-red-300 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> Liczba sztuk w serwisie nie może przekraczać stanu całkowitego.
+                  <p className="text-xs text-text-muted mt-2">
+                    Do wynajęcia zostaje {Math.max(form.totalQuantity - form.serviceQuantity - form.withdrawnQuantity, 0)} szt.
+                    „Wyłączone z użytku” to sprawny sprzęt, który sam zdejmujesz z najmu — bez udawania usterki.
+                  </p>
+                  {form.serviceQuantity + form.withdrawnQuantity > form.totalQuantity && (
+                    <div className="mt-3 p-3 rounded-lg border border-red-500/25 bg-red-500/[0.08] text-sm text-red-300 light:text-red-700 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> Sztuki w serwisie i wyłączone z użytku nie mogą przekraczać stanu całkowitego.
                     </div>
                   )}
                   <Textarea className="mt-4" label="Notatka magazynowa" value={form.inventoryNotes} onChange={(event) => setForm({ ...form, inventoryNotes: event.target.value })} />
                   <label className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
-                    <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-1 accent-gold" />
+                    <input spellCheck={false} type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-1 accent-[#d4a853]" />
                     <span>
                       <span className="block text-sm font-medium">Widoczny i dostępny do nowych rezerwacji</span>
                       <span className="block text-xs text-text-muted mt-1">Wyłączenie ukrywa produkt w ofercie, ale zachowuje historię wynajmów i umów.</span>
@@ -550,7 +513,7 @@ export function ProductInventoryPanel({
 
               <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => void closeForm()}>Anuluj</Button>
-                <Button type="submit" disabled={saving || uploadingImages || form.images.length === 0 || form.serviceQuantity > form.totalQuantity} isLoading={saving}>
+                <Button type="submit" disabled={saving || uploadingImages || form.images.length === 0 || form.serviceQuantity + form.withdrawnQuantity > form.totalQuantity} isLoading={saving}>
                   Zapisz produkt
                 </Button>
               </div>
@@ -616,5 +579,68 @@ function ListEditor({
         )
       }
     />
+  );
+}
+
+/**
+ * Worek i środek czyszczący nie kosztują tyle samo, więc cena stoi przy
+ * pozycji. Bez ceny dodatek jest tylko informacją — klient go nie zamówi.
+ */
+function AddonEditor({
+  values,
+  onChange,
+}: {
+  values: ProductAddon[];
+  onChange: (values: ProductAddon[]) => void;
+}) {
+  const zmien = (index: number, zmiana: Partial<ProductAddon>) => {
+    // Bez normalizacji przy każdym znaku — pusta jeszcze nazwa skasowałaby wiersz.
+    onChange(values.map((pozycja, i) => {
+      if (i !== index) return pozycja;
+      const zmieniona = { ...pozycja, ...zmiana };
+      return { ...zmieniona, id: addonId(zmieniona.nazwa) };
+    }));
+  };
+
+  return (
+    <div>
+      <p className="block text-sm font-medium text-text-secondary mb-1.5">Akcesoria dodatkowo płatne</p>
+      <div className="space-y-2">
+        {values.map((pozycja, index) => (
+          <div key={index} className="flex gap-2">
+            <input
+              value={pozycja.nazwa}
+              placeholder="Środek czyszczący RM 780"
+              onChange={(event) => zmien(index, { nazwa: event.target.value })}
+              className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-bg-primary border border-border text-sm text-text-primary focus:border-gold focus:outline-none"
+            />
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={pozycja.cena}
+              onChange={(event) => zmien(index, { cena: Number(event.target.value) })}
+              className="w-24 shrink-0 h-10 px-3 rounded-lg bg-bg-primary border border-border text-sm text-text-primary focus:border-gold focus:outline-none"
+            />
+            <button
+              type="button"
+              aria-label={`Usuń: ${pozycja.nazwa || 'pozycja'}`}
+              onClick={() => onChange(values.filter((_, i) => i !== index))}
+              className="w-10 h-10 shrink-0 rounded-lg border border-border text-text-muted hover:text-error hover:border-error/40 transition-colors"
+            >
+              <Trash2 className="w-4 h-4 mx-auto" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange([...values, { id: '', nazwa: '', cena: 0 }])}
+        className="mt-2 inline-flex items-center gap-1.5 text-sm text-gold hover:underline"
+      >
+        <Plus className="w-4 h-4" /> Dodaj pozycję
+      </button>
+      <p className="text-xs text-text-muted mt-1.5">Cena w zł za sztukę. Pozycja bez ceny nie da się zamówić.</p>
+    </div>
   );
 }

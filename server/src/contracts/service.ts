@@ -6,8 +6,10 @@ import { queries } from '../db.js';
 import { getProductName } from '../products.js';
 import { sendSignedContractEmail } from '../email.js';
 import { collectRentalAttachments } from '../rental-attachments.js';
+import { rozpiszKoszty, rozpisJakoLinie } from '../costs.js';
+import { opiszTermin } from '../rental-details.js';
 import { encryptContractData, decryptContractData, randomSigningToken, sha256, signingTokenHash } from './crypto.js';
-import { CONTRACT_TEMPLATE_VERSION, buildContractClauses, type ContractSnapshot, type DeviceTerms } from './template.js';
+import { CONTRACT_TEMPLATE_VERSION, buildContractClauses, letter, type ContractSnapshot, type ClauseDevice } from './template.js';
 import { getProductTerms } from './product-terms.js';
 import { generateContractPdf } from './pdf.js';
 
@@ -21,8 +23,8 @@ export const contractDetailsSchema = z.object({
   // Optional: the renter is identified by PESEL. Left blank when the employee
   // does not record the ID document.
   documentNumber: z.string().trim()
-    .max(30, 'Numer dokumentu może mieć maksymalnie 30 znaków')
-    .regex(/^[\p{L}\d\s-]*$/u, 'Numer dokumentu może zawierać tylko litery, cyfry, spacje i myślniki')
+    .max(30, 'Numer dokumentu tożsamości może mieć maksymalnie 30 znaków')
+    .regex(/^[\p{L}\d\s-]*$/u, 'Numer dokumentu tożsamości może zawierać tylko litery, cyfry, spacje i myślniki')
     .default(''),
   pesel: z.string().trim()
     .regex(/^\d{11}$/, 'PESEL musi składać się dokładnie z 11 cyfr'),
@@ -59,15 +61,17 @@ const contractNumberFor = (reservationId: number): string =>
   `WB-R/${new Date().getFullYear()}/${String(reservationId).padStart(6, '0')}`;
 
 /**
- * Załącznik nr 1 proposed by the system. With several devices every line says
- * which one it belongs to, so a missing hose cannot be attributed to the wrong machine.
+ * Załącznik nr 1 proposed by the system. With several devices the list is split
+ * into "a) <device>:" groups, so a missing hose cannot be attributed to the
+ * wrong machine without repeating the device name on every single line.
  */
 export function buildDefaultHandoverItems(productIds: string[]): string[] {
+  const multi = productIds.length > 1;
   return productIds.flatMap((productId, index) => {
     const terms = getProductTerms(productId);
     const deviceName = terms?.deviceName || getProductName(productId);
     const lines = terms?.handoverItems?.length ? terms.handoverItems : [deviceName];
-    return productIds.length > 1 ? lines.map((line) => `${index + 1}) ${deviceName} — ${line}`) : lines;
+    return multi ? [`${letter(index)}) ${deviceName}:`, ...lines] : lines;
   });
 }
 
@@ -92,15 +96,21 @@ export async function createContractSession(input: CreateContractInput) {
         item_price: reservation.base_price,
       }];
 
-  const fallbackTerms = (productId: string): DeviceTerms => ({
+  const rentalDays = reservation.days > 0 ? reservation.days : 1;
+  const perDay = (price: number) => Math.round((price / rentalDays) * 100) / 100;
+
+  const fallbackTerms = (productId: string, itemPrice: number): ClauseDevice => ({
     deviceName: getProductName(productId),
     equipmentValue: 0,
     deepCleaningNote: 'zabrudzenia wymagające dodatkowego mycia',
+    itemPrice,
+    dailyRate: perDay(itemPrice),
   });
 
-  const devices: DeviceTerms[] = reservationItems.map((item: any) => {
+  const devices: ClauseDevice[] = reservationItems.map((item: any) => {
+    const itemPrice = Number(item.item_price);
     const terms = getProductTerms(String(item.product_id));
-    if (!terms) return fallbackTerms(String(item.product_id));
+    if (!terms) return fallbackTerms(String(item.product_id), itemPrice);
     return {
       deviceName: terms.deviceName,
       equipmentValue: terms.equipmentValue,
@@ -108,11 +118,13 @@ export async function createContractSession(input: CreateContractInput) {
       extraConsumable: terms.extraConsumable,
       mandatoryConsumable: terms.mandatoryConsumable,
       deepCleaningNote: terms.deepCleaningNote,
+      itemPrice,
+      dailyRate: perDay(itemPrice),
     };
   });
 
-  // With several devices every line says which one it belongs to, so a missing
-  // hose can never be attributed to the wrong machine.
+  // With several devices the protocol is grouped per device, so a missing hose
+  // can never be attributed to the wrong machine.
   const defaultHandoverItems = buildDefaultHandoverItems(
     reservationItems.map((item: any) => String(item.product_id))
   );
@@ -123,14 +135,17 @@ export async function createContractSession(input: CreateContractInput) {
   };
   const startTime = reservation.start_time || '09:00';
   const endTime = reservation.end_time || '09:00';
+  const odbior = opiszTermin(reservation.start_date, startTime);
+  const zwrot = opiszTermin(reservation.end_date, endTime);
+  // Sam dzien miesiaca nie mowi, na kiedy sie umowic - stad nazwa dnia tygodnia.
   const rentalPeriod = reservation.is_indefinite || !reservation.end_date
-    ? `od dnia ${polishDate(String(reservation.start_date))} r., godz. ${startTime} (wydanie) – najem bezterminowy, do odwołania`
-    : `od dnia ${polishDate(String(reservation.start_date))} r., godz. ${startTime} (wydanie) do dnia ${polishDate(String(reservation.end_date))} r., godz. ${endTime} (zwrot)`;
+    ? `od dnia ${polishDate(String(reservation.start_date))} r. (${odbior?.dzienTygodnia ?? ''}), godz. ${startTime} (wydanie) – najem bezterminowy, do odwołania`
+    : `od dnia ${polishDate(String(reservation.start_date))} r. (${odbior?.dzienTygodnia ?? ''}), godz. ${startTime} (wydanie) do dnia ${polishDate(String(reservation.end_date))} r. (${zwrot?.dzienTygodnia ?? ''}), godz. ${endTime} (zwrot)`;
+
+  const rozpis = rozpiszKoszty({ ...reservation, deposit: data.deposit });
 
   // Rate actually charged, so the price list in §12 never contradicts the deal.
-  const dailyRate = reservation.days > 0
-    ? Math.round((Number(reservation.base_price) / reservation.days) * 100) / 100
-    : Number(reservation.base_price);
+  const dailyRate = perDay(Number(reservation.base_price));
 
   const snapshot: ContractSnapshot = {
     contractNumber,
@@ -180,6 +195,11 @@ export async function createContractSession(input: CreateContractInput) {
       totalPrice: Number(reservation.total_price),
       deposit: data.deposit,
       dailyRate,
+      costLines: rozpisJakoLinie(rozpis),
+      accessories: data.accessories,
+      conditionNotes: data.conditionNotes,
+      delivery: Boolean(reservation.delivery),
+      deliveryAddress: reservation.delivery ? reservation.address : undefined,
     }),
     handoverItems: data.handoverItems?.length ? data.handoverItems : defaultHandoverItems,
   };
@@ -222,6 +242,23 @@ export async function getContractPreview(token: string) {
   };
 }
 
+/**
+ * Podgląd dla pracownika przy ladzie. Token podpisu leży w bazie wyłącznie
+ * jako skrót, więc umowy nie da się tu odszukać tak jak z linku — a klient
+ * stoi obok i nie ma czego otwierać na swoim telefonie.
+ */
+export async function getContractPreviewForReservation(reservationId: number) {
+  const contract = await queries.getContractByReservationId(reservationId);
+  if (!contract) return null;
+  return {
+    id: contract.id as number,
+    status: contract.status as string,
+    contentHash: contract.content_hash as string,
+    signedAt: contract.signed_at as string | null,
+    snapshot: parseSnapshot(contract.snapshot_encrypted),
+  };
+}
+
 const decodeSignature = (dataUrl: string): Buffer => {
   const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) throw new Error('Podpis musi być obrazem PNG');
@@ -234,7 +271,9 @@ const decodeSignature = (dataUrl: string): Buffer => {
 };
 
 export async function signContract(data: {
-  token: string;
+  token?: string;
+  /** Podpis przy ladzie: pracownik jest zalogowany, więc linku z tokenem nie ma. */
+  reservationId?: number;
   renterSignatureDataUrl: string;
   lessorSignatureDataUrl: string;
   accepted: boolean;
@@ -242,11 +281,18 @@ export async function signContract(data: {
   userAgent: string;
 }) {
   if (!data.accepted) throw new Error('Wymagana jest akceptacja pełnej treści umowy');
-  const contract = await queries.getContractByTokenHash(signingTokenHash(data.token));
+  const naMiejscu = data.reservationId !== undefined;
+  const contract = naMiejscu
+    ? await queries.getContractByReservationId(data.reservationId!)
+    : await queries.getContractByTokenHash(signingTokenHash(String(data.token)));
   if (!contract) throw new Error('Sesja podpisu nie istnieje');
   if (contract.status === 'signed') throw new Error('Umowa została już podpisana');
   if (contract.status !== 'ready') throw new Error('Umowa nie jest gotowa do podpisu');
-  if (new Date(contract.signing_expires_at).getTime() < Date.now()) throw new Error('Sesja podpisu wygasła');
+  // Termin ważności pilnuje linku wysłanego klientowi. Przy ladzie obie Strony
+  // stoją nad dokumentem, więc wygasły link nie jest powodem, by odmawiać podpisu.
+  if (!naMiejscu && new Date(contract.signing_expires_at).getTime() < Date.now()) {
+    throw new Error('Sesja podpisu wygasła');
+  }
 
   const renterSignature = decodeSignature(data.renterSignatureDataUrl);
   const lessorSignature = decodeSignature(data.lessorSignatureDataUrl);
@@ -302,6 +348,24 @@ export async function signContract(data: {
     sizeBytes: pdf.length,
     fileHash: pdfHash,
   }).catch((error) => console.error('Register contract document error:', error));
+
+  // Przy obsłudze przy ladzie protokół wydania powstaje kilka minut później.
+  // Dwie wiadomości pod rząd o tej samej transakcji wyglądają jak spam, więc
+  // umowa czeka i pojedzie razem z protokołem (zaległości pilnuje harmonogram).
+  const rezerwacja = await queries.getReservationById(snapshot.rental.reservationId);
+  if (rezerwacja?.staff_assisted) {
+    await queries.deferContractEmail(contract.id);
+    return {
+      id: contract.id as number,
+      reservationId: snapshot.rental.reservationId,
+      contractNumber: snapshot.contractNumber,
+      pdf,
+      pdfHash,
+      snapshot,
+      emailDelivered: false,
+      emailTransport: 'deferred' as const,
+    };
+  }
 
   const emailResult = await sendSignedContractEmail(
     snapshot.renter.email,
@@ -359,14 +423,18 @@ export async function regenerateSignedContractPdf(id: number, resendEmail = fals
   const lessorSignature = contract.lessor_signature_encrypted
     ? decryptContractData(contract.lessor_signature_encrypted)
     : undefined;
-  const pdf = await generateContractPdf(snapshot, { renter: renterSignature, lessor: lessorSignature }, {
-    signedAt: new Date(contract.signed_at).toISOString(),
-    signedIp: contract.signed_ip || 'unknown',
-    signedUserAgent: contract.signed_user_agent || 'unknown',
-    contentHash: contract.content_hash,
-    renterSignatureHash: contract.signature_hash,
-    lessorSignatureHash: contract.lessor_signature_hash || undefined,
-  });
+  const pdf = await generateContractPdf(
+    snapshot,
+    { renter: renterSignature, lessor: lessorSignature },
+    {
+      signedAt: new Date(contract.signed_at).toISOString(),
+      signedIp: contract.signed_ip || 'unknown',
+      signedUserAgent: contract.signed_user_agent || 'unknown',
+      contentHash: contract.content_hash,
+      renterSignatureHash: contract.signature_hash,
+      lessorSignatureHash: contract.lessor_signature_hash || undefined,
+    }
+  );
   const pdfHash = sha256(pdf);
   await fs.writeFile(contract.pdf_path, encryptContractData(pdf), { mode: 0o600 });
   await queries.refreshContractDocument(contract.pdf_path, sha256(pdf), pdf.length)

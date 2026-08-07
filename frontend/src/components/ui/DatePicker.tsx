@@ -258,11 +258,11 @@ export function DatePicker({
           aria-label={blocked ? `${day} — termin zajęty` : undefined}
           className={cn(
             'w-9 h-9 text-sm rounded-lg transition-all duration-200 font-medium',
-            blocked && 'text-red-400/60 line-through cursor-not-allowed bg-red-500/5',
+            blocked && 'text-red-400/60 light:text-red-700/60 line-through cursor-not-allowed bg-red-500/5',
             !blocked && isDisabled && 'text-text-muted/30 cursor-not-allowed',
-            !isDisabled && !selected && 'hover:bg-gold/20 hover:text-gold cursor-pointer',
-            !isDisabled && !selected && today && 'ring-2 ring-gold/50 text-gold',
-            !isDisabled && !selected && isWeekend && !today && 'text-gold/70',
+            !isDisabled && !selected && 'hover:bg-gold/20 hover:text-gold-light light:text-gold-dark cursor-pointer',
+            !isDisabled && !selected && today && 'ring-2 ring-gold/50 text-gold-light light:text-gold-dark',
+            !isDisabled && !selected && isWeekend && !today && 'text-gold-light light:text-gold-dark/70',
             !isDisabled && !selected && !isWeekend && !today && 'text-text-primary',
             selected && 'bg-gold text-bg-primary font-bold'
           )}
@@ -293,7 +293,7 @@ export function DatePicker({
     <div className="relative">
       {label && (
         <label className="block text-sm font-medium text-text-secondary mb-2">
-          {label} {required && <span className="text-red-500">*</span>}
+          {label} {required && <span className="text-red-500 light:text-red-700">*</span>}
         </label>
       )}
 
@@ -322,7 +322,7 @@ export function DatePicker({
       </button>
 
       {error && (
-        <p className="text-red-500 text-sm mt-1">{error}</p>
+        <p className="text-red-500 light:text-red-700 text-sm mt-1">{error}</p>
       )}
 
       {/* Calendar dropdown - Portal */}
@@ -342,7 +342,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={goToPreviousMonth}
-              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold transition-colors"
+              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold-light light:text-gold-dark transition-colors"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
@@ -354,7 +354,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={goToNextMonth}
-              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold transition-colors"
+              className="p-2 rounded-lg hover:bg-gold/20 text-text-secondary hover:text-gold-light light:text-gold-dark transition-colors"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -384,7 +384,7 @@ export function DatePicker({
           {blockedRanges && blockedRanges.length > 0 && (
             <div className="flex items-center gap-2 mt-3 text-xs text-text-muted">
               <span className="inline-block w-3 h-3 rounded bg-red-500/10 border border-red-400/40" />
-              <span className="text-red-400/70 line-through">termin zajęty</span>
+              <span className="text-red-400/70 light:text-red-700/70 line-through">termin zajęty</span>
             </div>
           )}
 

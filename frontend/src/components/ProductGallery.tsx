@@ -54,7 +54,8 @@ export function ProductGallery({ images, productName, available }: ProductGaller
         
         {/* Status Badge */}
         <div className="absolute top-4 right-4 z-10">
-          <Badge variant={available ? 'success' : 'error'}>
+          {/* Plakietka leży na zdjęciu, więc nie może liczyć na tło strony. */}
+          <Badge variant={available ? 'solidSuccess' : 'solidError'}>
             {available ? 'Dostępny' : 'Niedostępny'}
           </Badge>
         </div>
@@ -148,7 +149,7 @@ export function ProductGallery({ images, productName, available }: ProductGaller
             {/* Close button */}
             <button
               onClick={() => setIsZoomed(false)}
-              className="absolute top-4 right-4 z-50 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+              className="absolute top-4 right-4 z-50 p-3 rounded-full bg-surface-strong text-text-primary hover:bg-surface-strong transition-colors"
               aria-label="Zamknij"
             >
               <X className="w-6 h-6" />
@@ -159,14 +160,14 @@ export function ProductGallery({ images, productName, available }: ProductGaller
               <>
                 <button
                   onClick={(e) => { e.stopPropagation(); handlePrevious(); }}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-3 rounded-full bg-surface-strong text-text-primary hover:bg-surface-strong transition-colors"
                   aria-label="Poprzednie zdjęcie"
                 >
                   <ChevronLeft className="w-8 h-8" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleNext(); }}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-3 rounded-full bg-surface-strong text-text-primary hover:bg-surface-strong transition-colors"
                   aria-label="Następne zdjęcie"
                 >
                   <ChevronRight className="w-8 h-8" />
@@ -194,7 +195,7 @@ export function ProductGallery({ images, productName, available }: ProductGaller
             {/* Counter */}
             {hasMultipleImages && (
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-                <span className="px-4 py-2 rounded-full bg-white/10 text-white text-sm font-medium">
+                <span className="px-4 py-2 rounded-full bg-surface-strong text-text-primary text-sm font-medium">
                   {selectedIndex + 1} / {galleryImages.length}
                 </span>
               </div>
@@ -209,7 +210,7 @@ export function ProductGallery({ images, productName, available }: ProductGaller
                     onClick={(e) => { e.stopPropagation(); handleThumbnailClick(index); }}
                     className={`
                       flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition-all
-                      ${selectedIndex === index ? 'border-gold' : 'border-white/30 hover:border-white/50'}
+                      ${selectedIndex === index ? 'border-gold' : 'border-border-hover hover:border-border-hover'}
                     `}
                   >
                     <img

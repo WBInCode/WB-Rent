@@ -238,7 +238,7 @@ export function ProductPage() {
                     {product.features.map((feature, index) => (
                       <span
                         key={index}
-                      className="px-3 py-1.5 bg-gold/10 text-gold text-sm font-medium border border-gold/20"
+                      className="px-3 py-1.5 bg-gold/10 text-gold-light light:text-gold-dark text-sm font-medium border border-gold/20"
                       >
                         {feature}
                       </span>
@@ -259,7 +259,7 @@ export function ProductPage() {
                     <div className="flex items-center justify-between p-3 bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gold/20 flex items-center justify-center">
-                          <span className="text-gold font-bold">1</span>
+                          <span className="text-gold-light light:text-gold-dark font-bold">1</span>
                         </div>
                         <div>
                           <p className="font-medium text-text-primary">Pierwsza doba</p>
@@ -272,14 +272,14 @@ export function ProductPage() {
                     <div className="flex items-center justify-between p-3 bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-500/20 flex items-center justify-center">
-                          <Plus className="w-4 h-4 text-blue-400" />
+                          <Plus className="w-4 h-4 text-blue-400 light:text-blue-700" />
                         </div>
                         <div>
                           <p className="font-medium text-text-primary">Każda kolejna doba</p>
                           <p className="text-xs text-text-muted">Od 2 dnia</p>
                         </div>
                       </div>
-                      <p className="text-xl font-bold text-blue-400">{formatPrice(product.priceNextDay)}</p>
+                      <p className="text-xl font-bold text-blue-400 light:text-blue-700">{formatPrice(product.priceNextDay)}</p>
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-gradient-to-r from-gold/10 to-gold-light/10 border border-gold/20 hover:border-gold/40 transition-colors">
@@ -323,11 +323,11 @@ export function ProductPage() {
                   {/* Included */}
                   {product.includedAccessories.length > 0 && (
                     <div className="mb-4">
-                      <p className="text-sm font-medium text-green-400 mb-2">W cenie wypożyczenia:</p>
+                      <p className="text-sm font-medium text-green-400 light:text-green-700 mb-2">W cenie wypożyczenia:</p>
                       <ul className="space-y-2">
                         {product.includedAccessories.map((acc, index) => (
                           <li key={index} className="flex items-center gap-2 text-text-secondary">
-                            <Check className="w-4 h-4 text-green-400 shrink-0" />
+                            <Check className="w-4 h-4 text-green-400 light:text-green-700 shrink-0" />
                             <span>{acc}</span>
                           </li>
                         ))}
@@ -339,13 +339,16 @@ export function ProductPage() {
                   {product.optionalAccessories.length > 0 && (
                     <div>
                       <p className="text-sm font-medium text-text-muted mb-2">
-                        Dodatkowo płatne ({product.accessoryPrice ? `+${product.accessoryPrice} zł/szt.` : 'cena ustalana indywidualnie'}):
+                        Dodatkowo płatne — możesz je dokupić przy rezerwacji:
                       </p>
                       <ul className="space-y-2">
-                        {product.optionalAccessories.map((acc, index) => (
-                          <li key={index} className="flex items-center gap-2 text-text-secondary">
+                        {product.optionalAccessories.map((acc) => (
+                          <li key={acc.id} className="flex items-center gap-2 text-text-secondary">
                             <Plus className="w-4 h-4 text-gold shrink-0" />
-                            <span>{acc}</span>
+                            <span>{acc.nazwa}</span>
+                            <span className="text-sm text-text-muted whitespace-nowrap ml-auto">
+                              {acc.cena > 0 ? `${acc.cena} zł/szt.` : 'cena ustalana indywidualnie'}
+                            </span>
                           </li>
                         ))}
                       </ul>

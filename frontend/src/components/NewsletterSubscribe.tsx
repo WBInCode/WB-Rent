@@ -74,7 +74,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
       >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-gold/10">
-            <Bell className="w-6 h-6 text-gold" />
+            <Bell className="w-6 h-6 text-gold-light light:text-gold-dark" />
           </div>
           <div>
             <h3 className="text-lg font-semibold text-text-primary">Bądź na bieżąco!</h3>
@@ -91,8 +91,8 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
               exit={{ opacity: 0, scale: 0.9 }}
               className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg"
             >
-              <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-              <p className="text-green-400 text-sm">{message}</p>
+              <CheckCircle className="w-5 h-5 text-green-500 light:text-green-700 flex-shrink-0" />
+              <p className="text-green-400 light:text-green-700 text-sm">{message}</p>
             </motion.div>
           ) : (
             <motion.form
@@ -135,7 +135,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-2 text-red-400 text-sm"
+                  className="flex items-center gap-2 text-red-400 light:text-red-700 text-sm"
                 >
                   <AlertCircle className="w-4 h-4" />
                   {message}
@@ -185,7 +185,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
             key="success"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex items-center gap-2 text-green-400 text-sm"
+            className="flex items-center gap-2 text-green-400 light:text-green-700 text-sm"
           >
             <CheckCircle className="w-4 h-4" />
             <span>Zapisano!</span>
@@ -198,7 +198,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
             onSubmit={handleSubmit}
             className="flex gap-2"
           >
-            <input
+            <input spellCheck={false}
               type="email"
               placeholder="Twój email"
               value={email}
@@ -230,7 +230,7 @@ export function NewsletterSubscribe({ variant = 'inline', className = '' }: News
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-red-400 text-xs mt-2"
+          className="text-red-400 light:text-red-700 text-xs mt-2"
         >
           {message}
         </motion.p>

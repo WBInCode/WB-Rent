@@ -105,10 +105,29 @@ describe('ilość i dostępność magazynowa', () => {
     const product = {
       id: 'nowy-produkt', name: 'Nowy produkt', description: '', categoryId: 'pozostale', image: '/favicon.svg',
       pricePerDay: 10, priceNextDay: 10, priceWeekend: 20,
-      totalQuantity: 1, serviceQuantity: 2, conditionStatus: 'service', inventoryNotes: '', isActive: true,
+      totalQuantity: 1, serviceQuantity: 2, inventoryNotes: '', isActive: true,
     };
     expect(productInventorySchema.safeParse(product).success).toBe(false);
     expect(productInventorySchema.safeParse({ ...product, serviceQuantity: 1 }).success).toBe(true);
+  });
+
+  it('serwis i sztuki wyłączone z użytku razem nie mogą przekroczyć stanu', () => {
+    const product = {
+      id: 'nowy-produkt', name: 'Nowy produkt', description: '', categoryId: 'pozostale', image: '/favicon.svg',
+      pricePerDay: 10, priceNextDay: 10, priceWeekend: 20,
+      totalQuantity: 3, serviceQuantity: 2, withdrawnQuantity: 2, inventoryNotes: '', isActive: true,
+    };
+    expect(productInventorySchema.safeParse(product).success).toBe(false);
+    expect(productInventorySchema.safeParse({ ...product, withdrawnQuantity: 1 }).success).toBe(true);
+  });
+
+  it('brak pola o sztukach wyłączonych znaczy zero, a nie błąd', () => {
+    const wynik = productInventorySchema.parse({
+      id: 'nowy-produkt', name: 'Nowy produkt', description: '', categoryId: 'pozostale', image: '/favicon.svg',
+      pricePerDay: 10, priceNextDay: 10, priceWeekend: 20,
+      totalQuantity: 2, serviceQuantity: 0, inventoryNotes: '', isActive: true,
+    });
+    expect(wynik.withdrawnQuantity).toBe(0);
   });
 
   it('zachowuje starsze pojedyncze zdjęcie jako pierwszą pozycję galerii', () => {

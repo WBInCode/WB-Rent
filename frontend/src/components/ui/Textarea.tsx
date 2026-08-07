@@ -35,6 +35,8 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           ref={ref}
           id={textareaId}
+          // Bez polskiego słownika przeglądarka podkreśla każde polskie słowo jako błąd.
+          spellCheck={props.spellCheck ?? false}
           className={cn(
             'w-full min-h-[120px] resize-y',
             'bg-bg-card border border-border',

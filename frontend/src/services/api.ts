@@ -1,4 +1,6 @@
 // API Service Layer for WB-Rent
+import type { RentalStageInfo } from '@/utils/rentalStage';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 // Types
@@ -25,7 +27,8 @@ export interface PublicCatalogProduct {
   priceWeekend: number;
   features?: string[];
   includedAccessories?: string[];
-  optionalAccessories?: string[];
+  /** Starsze zapisy w bazie to same nazwy; nowsze mają cenę przy pozycji. */
+  optionalAccessories?: Array<string | { nazwa: string; cena: number }>;
   accessoryPrice?: number;
   totalQuantity: number;
   availableToday: number;
@@ -91,9 +94,15 @@ export interface ReservationPayload {
   endTime: string;
   days: number;
   delivery: boolean;
+  /** Dowóz i odbiór to dwa niezależne kursy. */
+  deliveryOut?: boolean;
+  deliveryBack?: boolean;
   city?: string;
+  postalCode?: string;
   address?: string;
   weekendPickup: boolean;
+  /** Zamówione dodatki — cenę ustala serwer z katalogu. */
+  addons?: Array<{ id: string; quantity: number }>;
   firstName: string;
   lastName: string;
   email: string;
@@ -241,6 +250,49 @@ export async function getProductsAvailability(): Promise<ApiResponse<ProductsAva
   return apiFetch<ProductsAvailabilityResponse>('/products/availability');
 }
 
+/** Czy pod ten kod pocztowy dowozimy sprzęt — rozstrzyga serwer. */
+export async function checkDeliveryArea(
+  kod: string
+): Promise<{ wObszarze: boolean; powod: string | null; oplataZaKurs: number }> {
+  const odpowiedz = await apiFetch<{ data: { wObszarze: boolean; powod: string | null; oplataZaKurs: number } }>(
+    `/delivery/check?kod=${encodeURIComponent(kod)}`
+  );
+  return odpowiedz.data?.data ?? { wObszarze: false, powod: 'Nie udało się sprawdzić adresu', oplataZaKurs: 20 };
+}
+
+// === PRZEDŁUŻENIE NAJMU ===
+
+export interface ExtensionQuote {
+  nowyTermin: { dataSlownie: string; dzienTygodnia: string; godzina: string } | null;
+  dni: number;
+  dotychczasowaKwota: number;
+  nowaKwota: number;
+  doplata: number;
+}
+
+export async function quoteExtension(reservationId: number, token: string, newEndDate: string) {
+  // Ta trasa pakuje treść w pole `data`, więc bez rozpakowania odbiorca dostałby
+  // kopertę zamiast listu i czytał z niej pola, których tam nie ma.
+  const odpowiedz = await apiFetch<{ data: ExtensionQuote }>(`/my-reservations/${reservationId}/extension/quote`, {
+    method: 'POST',
+    body: JSON.stringify({ token, newEndDate }),
+  });
+  return odpowiedz.success
+    ? { success: true as const, data: odpowiedz.data?.data }
+    : { success: false as const, data: undefined, error: odpowiedz.error };
+}
+
+export async function startExtension(reservationId: number, token: string, newEndDate: string) {
+  type Aneks = { numerAneksu: string; doplata: number; nowaKwota: number; redirectUrl: string; wygasa: string };
+  const odpowiedz = await apiFetch<{ data: Aneks }>(
+    `/my-reservations/${reservationId}/extension`,
+    { method: 'POST', body: JSON.stringify({ token, newEndDate }) }
+  );
+  return odpowiedz.success
+    ? { success: true as const, data: odpowiedz.data?.data }
+    : { success: false as const, data: undefined, error: odpowiedz.error };
+}
+
 // Notify me when product is available
 export interface NotifyAvailabilityPayload {
   productId: string;
@@ -317,6 +369,12 @@ export interface MyReservation {
   created_at: string;
   payment_status?: string;
   payment_provider?: string;
+  contract_status?: string;
+  stage?: RentalStageInfo;
+  /** Serwer decyduje, czy klient moze teraz ruszyc platnosc - nie zgadujemy tu. */
+  canPayOnline?: boolean;
+  /** Powod, dla ktorego klient nie moze anulowac sam; null = moze. */
+  cancelBlockedReason?: string | null;
 }
 
 export async function requestMyReservationsLink(
@@ -412,15 +470,19 @@ export interface SignContractResponse {
   emailTransport: 'resend' | 'smtp' | 'console';
 }
 
+export interface ContractSignaturePayload {
+  renterSignature: string;
+  lessorSignature: string;
+  accepted: boolean;
+}
+
 export async function submitContractSignature(
   token: string,
-  renterSignature: string,
-  lessorSignature: string,
-  accepted: boolean
+  payload: ContractSignaturePayload
 ): Promise<ApiResponse<SignContractResponse>> {
   return apiFetch<SignContractResponse>(`/contracts/sign/${encodeURIComponent(token)}`, {
     method: 'POST',
-    body: JSON.stringify({ renterSignature, lessorSignature, accepted }),
+    body: JSON.stringify(payload),
   });
 }
 

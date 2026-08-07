@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { Pool } from 'pg';
-import { products, syncProductCatalog } from './products.js';
+import { products, syncProductCatalog, normalizeAddons } from './products.js';
 
 // Return Postgres DATE columns as plain 'YYYY-MM-DD' strings
 // (default pg behavior converts to JS Date in local TZ, which shifts dates in emails/JSON)
@@ -310,7 +310,7 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         price_weekend REAL NOT NULL CHECK (price_weekend >= 0),
         total_quantity INTEGER NOT NULL DEFAULT 1 CHECK (total_quantity >= 0),
         service_quantity INTEGER NOT NULL DEFAULT 0 CHECK (service_quantity >= 0 AND service_quantity <= total_quantity),
-        condition_status TEXT NOT NULL DEFAULT 'good' CHECK (condition_status IN ('good', 'attention', 'service', 'damaged')),
+        withdrawn_quantity INTEGER NOT NULL DEFAULT 0 CHECK (withdrawn_quantity >= 0),
         inventory_notes TEXT NOT NULL DEFAULT '',
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -440,6 +440,239 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
   },
   {
     version: 13,
+    name: 'handover-protocol-signatures',
+    sql: `
+      ALTER TABLE rental_contracts
+        ADD COLUMN IF NOT EXISTS handover_signature_encrypted TEXT,
+        ADD COLUMN IF NOT EXISTS handover_signature_hash TEXT,
+        ADD COLUMN IF NOT EXISTS handover_lessor_signature_encrypted TEXT,
+        ADD COLUMN IF NOT EXISTS handover_lessor_signature_hash TEXT;
+    `,
+  },
+  {
+    version: 14,
+    name: 'normalize-reservation-status',
+    sql: `
+      -- Rezerwacje z wystawiona umowa zostawaly w kolejce zapytan, bo status
+      -- zmienial sie tylko po recznym kliknieciu. Maszyna stanow wymaga, zeby
+      -- kolumna status odzwierciedlala rzeczywisty etap obslugi.
+      UPDATE reservations
+      SET status = 'confirmed'
+      WHERE status = 'pending' AND contract_status IN ('ready', 'signed');
+    `,
+  },
+  {
+    version: 15,
+    name: 'rental-protocols',
+    sql: `
+      -- Protokol wydania i protokol zwrotu to osobne dokumenty od umowy: maja
+      -- wlasna tresc, wlasne podpisy i powstaja w innym momencie. Jedna tabela
+      -- obsluguje oba, bo roznia sie wylacznie zawartoscia migawki.
+      CREATE TABLE IF NOT EXISTS rental_protocols (
+        id SERIAL PRIMARY KEY,
+        reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('handover', 'return')),
+        number TEXT NOT NULL UNIQUE,
+        snapshot_encrypted TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'signed')),
+        staff_signature_encrypted TEXT,
+        staff_signature_hash TEXT,
+        renter_signature_encrypted TEXT,
+        renter_signature_hash TEXT,
+        signed_at TIMESTAMP,
+        signed_ip TEXT,
+        signed_user_agent TEXT,
+        pdf_path TEXT,
+        pdf_hash TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rental_protocols_kind
+        ON rental_protocols (reservation_id, kind);
+
+      -- Kolumny z migracji 13 miescily podpisy protokolu wewnatrz umowy. Protokol
+      -- jest teraz osobnym dokumentem, a te kolumny nigdy nie zostaly zapisane.
+      ALTER TABLE rental_contracts
+        DROP COLUMN IF EXISTS handover_signature_encrypted,
+        DROP COLUMN IF EXISTS handover_signature_hash,
+        DROP COLUMN IF EXISTS handover_lessor_signature_encrypted,
+        DROP COLUMN IF EXISTS handover_lessor_signature_hash;
+    `,
+  },
+  {
+    version: 16,
+    name: 'weekend-fee-column',
+    sql: `
+      -- Doplata za obsluge w weekend byla doliczana do sumy, ale nigdzie nie
+      -- zapisana. Skutek: w mailu, panelu i umowie kwota nie zgadzala sie z
+      -- suma pozycji i klient nie wiedzial, za co placi.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS weekend_fee REAL NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 17,
+    name: 'payment-kind',
+    sql: `
+      -- Platnosc za najem i doplata z protokolu zwrotu to dwie rozne naleznosci
+      -- o roznych kwotach. Bez rozroznienia doplata nadpisywalaby payment_status
+      -- rezerwacji, a link "zaplac saldo" prowadzil do kwoty calego najmu.
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'rental';
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS label TEXT;
+      UPDATE payments SET kind = 'rental' WHERE kind IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_payments_reservation_kind
+        ON payments (reservation_id, kind, status);
+    `,
+  },
+  {
+    version: 18,
+    name: 'delivery-legs-and-postal-code',
+    sql: `
+      -- Dowoz i odbior to dwa niezalezne kursy: czasem klient chce tylko
+      -- przywiezienia, czasem tylko odebrania. Jedna flaga delivery nie
+      -- potrafila tego wyrazic ani rozliczyc.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_out INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_back INTEGER NOT NULL DEFAULT 0;
+      -- Obszar dowozu rozstrzyga kod pocztowy, nie nazwa miasta wpisana z reki.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS postal_code TEXT;
+
+      -- Dotychczasowe rezerwacje z dostawa mialy oplacone oba kursy.
+      UPDATE reservations SET delivery_out = 1, delivery_back = 1 WHERE delivery = 1;
+    `,
+  },
+  {
+    version: 19,
+    name: 'staff-assisted-rental',
+    sql: `
+      -- Gdy pracownik obsluguje klienta przy ladzie, umowa i protokol wydania
+      -- powstaja w odstepie minut. Dwa maile pod rzad o tej samej transakcji
+      -- wygladaja jak spam, wiec ida razem - ten znacznik mowi, kiedy czekac.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS staff_assisted INTEGER NOT NULL DEFAULT 0;
+      -- Umowa czekajaca na dolaczenie do maila wydania. Gdyby wydanie nie
+      -- doszlo do skutku, zaleglosc wysyla harmonogram.
+      ALTER TABLE rental_contracts ADD COLUMN IF NOT EXISTS email_deferred_at TIMESTAMP;
+    `,
+  },
+  {
+    version: 20,
+    name: 'rental-extensions',
+    sql: `
+      -- Przedluzenie najmu to aneks: wchodzi w zycie dopiero po zaplacie
+      -- (par. 5 ust. 3 umowy). Do tego czasu sprzet jest zablokowany, zeby
+      -- nikt nie zarezerwowal go na termin, ktory wlasnie jest oplacany.
+      CREATE TABLE IF NOT EXISTS rental_extensions (
+        id SERIAL PRIMARY KEY,
+        reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+        number TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'expired', 'cancelled')),
+        previous_end_date DATE,
+        previous_end_time TEXT,
+        previous_total REAL NOT NULL,
+        new_end_date DATE NOT NULL,
+        new_end_time TEXT NOT NULL,
+        new_days INTEGER NOT NULL,
+        new_base_price REAL NOT NULL,
+        new_total REAL NOT NULL,
+        surcharge REAL NOT NULL,
+        payment_session_id TEXT,
+        -- Blokada sprzetu wygasa razem z terminem na platnosc.
+        expires_at TIMESTAMP NOT NULL,
+        paid_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_rental_extensions_reservation
+        ON rental_extensions (reservation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_rental_extensions_pending
+        ON rental_extensions (status, expires_at);
+    `,
+  },
+  {
+    version: 21,
+    name: 'paid-addons',
+    sql: `
+      -- Worek i srodek czyszczacy nie kosztuja tyle samo, a dotad cala lista
+      -- dodatkow dzielila jedna cene (accessory_price). Kazda pozycja dostaje
+      -- wlasna kwote; stare wpisy przejmuja dotychczasowa cene sprzetu.
+      UPDATE products p
+      SET optional_accessories = COALESCE((
+        SELECT jsonb_agg(
+          CASE WHEN jsonb_typeof(el) = 'string'
+            THEN jsonb_build_object('nazwa', el #>> '{}', 'cena', p.accessory_price)
+            ELSE el END
+        )
+        FROM jsonb_array_elements(p.optional_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE jsonb_typeof(p.optional_accessories) = 'array'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(p.optional_accessories) AS e
+          WHERE jsonb_typeof(e) = 'string'
+        );
+
+      -- Zamowione dodatki zapisujemy z cena z chwili zamowienia, zeby pozniejsza
+      -- zmiana cennika nie przepisywala historii najmu.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS addons JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS addons_fee REAL NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 22,
+    name: 'addon-names-capitalized',
+    sql: `
+      -- Nazwa zaczynajaca pozycje listy idzie wielka litera. Identyfikator dodatku
+      -- liczy sie z nazwy zapisanej malymi literami, wiec juz zlozone zamowienia
+      -- odnajduja swoja pozycje mimo zmiany.
+      UPDATE products
+      SET optional_accessories = COALESCE((
+        SELECT jsonb_agg(
+          CASE WHEN jsonb_typeof(el) = 'object' AND (el->>'nazwa') <> ''
+            THEN jsonb_set(el, '{nazwa}', to_jsonb(
+              upper(left(el->>'nazwa', 1)) || substr(el->>'nazwa', 2)
+            ))
+            ELSE el END
+        )
+        FROM jsonb_array_elements(optional_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE jsonb_typeof(optional_accessories) = 'array';
+
+      -- W pozycjach zaczynajacych sie od ilosci nazwa zostaje mala litera.
+      UPDATE products
+      SET included_accessories = COALESCE((
+        SELECT jsonb_agg(to_jsonb(
+          replace(el #>> '{}', 'ml Środek do dezynfekcji', 'ml środek do dezynfekcji')
+        ))
+        FROM jsonb_array_elements(included_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE included_accessories::text LIKE '%ml Środek do dezynfekcji%';
+    `,
+  },
+  {
+    version: 23,
+    name: 'withdrawn-quantity-instead-of-condition',
+    sql: `
+      -- Trzecia pula obok serwisu: sprzet sprawny, ktory wlasciciel czasowo
+      -- zdejmuje z najmu. Dotad dalo sie to zrobic tylko przez "stan techniczny",
+      -- czyli oznaczajac sprawne urzadzenie jako uszkodzone.
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS withdrawn_quantity INTEGER NOT NULL DEFAULT 0;
+
+      -- Sprzet zablokowany dotychczas stanem technicznym zostaje zablokowany.
+      UPDATE products
+      SET withdrawn_quantity = GREATEST(total_quantity - service_quantity, 0)
+      WHERE condition_status IN ('damaged', 'service');
+
+      ALTER TABLE products DROP COLUMN IF EXISTS condition_status;
+
+      ALTER TABLE products
+        ADD CONSTRAINT products_quantities_within_total
+        CHECK (service_quantity + withdrawn_quantity <= total_quantity);
+    `,
+  },
+  {
+    // Przeniesiona z numeru 13: ten byl juz zajety przez podpisy protokolu
+    // wydania, wiec bazy, ktore go zapisaly, pominelyby te migracje i kolumny
+    // zwrotow nigdy by nie powstaly. Zapisy sa idempotentne, wiec ponowne
+    // wykonanie tam, gdzie juz przeszly, niczego nie zmienia.
+    version: 24,
     name: 'payment-refunds-and-reconciliation',
     sql: `
       ALTER TABLE payments
@@ -519,7 +752,7 @@ async function seedProductCatalog(client: import('pg').PoolClient) {
         product.description ?? '',
         JSON.stringify(product.features ?? []),
         JSON.stringify(product.includedAccessories ?? []),
-        JSON.stringify(product.optionalAccessories ?? []),
+        JSON.stringify(normalizeAddons(product.optionalAccessories, product.accessoryPrice)),
         product.accessoryPrice ?? 0,
       ]
     );
@@ -527,13 +760,35 @@ async function seedProductCatalog(client: import('pg').PoolClient) {
 }
 
 // Query helper functions
+
+/**
+ * Units that may actually leave the counter. Equipment flagged as damaged or
+ * sent to service is never bookable, no matter what the counters say - staff
+ * marking a machine "uszkodzony" must actually block it.
+ */
+const rentableQuantitySql = (alias = 'p') =>
+  `GREATEST(${alias}.total_quantity - ${alias}.service_quantity - ${alias}.withdrawn_quantity, 0)`;
+
+/**
+ * Do kiedy sprzęt jest zajęty przez daną rezerwację.
+ *
+ * Trwające przedłużenie blokuje termin na czas płatności — inaczej klient
+ * opłacałby okres, który ktoś inny właśnie rezerwuje. Wszystkie zapytania
+ * o kolizje muszą liczyć to tak samo, stąd jedno miejsce.
+ */
+const zajetyDoSql = (alias = 'r') =>
+  `COALESCE((
+     SELECT MAX(e.new_end_date) FROM rental_extensions e
+     WHERE e.reservation_id = ${alias}.id AND e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
+   ), ${alias}.end_date, 'infinity'::date)`;
+
 export const queries = {
   getProducts: async (includeInactive = false) => {
     const result = await pool.query(
       `SELECT p.*,
-              GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity,
+              ${rentableQuantitySql()} AS rentable_quantity,
               COUNT(DISTINCT r.id)::integer AS reserved_today,
-              GREATEST(p.total_quantity - p.service_quantity - COUNT(DISTINCT r.id)::integer, 0) AS available_today
+              GREATEST(${rentableQuantitySql()} - COUNT(DISTINCT r.id)::integer, 0) AS available_today
        FROM products p
        LEFT JOIN reservation_items ri ON ri.product_id = p.id
        LEFT JOIN reservations r ON r.id = ri.reservation_id
@@ -550,8 +805,8 @@ export const queries = {
 
   getProductById: async (id: string) => {
     const result = await pool.query(
-      `SELECT *, GREATEST(total_quantity - service_quantity, 0) AS rentable_quantity
-       FROM products WHERE id = $1`,
+      `SELECT p.*, ${rentableQuantitySql()} AS rentable_quantity
+       FROM products p WHERE p.id = $1`,
       [id]
     );
     return result.rows[0];
@@ -586,11 +841,11 @@ export const queries = {
     priceWeekend: number;
     totalQuantity: number;
     serviceQuantity: number;
-    conditionStatus: string;
+    withdrawnQuantity: number;
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
-    optionalAccessories: string[];
+    optionalAccessories: Array<string | { nazwa: string; cena: number }>;
     accessoryPrice: number;
     isActive: boolean;
   }) => {
@@ -598,7 +853,7 @@ export const queries = {
       `INSERT INTO products (
          id, name, description, category_id, image, images,
          price_per_day, price_next_day, price_weekend,
-         total_quantity, service_quantity, condition_status, inventory_notes, is_active,
+         total_quantity, service_quantity, withdrawn_quantity, inventory_notes, is_active,
          features, included_accessories, optional_accessories, accessory_price
        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14,
                  $15::jsonb, $16::jsonb, $17::jsonb, $18)
@@ -606,9 +861,9 @@ export const queries = {
       [
         data.id, data.name, data.description, data.categoryId, data.image, JSON.stringify(data.images),
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
-        data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
+        data.totalQuantity, data.serviceQuantity, data.withdrawnQuantity, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
-        JSON.stringify(data.optionalAccessories), data.accessoryPrice,
+        JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
     );
     syncProductCatalog(result.rows);
@@ -626,11 +881,11 @@ export const queries = {
     priceWeekend: number;
     totalQuantity: number;
     serviceQuantity: number;
-    conditionStatus: string;
+    withdrawnQuantity: number;
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
-    optionalAccessories: string[];
+    optionalAccessories: Array<string | { nazwa: string; cena: number }>;
     accessoryPrice: number;
     isActive: boolean;
   }) => {
@@ -638,7 +893,7 @@ export const queries = {
       `UPDATE products SET
          name = $2, description = $3, category_id = $4, image = $5, images = $6::jsonb,
          price_per_day = $7, price_next_day = $8, price_weekend = $9,
-         total_quantity = $10, service_quantity = $11, condition_status = $12,
+         total_quantity = $10, service_quantity = $11, withdrawn_quantity = $12,
          inventory_notes = $13, is_active = $14,
          features = $15::jsonb, included_accessories = $16::jsonb,
          optional_accessories = $17::jsonb, accessory_price = $18,
@@ -647,13 +902,39 @@ export const queries = {
       [
         id, data.name, data.description, data.categoryId, data.image, JSON.stringify(data.images),
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
-        data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
+        data.totalQuantity, data.serviceQuantity, data.withdrawnQuantity, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
-        JSON.stringify(data.optionalAccessories), data.accessoryPrice,
+        JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
     );
     syncProductCatalog(result.rows);
     return result.rows[0];
+  },
+
+  /**
+   * Highest number of this product booked at the same time from today on.
+   * Lowering stock below it would leave active reservations without equipment.
+   */
+  getPeakActiveReservations: async (productId: string): Promise<number> => {
+    const result = await pool.query(
+      `WITH active AS (
+         SELECT r.id, r.start_date AS starts, COALESCE(r.end_date, 'infinity'::date) AS ends
+         FROM reservations r
+         JOIN reservation_items ri ON ri.reservation_id = r.id
+         WHERE ri.product_id = $1
+           AND r.status IN ('pending', 'confirmed', 'picked_up')
+           AND COALESCE(r.end_date, 'infinity'::date) > CURRENT_DATE
+       )
+       SELECT COALESCE(MAX(overlapping), 0)::integer AS peak
+       FROM (
+         SELECT COUNT(*)::integer AS overlapping
+         FROM active a
+         JOIN active b ON b.starts <= a.starts AND b.ends > a.starts
+         GROUP BY a.id
+       ) counts`,
+      [productId]
+    );
+    return Number(result.rows[0]?.peak ?? 0);
   },
 
   deleteProduct: async (id: string) => {
@@ -724,54 +1005,6 @@ export const queries = {
   },
 
   // Reservations
-  insertReservation: async (data: {
-    categoryId: string;
-    productId: string;
-    startDate: string;
-    endDate: string | null;
-    isIndefinite: boolean;
-    startTime: string;
-    endTime: string;
-    city?: string;
-    delivery: number;
-    address?: string;
-    name: string;
-    email: string;
-    phone: string;
-    company?: string;
-    notes?: string;
-    wantsInvoice: number;
-    invoiceNip?: string;
-    invoiceCompany?: string;
-    invoiceAddress?: string;
-    days: number;
-    basePrice: number;
-    deliveryFee: number;
-    totalPrice: number;
-    ipAddress?: string;
-  }) => {
-    const result = await pool.query(
-      `INSERT INTO reservations (
-        category_id, product_id, start_date, end_date, is_indefinite, start_time, end_time,
-        city, delivery, address,
-        name, email, phone, company, notes,
-        wants_invoice, invoice_nip, invoice_company, invoice_address,
-        days, base_price, delivery_fee, total_price,
-        ip_address
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
-      ) RETURNING id`,
-      [
-        data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
-        data.city, data.delivery, data.address,
-        data.name, data.email, data.phone, data.company, data.notes,
-        data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,
-        data.days, data.basePrice, data.deliveryFee, data.totalPrice,
-        data.ipAddress
-      ]
-    );
-    return { lastInsertRowid: result.rows[0].id };
-  },
 
   /**
    * Atomically check availability and insert the reservation.
@@ -790,6 +1023,10 @@ export const queries = {
     endTime: string;
     city?: string;
     delivery: number;
+    deliveryOut?: number;
+    deliveryBack?: number;
+    postalCode?: string;
+    staffAssisted?: boolean;
     address?: string;
     name: string;
     email: string;
@@ -803,6 +1040,9 @@ export const queries = {
     days: number;
     basePrice: number;
     deliveryFee: number;
+    weekendFee: number;
+    addons?: Array<{ id: string; nazwa: string; cena: number; ilosc: number; suma: number }>;
+    addonsFee?: number;
     totalPrice: number;
     discountCode?: string | null;
     discountLabel?: string;
@@ -829,18 +1069,18 @@ export const queries = {
                 MIN(r.start_date) AS start_date,
                 MAX(r.end_date) AS end_date,
                 COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-                GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+                ${rentableQuantitySql()} AS rentable_quantity
          FROM unnest($1::text[]) AS requested(product_id)
          LEFT JOIN products p ON p.id = requested.product_id
          LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
          LEFT JOIN reservations r ON r.id = ri.reservation_id
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($2::date, 'infinity'::date)
-           AND COALESCE(r.end_date, 'infinity'::date) > $3::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active
+           AND ${zajetyDoSql()} > $3::date
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity, p.is_active
          HAVING p.id IS NULL
             OR NOT p.is_active
-            OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.endDate, data.startDate]
       );
 
@@ -852,25 +1092,27 @@ export const queries = {
       const result = await client.query(
         `INSERT INTO reservations (
           category_id, product_id, start_date, end_date, is_indefinite, start_time, end_time,
-          city, delivery, address,
+          city, delivery, delivery_out, delivery_back, postal_code, address,
           name, email, phone, company, notes,
           wants_invoice, invoice_nip, invoice_company, invoice_address,
-          days, base_price, delivery_fee, total_price,
+          days, base_price, delivery_fee, weekend_fee, total_price,
           discount_code, discount_label, discount_amount,
           price_override_note, price_set_by,
-          ip_address
+          ip_address, staff_assisted, addons, addons_fee
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36
         ) RETURNING id`,
         [
           data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
-          data.city, data.delivery, data.address,
+          data.city, data.delivery, data.deliveryOut ?? data.delivery, data.deliveryBack ?? data.delivery,
+          data.postalCode || null, data.address,
           data.name, data.email, data.phone, data.company, data.notes,
           data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,
-          data.days, data.basePrice, data.deliveryFee, data.totalPrice,
+          data.days, data.basePrice, data.deliveryFee, data.weekendFee, data.totalPrice,
           data.discountCode || null, data.discountLabel || '', data.discountAmount || 0,
           data.priceOverrideNote || '', data.priceSetBy || '',
-          data.ipAddress
+          data.ipAddress, data.staffAssisted ? 1 : 0,
+          JSON.stringify(data.addons ?? []), data.addonsFee || 0
         ]
       );
 
@@ -1018,17 +1260,17 @@ export const queries = {
               MIN(r.start_date) AS start_date,
               MAX(r.end_date) AS end_date,
               COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-              GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+              ${rentableQuantitySql()} AS rentable_quantity
        FROM unnest($1::text[]) AS requested(product_id)
        LEFT JOIN products p ON p.id = requested.product_id
        LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
        LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
          AND r.status IN ('pending', 'confirmed', 'picked_up')
          AND r.start_date < COALESCE($3::date, 'infinity'::date)
-         AND COALESCE(r.end_date, 'infinity'::date) > $4::date
-      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity
+         AND ${zajetyDoSql()} > $4::date
+      GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
        HAVING p.id IS NULL
-          OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+          OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
       [data.productIds, data.id, data.endDate, data.startDate]
     );
     return result.rows;
@@ -1069,17 +1311,17 @@ export const queries = {
                 MIN(r.start_date) AS start_date,
                 MAX(r.end_date) AS end_date,
                 COUNT(DISTINCT r.id)::integer AS reserved_quantity,
-                GREATEST(p.total_quantity - p.service_quantity, 0) AS rentable_quantity
+                ${rentableQuantitySql()} AS rentable_quantity
          FROM unnest($1::text[]) AS requested(product_id)
          LEFT JOIN products p ON p.id = requested.product_id
          LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
          LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($3::date, 'infinity'::date)
-           AND COALESCE(r.end_date, 'infinity'::date) > $4::date
-         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity
+           AND ${zajetyDoSql()} > $4::date
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
          HAVING p.id IS NULL
-            OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
         [productIds, data.id, data.endDate, current.start_date]
       );
       if (conflictResult.rows.length > 0) {
@@ -1137,13 +1379,193 @@ export const queries = {
     return result.rows;
   },
 
-  getReservationsByStatus: async (status: string) => {
+  // === ANEKSY (przedłużenie najmu) ===
+
+  /**
+   * Zakłada aneks i blokuje sprzęt na czas płatności.
+   *
+   * Blokada jest konieczna, bo między utworzeniem aneksu a zapłatą ktoś inny
+   * mógłby zarezerwować ten sam sprzęt na termin, który klient właśnie opłaca.
+   */
+  createRentalExtension: async (data: {
+    reservationId: number;
+    number: string;
+    newEndDate: string;
+    newEndTime: string;
+    newDays: number;
+    newBasePrice: number;
+    newTotal: number;
+    surcharge: number;
+    minutNaPlatnosc: number;
+  }): Promise<{ extension?: any; conflicts?: any[]; blocked?: string }> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = (await client.query(`SELECT * FROM reservations WHERE id = $1 FOR UPDATE`, [data.reservationId])).rows[0];
+      if (!current) throw new Error('Rezerwacja nie istnieje');
+
+      // Jeden żywy aneks naraz — inaczej klient mógłby opłacić dwa różne terminy.
+      const otwarty = await client.query(
+        `SELECT id FROM rental_extensions
+         WHERE reservation_id = $1 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP`,
+        [data.reservationId]
+      );
+      if (otwarty.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return { blocked: 'Masz już rozpoczęte przedłużenie — dokończ płatność albo poczekaj, aż wygaśnie' };
+      }
+
+      const items = await client.query(
+        `SELECT product_id FROM reservation_items WHERE reservation_id = $1 ORDER BY product_id`,
+        [data.reservationId]
+      );
+      const productIds = items.rows.map((item) => String(item.product_id));
+      for (const productId of productIds) {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [productId]);
+      }
+
+      const conflicts = await client.query(
+        `SELECT requested.product_id,
+                MIN(r.start_date) AS start_date,
+                MAX(r.end_date) AS end_date,
+                COUNT(DISTINCT r.id)::integer AS reserved_quantity,
+                ${rentableQuantitySql()} AS rentable_quantity
+         FROM unnest($1::text[]) AS requested(product_id)
+         LEFT JOIN products p ON p.id = requested.product_id
+         LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
+         LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
+           AND r.status IN ('pending', 'confirmed', 'picked_up')
+           AND r.start_date < $3::date
+           AND ${zajetyDoSql()} > $4::date
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.withdrawn_quantity
+         HAVING p.id IS NULL
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
+        [productIds, data.reservationId, data.newEndDate, current.end_date || current.start_date]
+      );
+      if (conflicts.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return { conflicts: conflicts.rows };
+      }
+
+      const wynik = await client.query(
+        `INSERT INTO rental_extensions (
+           reservation_id, number, previous_end_date, previous_end_time, previous_total,
+           new_end_date, new_end_time, new_days, new_base_price, new_total, surcharge, expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP + ($12 || ' minutes')::interval)
+         RETURNING *`,
+        [
+          data.reservationId, data.number, current.end_date, current.end_time, current.total_price,
+          data.newEndDate, data.newEndTime, data.newDays, data.newBasePrice, data.newTotal, data.surcharge,
+          String(data.minutNaPlatnosc),
+        ]
+      );
+      await client.query('COMMIT');
+      return { extension: wynik.rows[0] };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  attachExtensionPayment: async (id: number, sessionId: string) => {
+    await pool.query(
+      `UPDATE rental_extensions SET payment_session_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [sessionId, id]
+    );
+  },
+
+  getExtensionBySession: async (sessionId: string) => {
+    const result = await pool.query(`SELECT * FROM rental_extensions WHERE payment_session_id = $1`, [sessionId]);
+    return result.rows[0];
+  },
+
+  getExtensionsForReservation: async (reservationId: number) => {
     const result = await pool.query(
-      `SELECT r.*,
-              COALESCE((SELECT json_agg(ri ORDER BY ri.position, ri.id)
-                        FROM reservation_items ri WHERE ri.reservation_id = r.id), '[]'::json) AS items
-       FROM reservations r WHERE r.status = $1 ORDER BY r.created_at DESC`,
-      [status]
+      `SELECT * FROM rental_extensions WHERE reservation_id = $1 ORDER BY created_at DESC`,
+      [reservationId]
+    );
+    return result.rows;
+  },
+
+  /**
+   * Zapłacony aneks wchodzi w życie: przesuwa termin i podnosi kwotę najmu.
+   * Do tej chwili nie zmienia niczego poza blokadą sprzętu.
+   */
+  activateRentalExtension: async (sessionId: string) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const aneks = (await client.query(
+        `SELECT * FROM rental_extensions WHERE payment_session_id = $1 FOR UPDATE`,
+        [sessionId]
+      )).rows[0];
+      if (!aneks || aneks.status !== 'pending') {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      await client.query(
+        `UPDATE rental_extensions SET status = 'paid', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [aneks.id]
+      );
+      const rezerwacja = (await client.query(
+        `UPDATE reservations
+         SET end_date = $1, end_time = $2, days = $3, base_price = $4, total_price = $5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6
+         RETURNING *`,
+        [aneks.new_end_date, aneks.new_end_time, aneks.new_days, aneks.new_base_price, aneks.new_total, aneks.reservation_id]
+      )).rows[0];
+
+      await client.query(
+        `INSERT INTO reservation_term_changes
+           (reservation_id, previous_end_date, previous_end_time, new_end_date, new_end_time,
+            previous_total, new_total, note, changed_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          aneks.reservation_id, aneks.previous_end_date, aneks.previous_end_time,
+          aneks.new_end_date, aneks.new_end_time, aneks.previous_total, aneks.new_total,
+          `Aneks ${aneks.number} — przedłużenie opłacone przez klienta`, 'Klient',
+        ]
+      ).catch(() => undefined);
+
+      await client.query('COMMIT');
+      return { extension: { ...aneks, status: 'paid' }, reservation: rezerwacja };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  /**
+   * Nieopłacone aneksy po terminie. Zostają w bazie jako „niewiążące", żeby
+   * z historii dało się odczytać, że przedłużenie było próbowane.
+   */
+  expireStaleExtensions: async () => {
+    const result = await pool.query(
+      `UPDATE rental_extensions
+       SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'pending' AND expires_at <= CURRENT_TIMESTAMP
+       RETURNING id, reservation_id, payment_session_id`
+    );
+    return result.rows;
+  },
+
+  /** Terminy zablokowane przez trwające płatności za przedłużenie. */
+  getActiveExtensionHolds: async (productIds: string[]) => {
+    if (productIds.length === 0) return [];
+    const result = await pool.query(
+      `SELECT DISTINCT ri.product_id, e.new_end_date, r.start_date
+       FROM rental_extensions e
+       JOIN reservations r ON r.id = e.reservation_id
+       JOIN reservation_items ri ON ri.reservation_id = e.reservation_id
+       WHERE e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
+         AND ri.product_id = ANY($1::text[])`,
+      [productIds]
     );
     return result.rows;
   },
@@ -1152,7 +1574,7 @@ export const queries = {
     const result = await pool.query(
             `SELECT r.id, r.product_id, r.start_date, r.end_date, r.is_indefinite, r.start_time, r.end_time,
               r.status, r.days, r.total_price, r.delivery, r.city, r.created_at,
-              r.payment_status, r.payment_provider,
+              r.payment_status, r.payment_provider, r.contract_status,
               COALESCE((SELECT json_agg(ri ORDER BY ri.position, ri.id)
             FROM reservation_items ri WHERE ri.reservation_id = r.id), '[]'::json) AS items
              FROM reservations r
@@ -1176,7 +1598,11 @@ export const queries = {
 
   checkDateAvailability: async (data: { productId: string; startDate: string; endDate: string }) => {
     const [productResult, reservationsResult] = await Promise.all([
-      pool.query(`SELECT total_quantity, service_quantity, is_active FROM products WHERE id = $1`, [data.productId]),
+      pool.query(
+        `SELECT ${rentableQuantitySql()} AS rentable_quantity, p.is_active
+         FROM products p WHERE p.id = $1`,
+        [data.productId]
+      ),
       pool.query(
       `SELECT r.id, r.start_date, r.end_date, r.name, r.status
        FROM reservations r
@@ -1189,9 +1615,7 @@ export const queries = {
       ),
     ]);
     const product = productResult.rows[0];
-    const rentableQuantity = product
-      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity), 0)
-      : 0;
+    const rentableQuantity = product ? Number(product.rentable_quantity) : 0;
     return {
       available: Boolean(product?.is_active) && reservationsResult.rows.length < rentableQuantity,
       rentableQuantity,
@@ -1211,7 +1635,7 @@ export const queries = {
          AND COALESCE(r.end_date, 'infinity'::date) >= $1::date
        GROUP BY p.id
        HAVING NOT p.is_active
-          OR COUNT(DISTINCT r.id) >= GREATEST(p.total_quantity - p.service_quantity, 0)`,
+          OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
       [today]
     );
     return result.rows;
@@ -1558,6 +1982,7 @@ export const queries = {
     filePath: string;
     sizeBytes: number;
     fileHash: string;
+    notes?: string;
   }) => {
     const result = await pool.query(
       `INSERT INTO documents (
@@ -1566,12 +1991,13 @@ export const queries = {
          source, notes, uploaded_by
        )
        SELECT $1, 'contract', $2, $3, $4, $5, $6, 'application/pdf', $7, $8,
-              'system', 'Umowa podpisana elektronicznie w systemie.', 'system'
+              'system', $9, 'system'
        WHERE NOT EXISTS (SELECT 1 FROM documents WHERE file_path = $6)
        RETURNING *`,
       [
         data.title, data.reservationId, data.customerEmail, data.documentDate,
         data.fileName, data.filePath, data.sizeBytes, data.fileHash,
+        data.notes || 'Umowa podpisana elektronicznie w systemie.',
       ]
     );
     return result.rows[0] || null;
@@ -1791,6 +2217,40 @@ export const queries = {
     return result.rows[0];
   },
 
+  countReservationPhotos: async (reservationId: number, phase: 'before' | 'after'): Promise<number> => {
+    const result = await pool.query(
+      `SELECT COUNT(*)::integer AS liczba FROM reservation_photos
+       WHERE reservation_id = $1 AND phase = $2`,
+      [reservationId, phase]
+    );
+    return Number(result.rows[0]?.liczba ?? 0);
+  },
+
+  /** Liczba zdjec danej fazy dla wielu rezerwacji naraz - lista w panelu pyta o wszystkie. */
+  countPhotosForReservations: async (ids: number[], phase: 'before' | 'after'): Promise<Record<number, number>> => {
+    if (ids.length === 0) return {};
+    const result = await pool.query(
+      `SELECT reservation_id, COUNT(*)::integer AS liczba
+       FROM reservation_photos
+       WHERE reservation_id = ANY($1::int[]) AND phase = $2
+       GROUP BY reservation_id`,
+      [ids, phase]
+    );
+    return Object.fromEntries(result.rows.map((row) => [Number(row.reservation_id), Number(row.liczba)]));
+  },
+
+  countReturnPhotosForReservations: async (ids: number[]): Promise<Record<number, number>> => {
+    if (ids.length === 0) return {};
+    const result = await pool.query(
+      `SELECT reservation_id, COUNT(*)::integer AS liczba
+       FROM reservation_photos
+       WHERE reservation_id = ANY($1::int[]) AND phase = 'after'
+       GROUP BY reservation_id`,
+      [ids]
+    );
+    return Object.fromEntries(result.rows.map((row) => [Number(row.reservation_id), Number(row.liczba)]));
+  },
+
   deleteReservationPhoto: async (id: number) => {
     const result = await pool.query(
       `DELETE FROM reservation_photos WHERE id = $1 RETURNING file_path`,
@@ -1800,6 +2260,51 @@ export const queries = {
   },
 
   // === PAYMENTS ===
+  /**
+   * Wplata przyjeta poza bramka - gotowka, przelew, terminal. Zamyka wszystkie
+   * otwarte sesje online, zeby klient nie zaplacil drugi raz przez internet.
+   */
+  recordManualPayment: async (data: {
+    reservationId: number;
+    amount: number;
+    method: string;
+    confirmedBy: string;
+  }) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Tylko sesje za sam najem. Doplaty rozliczeniowe i trwajace przedluzenie
+      // maja wlasne kwoty - przyjecie gotowki za najem nie moze ich unieważnić.
+      await client.query(
+        `UPDATE payments SET status = 'cancelled'
+         WHERE reservation_id = $1 AND status = 'pending' AND kind = 'rental'`,
+        [data.reservationId]
+      );
+      const sessionId = `manual-${data.reservationId}-${Date.now().toString(36)}`;
+      await client.query(
+        `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, status, paid_at, kind)
+         VALUES ($1, $2, $3, $4, $5, 'paid', CURRENT_TIMESTAMP, 'rental')`,
+        [data.reservationId, data.method, sessionId, data.confirmedBy.slice(0, 120), data.amount]
+      );
+      await client.query(
+        `UPDATE reservations SET payment_status = 'paid', payment_provider = $2 WHERE id = $1`,
+        [data.reservationId, data.method]
+      );
+      await client.query(
+        `UPDATE reservations SET status = 'confirmed'
+         WHERE id = $1 AND status = 'pending' AND contract_status = 'signed'`,
+        [data.reservationId]
+      );
+      await client.query('COMMIT');
+      return { sessionId };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
   insertPayment: async (data: {
     reservationId: number;
     provider: string;
@@ -1807,11 +2312,14 @@ export const queries = {
     externalId?: string;
     amount: number;
     redirectUrl?: string;
+    kind?: 'rental' | 'settlement';
+    label?: string;
   }) => {
     const result = await pool.query(
-      `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, redirect_url)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [data.reservationId, data.provider, data.sessionId, data.externalId, data.amount, data.redirectUrl]
+      `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, redirect_url, kind, label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [data.reservationId, data.provider, data.sessionId, data.externalId, data.amount, data.redirectUrl,
+       data.kind || 'rental', data.label || null]
     );
     return { lastInsertRowid: result.rows[0].id };
   },
@@ -1821,12 +2329,34 @@ export const queries = {
     return result.rows[0];
   },
 
-  getLatestPaymentForReservation: async (reservationId: number) => {
+  getLatestPaymentForReservation: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental') => {
     const result = await pool.query(
-      `SELECT * FROM payments WHERE reservation_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [reservationId]
+      `SELECT * FROM payments WHERE reservation_id = $1 AND kind = $2 ORDER BY created_at DESC LIMIT 1`,
+      [reservationId, kind]
     );
     return result.rows[0];
+  },
+
+  /** Ostatnia próba zapłaty tej samej należności — rozpoznawana po opisie. */
+  getSettlementByLabel: async (reservationId: number, label: string) => {
+    const result = await pool.query(
+      `SELECT * FROM payments
+       WHERE reservation_id = $1 AND kind = 'settlement' AND label = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [reservationId, label]
+    );
+    return result.rows[0];
+  },
+
+  /** Dopłaty rozliczeniowe rezerwacji — panel pokazuje je obok czynszu najmu. */
+  getSettlementPayments: async (reservationId: number) => {
+    const result = await pool.query(
+      `SELECT id, session_id, amount, status, label, redirect_url, paid_at, created_at
+       FROM payments WHERE reservation_id = $1 AND kind = 'settlement'
+       ORDER BY created_at DESC`,
+      [reservationId]
+    );
+    return result.rows;
   },
 
   /** Payments still 'pending' long enough that a lost webhook is likely. */
@@ -1840,6 +2370,21 @@ export const queries = {
        ORDER BY created_at ASC
        LIMIT $2`,
       [String(minAgeSeconds), limit]
+    );
+    return result.rows;
+  },
+
+  /** Retires older sessions so only one payment link per reservation stays open. */
+  cancelPendingPayments: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental', label?: string) => {
+    // Dopłaty rozliczeniowe bywają różne i niezależne (naprawa, przedłużenie),
+    // więc unieważniamy tylko poprzednią wersję tej samej należności — inaczej
+    // dodanie kosztu naprawy kasowałoby trwającą płatność za przedłużenie.
+    const result = await pool.query(
+      `UPDATE payments SET status = 'cancelled'
+       WHERE reservation_id = $1 AND status = 'pending' AND kind = $2
+         AND ($3::text IS NULL OR label = $3)
+       RETURNING session_id`,
+      [reservationId, kind, label ?? null]
     );
     return result.rows;
   },
@@ -1904,16 +2449,27 @@ export const queries = {
              external_id = COALESCE($2, external_id),
              paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
          WHERE session_id = $3
-         RETURNING reservation_id, provider`,
+         RETURNING reservation_id, provider, kind`,
         [data.status, data.externalId, data.sessionId]
       );
 
       const row = payment.rows[0];
-      if (row) {
+      // Doplata rozliczeniowa ma wlasna kwote i wlasny los - nie moze zmieniac
+      // stanu oplacenia najmu ani przesuwac rezerwacji do 'confirmed'.
+      if (row && row.kind !== 'settlement') {
         await client.query(
           `UPDATE reservations SET payment_status = $1, payment_provider = $2 WHERE id = $3`,
           [data.status === 'paid' ? 'paid' : data.status, row.provider, row.reservation_id]
         );
+        // Podpisana umowa + zaksiegowana platnosc = rezerwacja potwierdzona.
+        // Ruszamy wylacznie z 'pending', zeby nie cofnac zadnego pozniejszego stanu.
+        if (data.status === 'paid') {
+          await client.query(
+            `UPDATE reservations SET status = 'confirmed'
+             WHERE id = $1 AND status = 'pending' AND contract_status = 'signed'`,
+            [row.reservation_id]
+          );
+        }
       }
       await client.query('COMMIT');
       return row?.reservation_id as number | undefined;
@@ -1974,6 +2530,8 @@ export const queries = {
            signing_expires_at = EXCLUDED.signing_expires_at,
            signature_encrypted = NULL,
            signature_hash = NULL,
+           lessor_signature_encrypted = NULL,
+           lessor_signature_hash = NULL,
            signed_name = NULL,
            signed_ip = NULL,
            signed_user_agent = NULL,
@@ -1996,6 +2554,12 @@ export const queries = {
       );
       await client.query(
         `UPDATE reservations SET contract_status = 'ready' WHERE id = $1`,
+        [data.reservationId]
+      );
+      // Przygotowanie umowy jest jednoznaczne z przyjeciem rezerwacji - inaczej
+      // zostawalaby w kolejce zapytan mimo wystawionego dokumentu.
+      await client.query(
+        `UPDATE reservations SET status = 'confirmed' WHERE id = $1 AND status = 'pending'`,
         [data.reservationId]
       );
       await client.query('COMMIT');
@@ -2051,6 +2615,12 @@ export const queries = {
           `UPDATE reservations SET contract_status = 'signed' WHERE id = $1`,
           [row.reservation_id]
         );
+        // Jak wyzej: gdy platnosc juz przeszla, podpis domyka potwierdzenie.
+        await client.query(
+          `UPDATE reservations SET status = 'confirmed'
+           WHERE id = $1 AND status = 'pending' AND payment_status = 'paid'`,
+          [row.reservation_id]
+        );
       }
       await client.query('COMMIT');
       return row;
@@ -2064,9 +2634,35 @@ export const queries = {
 
   markContractEmailed: async (id: number) => {
     await pool.query(
-      `UPDATE rental_contracts SET email_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      `UPDATE rental_contracts
+       SET email_sent_at = CURRENT_TIMESTAMP, email_deferred_at = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
       [id]
     );
+  },
+
+  /** Umowa czeka, żeby pójść razem z protokołem wydania — jednym mailem. */
+  deferContractEmail: async (id: number) => {
+    await pool.query(
+      `UPDATE rental_contracts SET email_deferred_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [id]
+    );
+  },
+
+  /**
+   * Umowy, które miały pojechać razem z wydaniem, ale wydanie nie doszło do
+   * skutku. Bez tego klient nigdy nie dostałby podpisanego dokumentu.
+   */
+  getStaleDeferredContracts: async (godzin = 2) => {
+    const result = await pool.query(
+      `SELECT c.* FROM rental_contracts c
+       WHERE c.status = 'signed'
+         AND c.email_sent_at IS NULL
+         AND c.email_deferred_at IS NOT NULL
+         AND c.email_deferred_at < CURRENT_TIMESTAMP - ($1 || ' hours')::interval`,
+      [String(godzin)]
+    );
+    return result.rows;
   },
 
   updateContractPdfHash: async (id: number, pdfHash: string) => {
@@ -2082,6 +2678,137 @@ export const queries = {
       [reservationId]
     );
     return Boolean(result.rowCount);
+  },
+
+  // === PROTOKOLY (wydania i zwrotu) ===
+
+  getProtocol: async (reservationId: number, kind: string) => {
+    const result = await pool.query(
+      `SELECT * FROM rental_protocols WHERE reservation_id = $1 AND kind = $2`,
+      [reservationId, kind]
+    );
+    return result.rows[0] || null;
+  },
+
+  getProtocolById: async (id: number) => {
+    const result = await pool.query(`SELECT * FROM rental_protocols WHERE id = $1`, [id]);
+    return result.rows[0] || null;
+  },
+
+  /** Zapisuje szkic. Podpisanego protokolu nie da sie nadpisac. */
+  upsertProtocolDraft: async (data: {
+    reservationId: number;
+    kind: string;
+    number: string;
+    snapshotEncrypted: string;
+    contentHash: string;
+  }) => {
+    const result = await pool.query(
+      `INSERT INTO rental_protocols (reservation_id, kind, number, snapshot_encrypted, content_hash)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (reservation_id, kind) DO UPDATE SET
+         snapshot_encrypted = EXCLUDED.snapshot_encrypted,
+         content_hash = EXCLUDED.content_hash,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE rental_protocols.status = 'draft'
+       RETURNING *`,
+      [data.reservationId, data.kind, data.number, data.snapshotEncrypted, data.contentHash]
+    );
+    return result.rows[0] || null;
+  },
+
+  /**
+   * Podpisanie protokolu wydania jest tym samym zdarzeniem co wydanie sprzetu,
+   * wiec status rezerwacji zmienia sie w tej samej transakcji - inaczej moglby
+   * istniec podpisany protokol przy rezerwacji, ktora nadal czeka na odbior.
+   */
+  signProtocol: async (data: {
+    id: number;
+    staffSignatureEncrypted: string;
+    staffSignatureHash: string;
+    renterSignatureEncrypted: string;
+    renterSignatureHash: string;
+    signedIp: string;
+    signedUserAgent: string;
+    pdfPath: string;
+    pdfHash: string;
+    reservationStatus: string | null;
+    signedBy: string;
+  }) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE rental_protocols
+         SET status = 'signed',
+             staff_signature_encrypted = $1, staff_signature_hash = $2,
+             renter_signature_encrypted = $3, renter_signature_hash = $4,
+             signed_at = CURRENT_TIMESTAMP, signed_ip = $5, signed_user_agent = $6,
+             pdf_path = $7, pdf_hash = $8, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $9 AND status = 'draft'
+         RETURNING *`,
+        [
+          data.staffSignatureEncrypted,
+          data.staffSignatureHash,
+          data.renterSignatureEncrypted,
+          data.renterSignatureHash,
+          data.signedIp,
+          data.signedUserAgent,
+          data.pdfPath,
+          data.pdfHash,
+          data.id,
+        ]
+      );
+      const row = result.rows[0];
+      if (row && data.reservationStatus) {
+        const poprzedni = await client.query(
+          `SELECT status FROM reservations WHERE id = $1 FOR UPDATE`,
+          [row.reservation_id]
+        );
+        await client.query(
+          `UPDATE reservations SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [data.reservationStatus, row.reservation_id]
+        );
+        await client.query(
+          `INSERT INTO reservation_status_changes
+             (reservation_id, previous_status, new_status, note, changed_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            row.reservation_id,
+            poprzedni.rows[0]?.status || 'unknown',
+            data.reservationStatus,
+            `Podpisany protokół ${row.number}`,
+            data.signedBy,
+          ]
+        );
+      }
+      await client.query('COMMIT');
+      return row || null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+
+  hasSignedProtocol: async (reservationId: number, kind: string): Promise<boolean> => {
+    const result = await pool.query(
+      `SELECT 1 FROM rental_protocols WHERE reservation_id = $1 AND kind = $2 AND status = 'signed' LIMIT 1`,
+      [reservationId, kind]
+    );
+    return Boolean(result.rowCount);
+  },
+
+  /** Ktore rezerwacje z listy maja juz podpisany protokol danego rodzaju. */
+  signedProtocolsForReservations: async (ids: number[], kind: string): Promise<Set<number>> => {
+    if (ids.length === 0) return new Set();
+    const result = await pool.query(
+      `SELECT reservation_id FROM rental_protocols
+       WHERE reservation_id = ANY($1::int[]) AND kind = $2 AND status = 'signed'`,
+      [ids, kind]
+    );
+    return new Set(result.rows.map((row: any) => Number(row.reservation_id)));
   },
 };
 

@@ -12,7 +12,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import {
   deleteDocument,
   downloadDocument,
@@ -164,14 +164,14 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
+      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
         <Metric icon={<FileText size={16} />} label="Dokumentów" value={String(stats.total)} />
         <Metric icon={<Upload size={16} />} label="Wgranych ręcznie" value={String(stats.manual)} />
         <Metric icon={<Archive size={16} />} label="Widok" value={showArchived ? 'Archiwum' : 'Aktywne'} />
         <Metric icon={<Download size={16} />} label="Rozmiar" value={formatSize(stats.size)} />
       </div>
 
-      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
         <div className="p-4 sm:p-5 border-b border-border flex flex-col xl:flex-row xl:items-center gap-3">
           <div className="flex-1 flex flex-col sm:flex-row gap-3">
             <div className="flex-1 min-w-[200px]">
@@ -234,12 +234,12 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
                       {CATEGORY_LABEL[doc.category]}
                     </span>
                     {doc.source === 'manual' && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-strong text-text-muted border border-border">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-soft text-text-muted border border-border">
                         wgrany ręcznie
                       </span>
                     )}
                     {doc.archived_at && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-300 light:text-amber-700 border border-amber-500/25">
                         archiwum
                       </span>
                     )}
@@ -276,7 +276,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-bg-secondary border-border">
+          <Card padding="none" className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-bg-card border-border">
             <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-text-primary">
@@ -302,7 +302,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
               {!editing && (
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-2">Plik *</label>
-                  <input
+                  <input spellCheck={false}
                     ref={fileInputRef}
                     type="file"
                     accept="application/pdf,image/jpeg,image/png,image/webp"
@@ -331,11 +331,10 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
                   onChange={(event) => setForm({ ...form, category: event.target.value as DocumentCategory })}
                   options={CATEGORY_OPTIONS}
                 />
-                <Input
+                <DatePicker
                   label="Data dokumentu"
-                  type="date"
                   value={form.documentDate || ''}
-                  onChange={(event) => setForm({ ...form, documentDate: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, documentDate: value || null })}
                 />
               </div>
 
@@ -411,7 +410,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
     >
       {children}
     </button>

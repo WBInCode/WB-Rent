@@ -33,6 +33,8 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const MyReservationsPage = lazy(() => import('@/pages/MyReservationsPage'));
 const ContractSigningPage = lazy(() => import('@/pages/ContractSigningPage'));
 const StaffRentalPage = lazy(() => import('@/pages/StaffRentalPage'));
+const HandoverProtocolPage = lazy(() => import('@/pages/HandoverProtocolPage'));
+const ReturnProtocolPage = lazy(() => import('@/pages/ReturnProtocolPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 
 // Loading fallback - content-shaped skeleton (less jarring than a spinner)
@@ -142,6 +144,8 @@ function App() {
             <Route path="/kontakt" element={<ContactPage />} />
             <Route path="/podpis/:token" element={<ContractSigningPage />} />
             <Route path="/admin/nowy-wynajem" element={<StaffRentalPage />} />
+            <Route path="/admin/wydanie/:id" element={<HandoverProtocolPage />} />
+            <Route path="/admin/zwrot/:id" element={<ReturnProtocolPage />} />
             <Route path="/admin" element={<AdminPanel />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

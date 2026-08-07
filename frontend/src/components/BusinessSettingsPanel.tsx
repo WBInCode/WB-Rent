@@ -189,7 +189,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+    <section className="rounded-[--radius-sm] border border-border bg-bg-card">
       <div className="px-5 py-4 border-b border-border flex items-center gap-3">
         <span className="w-8 h-8 rounded-lg bg-surface-soft border border-border flex items-center justify-center text-gold">
           {icon}
@@ -213,11 +213,11 @@ function Toggle({
 }) {
   return (
     <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
-      <input
+      <input spellCheck={false}
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 accent-gold"
+        className="mt-0.5 accent-[#d4a853]"
       />
       <span className="text-sm text-text-secondary">{label}</span>
     </label>

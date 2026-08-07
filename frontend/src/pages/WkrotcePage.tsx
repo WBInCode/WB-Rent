@@ -24,28 +24,28 @@ const upcomingFeatures = [
     title: 'Nowe kategorie sprzętu',
     description: 'Stale poszerzamy naszą ofertę o nowe urządzenia i rozwiązania.',
     status: 'W planach',
-    statusColor: 'text-blue-400'
+    statusColor: 'text-blue-400 light:text-blue-700'
   },
   {
     icon: Truck,
     title: 'Rozszerzony zasięg dostaw',
     description: 'Pracujemy nad zwiększeniem obszaru, na którym świadczymy usługi dostawy.',
     status: 'W planach',
-    statusColor: 'text-blue-400'
+    statusColor: 'text-blue-400 light:text-blue-700'
   },
   {
     icon: Shield,
     title: 'Program lojalnościowy',
     description: 'Przygotowujemy specjalne korzyści dla naszych stałych klientów.',
     status: 'Wkrótce',
-    statusColor: 'text-purple-400'
+    statusColor: 'text-purple-400 light:text-purple-700'
   },
   {
     icon: Sparkles,
     title: 'Nowe funkcjonalności',
     description: 'Nieustannie ulepszamy nasze usługi i wdrażamy nowe rozwiązania.',
     status: 'W rozwoju',
-    statusColor: 'text-green-400'
+    statusColor: 'text-green-400 light:text-green-700'
   }
 ];
 
@@ -101,7 +101,7 @@ export default function WkrotcePage() {
             style={{ transformOrigin: '50% calc(50% + 128px)' }}
           >
             <div className="w-10 h-10 bg-gold/20 rounded-full flex items-center justify-center backdrop-blur-sm">
-              <Package className="w-5 h-5 text-gold" />
+              <Package className="w-5 h-5 text-gold-light light:text-gold-dark" />
             </div>
           </motion.div>
           
@@ -112,7 +112,7 @@ export default function WkrotcePage() {
             style={{ transformOrigin: '50% calc(50% + 100px)' }}
           >
             <div className="w-8 h-8 bg-purple-500/20 rounded-full flex items-center justify-center backdrop-blur-sm">
-              <Sparkles className="w-4 h-4 text-purple-400" />
+              <Sparkles className="w-4 h-4 text-purple-400 light:text-purple-700" />
             </div>
           </motion.div>
           
@@ -123,7 +123,7 @@ export default function WkrotcePage() {
             style={{ transformOrigin: '50% calc(50% + 145px)' }}
           >
             <div className="w-9 h-9 bg-blue-500/20 rounded-full flex items-center justify-center backdrop-blur-sm">
-              <TrendingUp className="w-4 h-4 text-blue-400" />
+              <TrendingUp className="w-4 h-4 text-blue-400 light:text-blue-700" />
             </div>
           </motion.div>
           
@@ -177,8 +177,8 @@ export default function WkrotcePage() {
             className="text-center max-w-3xl mx-auto"
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gold/10 border border-gold/30 mb-6">
-              <Sparkles className="w-4 h-4 text-gold" />
-              <span className="text-gold text-sm font-medium">Stale się rozwijamy</span>
+              <Sparkles className="w-4 h-4 text-gold-light light:text-gold-dark" />
+              <span className="text-gold-light light:text-gold-dark text-sm font-medium">Stale się rozwijamy</span>
             </div>
             
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary mb-6">
@@ -351,7 +351,7 @@ export default function WkrotcePage() {
                 className="text-center"
               >
                 <div className="w-16 h-16 rounded-2xl bg-gold/10 flex items-center justify-center mx-auto mb-4">
-                  <TrendingUp className="w-8 h-8 text-gold" />
+                  <TrendingUp className="w-8 h-8 text-gold-light light:text-gold-dark" />
                 </div>
                 <h3 className="text-xl font-semibold text-text-primary mb-2">Ciągły rozwój</h3>
                 <p className="text-text-secondary text-sm">
@@ -367,7 +367,7 @@ export default function WkrotcePage() {
                 className="text-center"
               >
                 <div className="w-16 h-16 rounded-2xl bg-gold/10 flex items-center justify-center mx-auto mb-4">
-                  <Sparkles className="w-8 h-8 text-gold" />
+                  <Sparkles className="w-8 h-8 text-gold-light light:text-gold-dark" />
                 </div>
                 <h3 className="text-xl font-semibold text-text-primary mb-2">Jakość usług</h3>
                 <p className="text-text-secondary text-sm">
@@ -383,7 +383,7 @@ export default function WkrotcePage() {
                 className="text-center"
               >
                 <div className="w-16 h-16 rounded-2xl bg-gold/10 flex items-center justify-center mx-auto mb-4">
-                  <Rocket className="w-8 h-8 text-gold" />
+                  <Rocket className="w-8 h-8 text-gold-light light:text-gold-dark" />
                 </div>
                 <h3 className="text-xl font-semibold text-text-primary mb-2">Innowacje</h3>
                 <p className="text-text-secondary text-sm">
@@ -442,7 +442,7 @@ export default function WkrotcePage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="absolute -top-12 right-0 text-white hover:text-gold"
+                className="absolute -top-12 right-0 text-text-primary hover:text-gold"
                 onClick={() => setShowNewsletterModal(false)}
               >
                 <X className="w-6 h-6" />

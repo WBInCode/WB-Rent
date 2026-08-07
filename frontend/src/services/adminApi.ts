@@ -1,3 +1,5 @@
+import type { ProductAddon } from '@/data/products';
+
 const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/admin`;
 
 const TOKEN_KEY = 'wb-rent-admin-token';
@@ -96,6 +98,8 @@ export interface AdminProduct {
   price_weekend: number;
   total_quantity: number;
   service_quantity: number;
+  /** Sprawny sprzęt czasowo zdjęty z najmu decyzją właściciela. */
+  withdrawn_quantity: number;
   rentable_quantity: number;
   reserved_today: number;
   available_today: number;
@@ -103,7 +107,8 @@ export interface AdminProduct {
   inventory_notes: string;
   features: string[];
   included_accessories: string[];
-  optional_accessories: string[];
+  /** Starsze zapisy w bazie to same nazwy; nowsze mają cenę przy pozycji. */
+  optional_accessories: Array<string | ProductAddon>;
   accessory_price: number;
   is_active: boolean;
   created_at: string;
@@ -122,11 +127,11 @@ export interface ProductInventoryPayload {
   priceWeekend: number;
   totalQuantity: number;
   serviceQuantity: number;
-  conditionStatus: ProductCondition;
+  withdrawnQuantity: number;
   inventoryNotes: string;
   features: string[];
   includedAccessories: string[];
-  optionalAccessories: string[];
+  optionalAccessories: ProductAddon[];
   accessoryPrice: number;
   isActive: boolean;
 }
@@ -249,15 +254,283 @@ export async function resendContractEmail(contractId: number) {
   });
 }
 
+export type PaymentLinkInfo =
+  | { status: 'ready'; url: string; sessionId: string; amount: number; provider: string; reused: boolean }
+  | { status: 'paid' }
+  | { status: 'unavailable'; reason: string; amount: number; canPayManually: boolean };
+
+export async function getPaymentLink(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/payment-link`);
+}
+
+export async function sendPaymentLink(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/payment-link/send`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export type ManualPaymentMethod = 'cash' | 'transfer' | 'terminal';
+
+export async function markReservationPaid(
+  reservationId: number,
+  payload: { method: ManualPaymentMethod; amount: number; confirmedBy: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/mark-paid`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 // Get reservations
-export async function getReservations(status?: string) {
-  return adminFetch(status ? `/reservations?status=${encodeURIComponent(status)}` : '/reservations');
+export async function getReservations() {
+  return adminFetch('/reservations');
+}
+
+// === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
+
+export interface HandoverSnapshot {
+  protocolNumber: string;
+  contractNumber: string | null;
+  lessor: { name: string; address?: string; representative?: string };
+  renter: { name: string; email?: string; phone?: string };
+  rental: {
+    reservationId: number;
+    startDate: string;
+    startTime: string;
+    endDate: string | null;
+    endTime: string;
+    isIndefinite: boolean;
+    days: number;
+  };
+  place: string;
+  items: string[];
+  accessories: string;
+  conditionNotes: string;
+  statements: string[];
+  employeeName: string;
+  photoCount: number;
+}
+
+export interface HandoverProtocolView {
+  status: 'draft' | 'signed';
+  signedAt: string | null;
+  snapshot: HandoverSnapshot;
+  /** Odcisk treści, którą zobaczył podpisujący — wraca przy podpisie. */
+  contentHash: string;
+  customerName: string;
+  photoCount: number;
+  /** Umowa najmu podpisywana jest na tym samym ekranie — to pierwszy krok wydania. */
+  contractStatus: 'missing' | 'ready' | 'signed';
+  canSign: boolean;
+  blockedReason: string | null;
+  /** Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć. */
+  canRelease: boolean;
+  releaseBlockedReason: string | null;
+  released: boolean;
+}
+
+export interface HandoverDraftPayload {
+  items: string[];
+  conditionNotes: string;
+  employeeName: string;
+}
+
+export async function getHandoverProtocol(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/handover`);
+}
+
+/** Umowa do przeczytania i podpisania przy ladzie — bez odsyłania klienta do linku. */
+export async function getReservationContractPreview(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/contract`);
+}
+
+export async function signReservationContract(
+  reservationId: number,
+  payload: { renterSignature: string; lessorSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/contract/sign`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, accepted: true }),
+  });
+}
+
+export async function saveHandoverProtocol(reservationId: number, payload: HandoverDraftPayload) {
+  return adminFetch(`/reservations/${reservationId}/handover`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function signHandoverProtocol(
+  reservationId: number,
+  payload: { contentHash: string; staffSignature: string; renterSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/handover/sign`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function handoverPdfUrl(reservationId: number) {
+  return `${API_BASE}/reservations/${reservationId}/handover/pdf`;
+}
+
+export async function downloadHandoverPdf(reservationId: number) {
+  const res = await fetch(handoverPdfUrl(reservationId), { headers: authHeaders() });
+  if (!res.ok) throw new Error('Nie udało się pobrać protokołu wydania');
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `protokol-wydania-${reservationId}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// === PROTOKÓŁ ZWROTU (Załącznik nr 2) ===
+
+export type RodzajNaleznosci = 'cleaning' | 'deep_cleaning' | 'damage' | 'missing' | 'penalty' | 'other';
+
+export interface ReturnCharge {
+  kind: RodzajNaleznosci;
+  label: string;
+  /** null = kwota znana dopiero po wycenie serwisu. */
+  amount: number | null;
+  note?: string;
+}
+
+export interface ReturnChecklist {
+  complete: boolean;
+  working: boolean;
+  clean: boolean;
+  undamaged: boolean;
+}
+
+export interface ReturnSnapshot {
+  protocolNumber: string;
+  contractNumber: string | null;
+  handoverProtocolNumber: string | null;
+  lessor: { name: string; address?: string; representative?: string };
+  renter: { name: string; email?: string; phone?: string };
+  rental: {
+    reservationId: number;
+    startDate: string;
+    startTime: string;
+    endDate: string | null;
+    endTime: string;
+    isIndefinite: boolean;
+    days: number;
+  };
+  place: string;
+  items: string[];
+  checklist: ReturnChecklist;
+  conditionAtHandover: string;
+  conditionNotes: string;
+  charges: ReturnCharge[];
+  chargesTotal: number;
+  hasPendingValuation: boolean;
+  deposit: number;
+  balance: number;
+  rozliczonoNaMiejscu?: boolean;
+  overdueDays: number;
+  statements: string[];
+  employeeName: string;
+}
+
+export interface ReturnProtocolView {
+  status: 'draft' | 'signed';
+  signedAt: string | null;
+  snapshot: ReturnSnapshot;
+  contentHash: string;
+  customerName: string;
+  photoCount: number;
+  canSign: boolean;
+  blockedReason: string | null;
+  canRegister: boolean;
+  registerBlockedReason: string | null;
+  registered: boolean;
+}
+
+export interface ReturnDraftPayload {
+  items: string[];
+  checklist: ReturnChecklist;
+  conditionNotes: string;
+  charges: ReturnCharge[];
+  deposit: number;
+  rozliczonoNaMiejscu: boolean;
+  employeeName: string;
+}
+
+/** Dopłata ustalona po zwrocie — osobna należność od czynszu najmu. */
+export interface Settlement {
+  id: number;
+  session_id: string;
+  amount: number;
+  status: string;
+  label: string | null;
+  redirect_url: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export async function getSettlements(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/settlements`);
+}
+
+export async function createSettlement(
+  reservationId: number,
+  payload: { amount: number; label: string; wyslijMailem: boolean }
+) {
+  return adminFetch(`/reservations/${reservationId}/settlements`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getReturnProtocol(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/return`);
+}
+
+export async function saveReturnProtocol(reservationId: number, payload: ReturnDraftPayload) {
+  return adminFetch(`/reservations/${reservationId}/return`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function signReturnProtocol(
+  reservationId: number,
+  payload: { contentHash: string; staffSignature: string; renterSignature: string }
+) {
+  return adminFetch(`/reservations/${reservationId}/return/sign`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function downloadReturnPdf(reservationId: number) {
+  const res = await fetch(`${API_BASE}/reservations/${reservationId}/return/pdf`, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Nie udało się pobrać protokołu zwrotu');
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `protokol-zwrotu-${reservationId}.pdf`;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export interface ReservationStatusChangePayload {
   note?: string;
   changedBy?: string;
   notifyCustomer?: boolean;
+  /** Świadome pominięcie brakujących warunków — trafia do historii rezerwacji. */
+  force?: boolean;
 }
 
 // Update reservation status

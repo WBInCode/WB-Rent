@@ -123,7 +123,7 @@ export function ContactPanel() {
         ) : (
           <Card variant="glass" padding="lg">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <input
+              <input spellCheck={false}
                 type="text"
                 name="website"
                 value={contactForm.honeypot}

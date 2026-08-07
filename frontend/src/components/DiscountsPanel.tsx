@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BadgePercent, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import { createDiscount, deleteDiscount, getDiscounts, updateDiscount } from '@/services/adminApi';
 import type { AdminDiscount, DiscountPayload, DiscountType } from '@/services/adminApi';
 
@@ -105,7 +105,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
         <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-text-primary">Rabaty automatyczne</h3>
@@ -140,7 +140,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                       -{formatValue(discount.discount_type, Number(discount.value))}
                     </span>
                     {!discount.is_active && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-strong text-text-muted border border-border">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-soft text-text-muted border border-border">
                         wyłączony
                       </span>
                     )}
@@ -175,7 +175,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
                     onClick={() => void remove(discount)}
                     title="Usuń"
                     aria-label={`Usuń rabat ${discount.name}`}
-                    className="p-2 rounded-md text-text-muted hover:text-red-400 hover:bg-surface-soft"
+                    className="p-2 rounded-md text-text-muted hover:text-red-400 light:text-red-700 hover:bg-surface-soft"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -188,7 +188,7 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-secondary border-border">
+          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-card border-border">
             <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-center justify-between">
               <h3 className="text-lg font-semibold text-text-primary">
                 {editingId ? 'Edytuj rabat' : 'Nowy rabat'}
@@ -276,17 +276,15 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                <Input
+                <DatePicker
                   label="Obowiązuje od"
-                  type="date"
                   value={form.startsOn || ''}
-                  onChange={(event) => setForm({ ...form, startsOn: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, startsOn: value || null })}
                 />
-                <Input
+                <DatePicker
                   label="Obowiązuje do"
-                  type="date"
                   value={form.endsOn || ''}
-                  onChange={(event) => setForm({ ...form, endsOn: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, endsOn: value || null })}
                 />
               </div>
 
@@ -299,11 +297,11 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
               />
 
               <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
-                <input
+                <input spellCheck={false}
                   type="checkbox"
                   checked={form.isActive}
                   onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
-                  className="mt-1 accent-gold"
+                  className="mt-1 accent-[#d4a853]"
                 />
                 <span className="text-sm text-text-secondary">
                   Rabat aktywny — naliczany automatycznie przy spełnieniu warunków.

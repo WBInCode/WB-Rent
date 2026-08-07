@@ -3,7 +3,9 @@ import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema, couponValidateSchema } from './schemas.js';
 import { queries } from './db.js';
-import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_FEE, getProductName, WEEKEND_PICKUP_FEE } from './products.js';
+import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, normalizeAddons, priceAddons, WEEKEND_SERVICE_FEE } from './products.js';
+import { ocenAdresDostawy, znormalizujKod } from './delivery-area.js';
+import { extensionRequestSchema, rozpocznijPrzedluzenie, wycenPrzedluzenie, MINUT_NA_PLATNOSC } from './rental-extensions.js';
 import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
 import {
   couponRejectionReason,
@@ -14,7 +16,8 @@ import {
   type DiscountContext,
 } from './pricing.js';
 import { config } from './config.js';
-import { createPaymentForReservation } from './payments/routes.js';
+import { createPaymentForReservation, canCustomerPayOnline } from './payments/routes.js';
+import { describeRentalStage } from './reservation-stage.js';
 import {
   sendContactConfirmation,
   sendReservationConfirmation,
@@ -46,6 +49,21 @@ const formatZodErrors = (error: ZodError) => {
   }));
 };
 
+// === GET /api/delivery/check ===
+// Obszar dowozu rozstrzyga kod pocztowy — bez pytania cudzego serwisu o mapę.
+router.get('/delivery/check', (req: Request, res: Response) => {
+  const ocena = ocenAdresDostawy(String(req.query.kod || ''));
+  res.json({
+    success: true,
+    data: {
+      wObszarze: ocena.wObszarze,
+      kod: znormalizujKod(String(req.query.kod || '')),
+      powod: ocena.wObszarze ? null : ocena.powod,
+      oplataZaKurs: DELIVERY_LEG_FEE,
+    },
+  });
+});
+
 // === GET /api/products ===
 router.get('/products', async (_req: Request, res: Response) => {
   try {
@@ -66,7 +84,7 @@ router.get('/products', async (_req: Request, res: Response) => {
         priceWeekend: Number(product.price_weekend),
         features: Array.isArray(product.features) ? product.features : [],
         includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
-        optionalAccessories: Array.isArray(product.optional_accessories) ? product.optional_accessories : [],
+        optionalAccessories: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
         accessoryPrice: Number(product.accessory_price || 0),
         totalQuantity: Number(product.total_quantity),
         availableToday: Number(product.available_today),
@@ -210,8 +228,53 @@ router.post('/reservations', async (req: Request, res: Response) => {
     const pricing = calculateRentalItemsPrice(productIds, days, isWeekendPackage);
     if (!pricing) throw new Error('Nie udało się wyliczyć sprzętu');
     const basePrice = pricing.basePrice;
-    const deliveryFee = data.delivery ? DELIVERY_FEE : 0;
-    const weekendPickupFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
+
+    // Dowóz i odbiór to dwa niezależne kursy — klient może chcieć tylko jednego.
+    const dowoz = data.deliveryOut ?? data.delivery;
+    const odbior = data.deliveryBack ?? data.delivery;
+    const kursy = (dowoz ? 1 : 0) + (odbior ? 1 : 0);
+    const deliveryFee = kursy * DELIVERY_LEG_FEE;
+
+    if (kursy > 0) {
+      const ocena = ocenAdresDostawy(data.postalCode);
+      if (!ocena.wObszarze) {
+        res.status(400).json({
+          success: false,
+          message: ocena.powod,
+          errors: [{ field: 'postalCode', message: ocena.powod }],
+        });
+        return;
+      }
+    }
+
+    // §12 umowy: opłata weekendowa należy się „każdorazowo", więc także za zwrot
+    // przypadający w sobotę, niedzielę lub święto.
+    const weekendowy = (dzien: number) => dzien === 0 || dzien === 6;
+    const returnDay = endDate ? new Date(`${endDate}T12:00:00`).getDay() : null;
+    const zdarzeniaWeekendowe = (weekendowy(pickupDay) ? 1 : 0)
+      + (returnDay !== null && weekendowy(returnDay) ? 1 : 0);
+    const weekendPickupFee = zdarzeniaWeekendowe * WEEKEND_SERVICE_FEE;
+
+    // Dodatki wycenia katalog, nigdy przeglądarka — inaczej klient kupiłby
+    // worek za grosz, podstawiając własną cenę w żądaniu.
+    const katalogDodatkow = data.addons.length > 0
+      ? (await queries.getProducts(false))
+        .filter((product: any) => productIds.includes(String(product.id)))
+        .map((product: any) => ({
+          productId: String(product.id),
+          dodatki: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
+        }))
+      : [];
+    const wycenaDodatkow = priceAddons(katalogDodatkow, data.addons);
+    if ('error' in wycenaDodatkow) {
+      res.status(400).json({
+        success: false,
+        message: wycenaDodatkow.error,
+        errors: [{ field: 'addons', message: wycenaDodatkow.error }],
+      });
+      return;
+    }
+    const addonsFee = wycenaDodatkow.fee;
 
     // Discounts are resolved server-side only - a client-supplied amount is never trusted.
     const discountContext: DiscountContext = {
@@ -256,6 +319,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       weekendPickupFee,
+      addonsFee,
       discountAmount,
     });
     const totalPrice = staffPricing?.priceOverride !== undefined
@@ -275,8 +339,14 @@ router.post('/reservations', async (req: Request, res: Response) => {
       startTime: data.startTime,
       endTime: data.endTime,
       city: data.city || 'Nie podano',
-      delivery: data.delivery ? 1 : 0,
+      delivery: kursy > 0 ? 1 : 0,
+      deliveryOut: dowoz ? 1 : 0,
+      deliveryBack: odbior ? 1 : 0,
+      postalCode: znormalizujKod(data.postalCode) || undefined,
       address: data.address || undefined,
+      // Wynajem zakladany przez pracownika: umowa i protokol wydania powstaja
+      // w odstepie minut, wiec maile lacza sie w jeden.
+      staffAssisted: isStaff,
       name: fullName,
       email: data.email,
       phone: data.phone,
@@ -289,6 +359,9 @@ router.post('/reservations', async (req: Request, res: Response) => {
       days,
       basePrice,
       deliveryFee,
+      weekendFee: weekendPickupFee,
+      addons: wycenaDodatkow.items,
+      addonsFee,
       totalPrice,
       discountCode: discount.source === 'coupon' && staffPricing?.discountAmount === undefined
         ? discount.code
@@ -310,12 +383,30 @@ router.post('/reservations', async (req: Request, res: Response) => {
     }
 
     if (result.conflicts) {
-      const conflictInfo = result.conflicts
-        .map((c: any) => `${getProductName(c.product_id)}: ${c.start_date} - ${c.end_date || 'bezterminowo'}`)
-        .join(', ');
+      // "Zajęte w tym terminie" i "sprzętu w ogóle nie ma" to dla klienta dwie
+      // różne sytuacje - druga nie zniknie po wybraniu innych dat.
+      const brakSprzetu = result.conflicts.filter((c: any) => Number(c.rentable_quantity) === 0);
+      const zajete = result.conflicts.filter((c: any) => Number(c.rentable_quantity) > 0);
+
+      const czesci: string[] = [];
+      if (brakSprzetu.length > 0) {
+        czesci.push(
+          `${brakSprzetu.map((c: any) => getProductName(c.product_id)).join(', ')} — chwilowo niedostępny (serwis lub brak w magazynie)`
+        );
+      }
+      if (zajete.length > 0) {
+        czesci.push(
+          `${zajete
+            .map((c: any) => `${getProductName(c.product_id)}: zajęty ${c.start_date} - ${c.end_date || 'bezterminowo'}`)
+            .join(', ')}`
+        );
+      }
+
       res.status(409).json({
         success: false,
-        message: `Produkt jest już zarezerwowany w wybranym terminie (${conflictInfo}). Wybierz inne daty.`,
+        message: zajete.length > 0
+          ? `${czesci.join('. ')}. Wybierz inne daty lub inne urządzenie.`
+          : `${czesci.join('. ')}. Prosimy o kontakt — podpowiemy zamiennik.`,
         errors: [{ field: 'dates', message: 'Termin niedostępny' }],
       });
       return;
@@ -329,6 +420,12 @@ router.post('/reservations', async (req: Request, res: Response) => {
       days,
       basePrice,
       deliveryFee,
+      weekendFee: weekendPickupFee,
+      addons: wycenaDodatkow.items,
+      addonsFee,
+      discountAmount,
+      discountLabel,
+      discountCode: discount.source === 'coupon' ? discount.code : null,
       totalPrice,
       productName: pricing.items.map((item) => item.productName).join(', '),
       startTime: data.startTime,
@@ -375,6 +472,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
         days,
         basePrice,
         deliveryFee,
+        weekendFee: weekendPickupFee,
+        addons: wycenaDodatkow.items,
+        addonsFee,
+        discountAmount,
         totalPrice,
       },
     });
@@ -444,7 +545,7 @@ router.get('/reservations/product/:productId', async (req: Request, res: Respons
       queries.getReservationsByProduct(productId),
     ]);
     const rentableQuantity = product && product.is_active
-      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity), 0)
+      ? Math.max(Number(product.total_quantity) - Number(product.service_quantity) - Number(product.withdrawn_quantity || 0), 0)
       : 0;
     const blockedDates = calculateFullyBookedRanges(
       reservations.map((reservation: any) => ({
@@ -677,6 +778,33 @@ router.post('/notifications/product', async (req: Request, res: Response) => {
 
 // === MOJE REZERWACJE (magic-link, bez rejestracji) ===
 
+/**
+ * Klient anuluje sam tylko dopoki nic wiazacego sie nie wydarzylo. Po podpisaniu
+ * umowy albo po wplacie anulowanie jednym klikiem zostawialoby podpisany dokument
+ * i pobrane pieniadze bez zadnego rozliczenia - to musi przejsc przez obsluge.
+ */
+function powodBrakuAnulowania(reservation: {
+  status: string;
+  payment_status?: string | null;
+  contract_status?: string | null;
+  start_date: string | Date;
+}): string | null {
+  if (!['pending', 'confirmed'].includes(reservation.status)) {
+    return 'Tej rezerwacji nie można już anulować';
+  }
+  if (reservation.contract_status === 'signed') {
+    return 'Umowa została już podpisana — skontaktuj się z nami telefonicznie, żeby ustalić rezygnację';
+  }
+  if (reservation.payment_status === 'paid') {
+    return 'Rezerwacja jest opłacona — skontaktuj się z nami telefonicznie, żeby ustalić zwrot płatności';
+  }
+  const dzisiaj = new Date().toISOString().split('T')[0];
+  if (String(reservation.start_date).slice(0, 10) <= dzisiaj) {
+    return 'Rezerwacji nie można anulować w dniu rozpoczęcia — skontaktuj się z nami telefonicznie';
+  }
+  return null;
+}
+
 // Request an access link (always 200 - no email enumeration)
 router.post('/my-reservations/request-link', myReservationsLimiter, async (req: Request, res: Response) => {
   try {
@@ -714,6 +842,7 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
     }
 
     const reservations = await queries.getReservationsByEmail(email);
+    const now = Date.now();
     res.json({
       success: true,
       email,
@@ -728,6 +857,11 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
           ...r,
           items,
           productName: items.map((item: any) => item.productName).join(', '),
+          // Ten sam etap co w panelu - klient i obsluga nie moga widziec dwoch
+          // roznych wersji tego samego najmu.
+          stage: describeRentalStage(r, now),
+          canPayOnline: canCustomerPayOnline(r),
+          cancelBlockedReason: powodBrakuAnulowania(r),
         };
       }),
     });
@@ -753,14 +887,9 @@ router.post('/my-reservations/:id/cancel', async (req: Request, res: Response) =
       return;
     }
 
-    if (!['pending', 'confirmed'].includes(reservation.status)) {
-      res.status(409).json({ success: false, message: 'Tej rezerwacji nie można już anulować' });
-      return;
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    if (String(reservation.start_date) <= today) {
-      res.status(409).json({ success: false, message: 'Rezerwacji nie można anulować w dniu rozpoczęcia — skontaktuj się z nami telefonicznie' });
+    const przeszkoda = powodBrakuAnulowania(reservation);
+    if (przeszkoda) {
+      res.status(409).json({ success: false, message: przeszkoda });
       return;
     }
 
@@ -770,6 +899,78 @@ router.post('/my-reservations/:id/cancel', async (req: Request, res: Response) =
   } catch (error) {
     console.error('Cancel reservation error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// === PRZEDŁUŻENIE NAJMU ===
+// Aneks powstaje od razu, ale wiąże Strony dopiero po zapłacie (§5 ust. 3 umowy).
+
+/** Wspólne sprawdzenie: token pasuje do rezerwacji. */
+async function rezerwacjaKlienta(req: Request) {
+  const email = verifyCustomerToken(String(req.body?.token || req.query?.token || ''));
+  if (!email) return { blad: 'Link wygasł lub jest nieprawidłowy. Poproś o nowy.', kod: 401 as const };
+  const rezerwacja = await queries.getReservationById(Number(req.params.id));
+  if (!rezerwacja || rezerwacja.email.toLowerCase() !== email.toLowerCase()) {
+    return { blad: 'Rezerwacja nie znaleziona', kod: 404 as const };
+  }
+  return { rezerwacja };
+}
+
+router.post('/my-reservations/:id/extension/quote', async (req: Request, res: Response) => {
+  try {
+    const kontekst = await rezerwacjaKlienta(req);
+    if (kontekst.blad) {
+      res.status(kontekst.kod).json({ success: false, message: kontekst.blad });
+      return;
+    }
+    const dane = extensionRequestSchema.parse(req.body);
+    const wynik = await wycenPrzedluzenie(kontekst.rezerwacja.id, dane);
+    if (!wynik.ok) {
+      res.status(400).json({ success: false, message: wynik.powod });
+      return;
+    }
+    res.json({ success: true, data: wynik.wycena });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź podany termin' });
+      return;
+    }
+    console.error('Extension quote error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wycenić przedłużenia' });
+  }
+});
+
+router.post('/my-reservations/:id/extension', async (req: Request, res: Response) => {
+  try {
+    const kontekst = await rezerwacjaKlienta(req);
+    if (kontekst.blad) {
+      res.status(kontekst.kod).json({ success: false, message: kontekst.blad });
+      return;
+    }
+    const dane = extensionRequestSchema.parse(req.body);
+    const wynik = await rozpocznijPrzedluzenie(kontekst.rezerwacja.id, dane, getClientIp(req));
+    if (!wynik.ok) {
+      res.status(409).json({ success: false, message: wynik.powod });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Masz ${MINUT_NA_PLATNOSC} minut na opłacenie dopłaty. Sprzęt jest zarezerwowany.`,
+      data: {
+        numerAneksu: wynik.aneks.numer,
+        doplata: wynik.wycena.doplata,
+        nowaKwota: wynik.wycena.nowaKwota,
+        redirectUrl: wynik.platnosc.redirectUrl,
+        wygasa: wynik.wygasa,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź podany termin' });
+      return;
+    }
+    console.error('Extension start error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się rozpocząć przedłużenia' });
   }
 });
 

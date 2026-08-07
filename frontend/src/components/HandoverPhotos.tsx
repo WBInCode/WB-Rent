@@ -13,6 +13,9 @@ interface HandoverPhotosProps {
   reservationId: number;
   takenBy?: string;
   onNotify?: (message: string, tone?: 'success' | 'error') => void;
+  /** Ograniczenie do jednej fazy - protokół wydania nie potrzebuje zdjęć zwrotu. */
+  phases?: PhotoPhase[];
+  onCountChange?: (counts: Record<PhotoPhase, number>) => void;
 }
 
 const PHASE_LABEL: Record<PhotoPhase, string> = {
@@ -158,7 +161,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
 }
 
 /** Condition evidence for a rental: photos taken at handover and at return. */
-export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPhotosProps) {
+export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCountChange }: HandoverPhotosProps) {
   const [photos, setPhotos] = useState<ReservationPhoto[]>([]);
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState<PhotoPhase | null>(null);
@@ -171,7 +174,13 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
 
   const load = async () => {
     const response = await getReservationPhotos(reservationId);
-    if (response.success) setPhotos(response.data || []);
+    if (!response.success) return;
+    const lista: ReservationPhoto[] = response.data || [];
+    setPhotos(lista);
+    onCountChange?.({
+      before: lista.filter((photo) => photo.phase === 'before').length,
+      after: lista.filter((photo) => photo.phase === 'after').length,
+    });
   };
 
   useEffect(() => {
@@ -248,7 +257,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
               {phasePhotos.length > 0 ? `${phasePhotos.length} zdjęć` : 'Brak zdjęć'}
             </p>
           </div>
-          <input
+          <input spellCheck={false}
             ref={inputRef}
             type="file"
             accept="image/*"
@@ -272,7 +281,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
               type="button"
               onClick={() => setCameraPhase(phase)}
               disabled={uploading !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/35 px-3 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-40"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/35 px-3 text-sm font-medium text-gold-light light:text-gold-dark transition-colors hover:bg-gold/10 disabled:opacity-40"
             >
               {uploading === phase ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -317,8 +326,8 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify }: HandoverPho
 
   return (
     <div className="space-y-3">
-      {renderPhase('before', beforeInput)}
-      {renderPhase('after', afterInput)}
+      {(!phases || phases.includes('before')) && renderPhase('before', beforeInput)}
+      {(!phases || phases.includes('after')) && renderPhase('after', afterInput)}
       {cameraPhase && (
         <CameraDialog
           title={PHASE_LABEL[cameraPhase]}

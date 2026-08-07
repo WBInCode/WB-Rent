@@ -92,8 +92,9 @@
   --wb-gold-contrast: #0a0a0a;
 
   --wb-text-primary: #ffffff;
-  --wb-text-secondary: #9a9a9a;
-  --wb-text-muted: #5a5a5a;
+  --wb-text-secondary: #b4b4b4;
+  /* Etykiety i podpisy to nadal treść, którą ktoś musi przeczytać — 4.5:1 na tle karty. */
+  --wb-text-muted: #8f8f8f;
 
   --wb-border: rgba(255, 255, 255, 0.08);
   --wb-border-hover: rgba(255, 255, 255, 0.15);
@@ -135,7 +136,8 @@
 
   --wb-text-primary: #16151a;
   --wb-text-secondary: #56534c;
-  --wb-text-muted: #6b675f;
+  /* Etykiety i podpisy to nadal treść, którą ktoś musi przeczytać — 4.5:1 na tle karty. */
+  --wb-text-muted: #5f5b53;
 
   --wb-border: rgba(23, 22, 26, 0.1);
   --wb-border-hover: rgba(23, 22, 26, 0.2);
@@ -155,6 +157,11 @@
 }
 
 /* === BASE STYLES === */
+/* Stałe odcienie palety Tailwind (amber-400, emerald-400…) są dobrane pod ciemne
+   tło i na jasnym gubią kontrast. Wariant `light:` pozwala podać ciemniejszy
+   odcień tylko dla jasnego motywu, bez ruszania wyglądu ciemnego. */
+@custom-variant light (&:where([data-theme='light'] *));
+
 *,
 *::before,
 *::after {

@@ -1,5 +1,49 @@
 import { getProductCatalog } from '@/services/api';
 
+/**
+ * Płatny dodatek do sprzętu: worek, środek czyszczący, płyn do dezynfekcji.
+ * To sprzedaż towaru zużywalnego, a nie najem, więc cena jest jednorazowa —
+ * nie mnoży się przez doby i nie obejmuje jej rabat na najem.
+ */
+export interface ProductAddon {
+  id: string;
+  nazwa: string;
+  cena: number;
+}
+
+/** NFD nie rozkłada „ł", więc ten jeden znak trzeba podmienić ręcznie. */
+const bezOgonkow = (tekst: string): string =>
+  tekst.replace(/ł/g, 'l').replace(/Ł/g, 'L').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Lista dodatków nie ma własnych kluczy w bazie — identyfikator liczymy z nazwy. */
+export const addonId = (nazwa: string): string =>
+  bezOgonkow(nazwa).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+
+const dodatek = (nazwa: string, cena: number): ProductAddon => ({ id: addonId(nazwa), nazwa, cena });
+
+/**
+ * Dodatki sprowadzone do jednej postaci. Serwer potrafi jeszcze zwrócić starszy
+ * zapis — samą nazwę, z jedną ceną wspólną dla całego sprzętu.
+ */
+export const normalizeAddons = (surowe: unknown, cenaZapasowa = 0): ProductAddon[] => {
+  if (!Array.isArray(surowe)) return [];
+  const wynik: ProductAddon[] = [];
+  for (const pozycja of surowe) {
+    const zTekstu = typeof pozycja === 'string';
+    const nazwa = (zTekstu ? pozycja : String((pozycja as ProductAddon)?.nazwa ?? '')).trim();
+    if (!nazwa) continue;
+    const surowaCena = Number(zTekstu ? cenaZapasowa : (pozycja as ProductAddon)?.cena);
+    const id = addonId(nazwa);
+    if (!id || wynik.some((istniejacy) => istniejacy.id === id)) continue;
+    wynik.push({
+      id,
+      nazwa,
+      cena: Number.isFinite(surowaCena) && surowaCena > 0 ? Math.round(surowaCena * 100) / 100 : 0,
+    });
+  }
+  return wynik;
+};
+
 // WB-Rent - Real product data based on actual pricing
 export interface Product {
   id: string;
@@ -12,7 +56,7 @@ export interface Product {
   priceNextDay: number;
   priceWeekend: number;
   includedAccessories: string[];
-  optionalAccessories: string[];
+  optionalAccessories: ProductAddon[];
   accessoryPrice?: number;
   transportPrice: number;
   weekendPickupFee: number;
@@ -76,7 +120,7 @@ export const products: Product[] = [
     priceNextDay: 45,
     priceWeekend: 150,
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: [dodatek('Środek czyszczący Kärcher RM 780', 10)],
     accessoryPrice: 10,
     transportPrice: 20,
     weekendPickupFee: 30,
@@ -93,7 +137,7 @@ export const products: Product[] = [
     priceNextDay: 40,
     priceWeekend: 130,
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: [dodatek('Środek czyszczący Kärcher RM 780', 10)],
     accessoryPrice: 10,
     transportPrice: 20,
     weekendPickupFee: 30,
@@ -111,7 +155,7 @@ export const products: Product[] = [
     priceNextDay: 45,
     priceWeekend: 110,
     includedAccessories: ['worek do odkurzacza'],
-    optionalAccessories: ['Worki do odkurzacza'],
+    optionalAccessories: [dodatek('Worki do odkurzacza', 15)],
     accessoryPrice: 15,
     transportPrice: 20,
     weekendPickupFee: 30,
@@ -128,7 +172,7 @@ export const products: Product[] = [
     priceNextDay: 60,
     priceWeekend: 140,
     includedAccessories: ['worek do odkurzacza'],
-    optionalAccessories: ['Worki do odkurzacza'],
+    optionalAccessories: [dodatek('Worki do odkurzacza', 20)],
     accessoryPrice: 20,
     transportPrice: 20,
     weekendPickupFee: 30,
@@ -226,8 +270,8 @@ export const products: Product[] = [
     pricePerDay: 25,
     priceNextDay: 25,
     priceWeekend: 60,
-    includedAccessories: ['2x 20ml Środek do dezynfekcji RM 735'],
-    optionalAccessories: ['Środek do dezynfekcji RM 735'],
+    includedAccessories: ['2x 20ml środek do dezynfekcji RM 735'],
+    optionalAccessories: [dodatek('Środek do dezynfekcji RM 735', 3)],
     accessoryPrice: 3,
     transportPrice: 20,
     weekendPickupFee: 30,
@@ -244,7 +288,7 @@ export const products: Product[] = [
     priceNextDay: 30,
     priceWeekend: 70,
     includedAccessories: ['2x 20ml środek do szyb Kärcher RM 503'],
-    optionalAccessories: ['środek do szyb Kärcher RM 503 (20ml)'],
+    optionalAccessories: [dodatek('Środek do szyb Kärcher RM 503 (20ml)', 0)],
     transportPrice: 20,
     weekendPickupFee: 30,
     features: ['Akumulatorowa', 'Spryskiwacz', 'Bez smug'],
@@ -254,6 +298,11 @@ export const products: Product[] = [
 
 export const DELIVERY_FEE = 20; // PLN - transport każdą stronę
 export const WEEKEND_PICKUP_FEE = 30; // PLN - odbiór w sobotę lub niedzielę
+
+// Bez pobranego katalogu znamy tylko wgraną na sztywno listę, która nie zna
+// stanów magazynowych - wtedy nie wolno deklarować dostępności sprzętu.
+let catalogLoaded = false;
+export const isCatalogLoaded = () => catalogLoaded;
 
 export async function loadProductCatalog(): Promise<void> {
   const response = await getProductCatalog();
@@ -280,9 +329,10 @@ export async function loadProductCatalog(): Promise<void> {
       includedAccessories: row.includedAccessories?.length
         ? row.includedAccessories
         : fallback?.includedAccessories || [],
-      optionalAccessories: row.optionalAccessories?.length
-        ? row.optionalAccessories
-        : fallback?.optionalAccessories || [],
+      optionalAccessories: normalizeAddons(
+        row.optionalAccessories?.length ? row.optionalAccessories : fallback?.optionalAccessories,
+        row.accessoryPrice || fallback?.accessoryPrice || 0
+      ),
       accessoryPrice: row.accessoryPrice || fallback?.accessoryPrice,
       transportPrice: fallback?.transportPrice ?? DELIVERY_FEE,
       weekendPickupFee: fallback?.weekendPickupFee ?? WEEKEND_PICKUP_FEE,
@@ -294,6 +344,7 @@ export async function loadProductCatalog(): Promise<void> {
   });
 
   products.splice(0, products.length, ...hydrated);
+  catalogLoaded = true;
 }
 
 // Helper functions
@@ -312,9 +363,10 @@ export function getCategoryById(categoryId: string): Category | undefined {
 export function calculateRentalCost(
   productId: string,
   days: number,
-  withDelivery: boolean,
+  withDelivery: boolean | { dowoz: boolean; odbior: boolean },
   isWeekend: boolean = false,
-  weekendPickup: boolean = false
+  /** Ile zdarzeń wypada w weekend — wydanie i zwrot liczą się osobno (§12 umowy). */
+  weekendPickup: boolean | number = false
 ): { 
   basePrice: number; 
   deliveryFee: number; 
@@ -336,9 +388,48 @@ export function calculateRentalCost(
     basePrice = product.pricePerDay + (product.priceNextDay * (days - 1));
   }
 
-  const deliveryFee = withDelivery ? DELIVERY_FEE * 2 : 0; // Both ways
-  const pickupFee = weekendPickup ? WEEKEND_PICKUP_FEE : 0;
+  // Dowóz i odbiór to dwa niezależne kursy, każdy płatny osobno.
+  const kursy = typeof withDelivery === 'boolean'
+    ? (withDelivery ? 2 : 0)
+    : (withDelivery.dowoz ? 1 : 0) + (withDelivery.odbior ? 1 : 0);
+  const deliveryFee = kursy * DELIVERY_FEE;
+  const zdarzeniaWeekendowe = typeof weekendPickup === 'boolean' ? (weekendPickup ? 1 : 0) : weekendPickup;
+  const pickupFee = zdarzeniaWeekendowe * WEEKEND_PICKUP_FEE;
   const total = basePrice + deliveryFee + pickupFee;
 
   return { basePrice, deliveryFee, weekendPickupFee: pickupFee, total };
+}
+
+export interface PricedAddon extends ProductAddon {
+  productId: string;
+  ilosc: number;
+  suma: number;
+}
+
+/** Dodatki, które da się zamówić — pozycja bez ceny nie jest na sprzedaż. */
+export function availableAddons(produkty: Product[]): Array<{ produkt: Product; dodatki: ProductAddon[] }> {
+  return produkty
+    .map((produkt) => ({ produkt, dodatki: produkt.optionalAccessories.filter((pozycja) => pozycja.cena > 0) }))
+    .filter((wpis) => wpis.dodatki.length > 0);
+}
+
+/** Podgląd kwoty za dodatki; wiążącą sumę i tak przelicza serwer z katalogu. */
+export function priceAddons(
+  produkty: Product[],
+  ilosci: Record<string, number>
+): { items: PricedAddon[]; fee: number } {
+  const items: PricedAddon[] = [];
+  for (const { produkt, dodatki } of availableAddons(produkty)) {
+    for (const dodatekProduktu of dodatki) {
+      const ilosc = Math.floor(ilosci[dodatekProduktu.id] || 0);
+      if (ilosc <= 0 || items.some((item) => item.id === dodatekProduktu.id)) continue;
+      items.push({
+        ...dodatekProduktu,
+        productId: produkt.id,
+        ilosc,
+        suma: Math.round(dodatekProduktu.cena * ilosc * 100) / 100,
+      });
+    }
+  }
+  return { items, fee: Math.round(items.reduce((suma, item) => suma + item.suma, 0) * 100) / 100 };
 }

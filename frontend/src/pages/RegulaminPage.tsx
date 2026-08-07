@@ -54,7 +54,7 @@ export function RegulaminPage() {
           >
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-[--radius-sm] bg-gold/10 border border-gold/30 flex items-center justify-center">
-                <FileText className="w-7 h-7 text-gold" />
+                <FileText className="w-7 h-7 text-gold-light light:text-gold-dark" />
               </div>
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold text-text-primary">
@@ -254,7 +254,7 @@ export function RegulaminPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Phone className="w-5 h-5 text-gold" />
+                      <Phone className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Telefon</p>
@@ -266,7 +266,7 @@ export function RegulaminPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Mail className="w-5 h-5 text-gold" />
+                      <Mail className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Email</p>

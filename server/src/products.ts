@@ -33,7 +33,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Profesjonalny odkurzacz piorący do tapicerki, dywanów i wykładzin',
     features: ['Pranie tapicerki', 'Dywany i wykładziny', 'Zbiornik 10L'],
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: ['Środek czyszczący Kärcher RM 780'],
     accessoryPrice: 10,
   },
   'puzzi-8-1': {
@@ -42,7 +42,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Kompaktowy odkurzacz piorący idealny do mniejszych powierzchni',
     features: ['Pranie tapicerki', 'Kompaktowy', 'Zbiornik 8L'],
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: ['Środek czyszczący Kärcher RM 780'],
     accessoryPrice: 10,
   },
   'nt-22-1': {
@@ -98,7 +98,7 @@ export const products: Record<string, ServerProduct> = {
     pricePerDay: 25, priceNextDay: 25, priceWeekend: 60, categoryId: 'pozostale',
     description: 'Przenośny system do dezynfekcji powierzchni',
     features: ['Akumulatorowy', 'Plecakowy', 'Do 7L'],
-    includedAccessories: ['2x 20ml Środek do dezynfekcji RM 735'],
+    includedAccessories: ['2x 20ml środek do dezynfekcji RM 735'],
     optionalAccessories: ['Środek do dezynfekcji RM 735'],
     accessoryPrice: 3,
   },
@@ -108,7 +108,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Profesjonalna myjka do okien z funkcją spryskiwania',
     features: ['Akumulatorowa', 'Spryskiwacz', 'Bez smug'],
     includedAccessories: ['2x 20ml środek do szyb Kärcher RM 503'],
-    optionalAccessories: ['środek do szyb Kärcher RM 503 (20ml)'],
+    optionalAccessories: ['Środek do szyb Kärcher RM 503 (20ml)'],
   },
 };
 
@@ -202,6 +202,125 @@ export const calculateRentalItemsPrice = (
   };
 };
 
-// 20 zł each way, matching the public calculator (+40 zł total)
-export const DELIVERY_FEE = 40;
-export const WEEKEND_PICKUP_FEE = 30;
+/**
+ * Stawki zgodne z §12 umowy: obie są liczone „każdorazowo", czyli od kursu
+ * i od zdarzenia, a nie raz na najem. Dowóz i odbiór to dwa osobne kursy,
+ * więc komplet kosztuje 2 × 20 zł — tyle samo co dotychczasowy ryczałt.
+ */
+export const DELIVERY_LEG_FEE = 20;
+export const WEEKEND_SERVICE_FEE = 30;
+
+/** Zgodne nazwy dla kodu, który jeszcze nie rozróżnia kursów. */
+export const DELIVERY_FEE = DELIVERY_LEG_FEE * 2;
+export const WEEKEND_PICKUP_FEE = WEEKEND_SERVICE_FEE;
+
+/**
+ * Płatny dodatek do sprzętu: worek, środek czyszczący, płyn do dezynfekcji.
+ * To sprzedaż towaru zużywalnego, a nie najem, więc cena jest jednorazowa —
+ * nie mnoży się przez doby i nie obejmuje jej rabat na najem.
+ */
+export interface ProductAddon {
+  id: string;
+  nazwa: string;
+  cena: number;
+}
+
+/** NFD nie rozkłada „ł", więc ten jeden znak trzeba podmienić ręcznie. */
+const bezOgonkow = (tekst: string): string =>
+  tekst.replace(/ł/g, 'l').replace(/Ł/g, 'L').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Lista dodatków nie ma własnych kluczy w bazie — identyfikator liczymy z nazwy. */
+export const addonId = (nazwa: string): string =>
+  bezOgonkow(nazwa).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+
+const zaokraglij = (kwota: number) => Math.round(kwota * 100) / 100;
+
+/**
+ * Dodatki sprowadzone do jednej postaci. W bazie leżą dwa kształty: starsze
+ * wpisy to same nazwy z jedną ceną wspólną dla całego sprzętu, nowsze mają
+ * cenę przy każdej pozycji.
+ */
+export const normalizeAddons = (surowe: unknown, cenaZapasowa = 0): ProductAddon[] => {
+  if (!Array.isArray(surowe)) return [];
+  const wynik: ProductAddon[] = [];
+  for (const pozycja of surowe) {
+    const zTekstu = typeof pozycja === 'string';
+    const nazwa = (zTekstu ? pozycja : String((pozycja as any)?.nazwa ?? '')).trim();
+    if (!nazwa) continue;
+    const surowaCena = Number(zTekstu ? cenaZapasowa : (pozycja as any)?.cena);
+    const id = addonId(nazwa);
+    if (!id || wynik.some((istniejacy) => istniejacy.id === id)) continue;
+    wynik.push({
+      id,
+      nazwa,
+      cena: Number.isFinite(surowaCena) && surowaCena > 0 ? zaokraglij(surowaCena) : 0,
+    });
+  }
+  return wynik;
+};
+
+export interface AddonSelection {
+  id: string;
+  quantity: number;
+}
+
+export interface PricedAddon {
+  productId: string;
+  id: string;
+  nazwa: string;
+  cena: number;
+  ilosc: number;
+  suma: number;
+}
+
+/** Sprzęt i jego dodatki — tyle wystarczy do wyceny zamówionych pozycji. */
+export interface AddonCatalogEntry {
+  productId: string;
+  dodatki: ProductAddon[];
+}
+
+/**
+ * Wycena dodatków wyłącznie z katalogu — cena przysłana przez przeglądarkę
+ * nigdy nie decyduje o kwocie. Pozycja bez ceny nie jest na sprzedaż, więc
+ * jej zamówienie jest błędem, a nie cichym zerem.
+ */
+export const priceAddons = (
+  katalog: AddonCatalogEntry[],
+  wybor: AddonSelection[]
+): { items: PricedAddon[]; fee: number } | { error: string } => {
+  const items: PricedAddon[] = [];
+  for (const pozycja of wybor) {
+    const ilosc = Math.floor(Number(pozycja.quantity) || 0);
+    if (ilosc <= 0) continue;
+    const wpis = katalog.find((sprzet) => sprzet.dodatki.some((dodatek) => dodatek.id === pozycja.id));
+    const dodatek = wpis?.dodatki.find((kandydat) => kandydat.id === pozycja.id);
+    if (!wpis || !dodatek) return { error: 'Wybrany dodatek nie jest dostępny do tego sprzętu' };
+    if (!(dodatek.cena > 0)) return { error: `Dodatek „${dodatek.nazwa}" nie ma jeszcze ustalonej ceny` };
+    const istniejacy = items.find((item) => item.id === dodatek.id);
+    if (istniejacy) {
+      istniejacy.ilosc += ilosc;
+      istniejacy.suma = zaokraglij(istniejacy.cena * istniejacy.ilosc);
+      continue;
+    }
+    items.push({
+      productId: wpis.productId,
+      id: dodatek.id,
+      nazwa: dodatek.nazwa,
+      cena: dodatek.cena,
+      ilosc,
+      suma: zaokraglij(dodatek.cena * ilosc),
+    });
+  }
+  return { items, fee: zaokraglij(items.reduce((suma, item) => suma + item.suma, 0)) };
+};
+
+/** Wszystkie urzadzenia rezerwacji - pozycje zestawu albo pojedynczy produkt. */
+export const reservationProductIds = (reservation: any): string[] => {
+  if (Array.isArray(reservation?.items) && reservation.items.length > 0) {
+    return reservation.items.map((item: any) => String(item.product_id));
+  }
+  return reservation?.product_id ? [String(reservation.product_id)] : [];
+};
+
+export const reservationProductNames = (reservation: any): string =>
+  reservationProductIds(reservation).map(getProductName).join(', ');

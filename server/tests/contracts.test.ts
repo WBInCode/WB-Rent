@@ -9,6 +9,7 @@ const { encryptContractData, decryptContractData, sha256, randomSigningToken, si
 const { createContractSchema, buildDefaultHandoverItems } = await import('../src/contracts/service.js');
 const { generateContractPdf } = await import('../src/contracts/pdf.js');
 const { buildContractClauses, CONTRACT_TEMPLATE_VERSION } = await import('../src/contracts/template.js');
+const { pl } = await import('../src/contracts/typography.js');
 
 describe('szyfrowanie umów AES-256-GCM', () => {
   it('round-trip zachowuje polskie znaki i dane dokumentu', () => {
@@ -96,23 +97,34 @@ describe('walidacja danych umowy', () => {
 });
 
 describe('treść umowy względem dokumentów papierowych', () => {
+  // Kwoty i wyliczenia używają twardych spacji - porównujemy po normalizacji.
+  const plain = (value: string) => value.replace(/\u00A0/g, ' ');
   const puzzi = {
     deviceName: 'Kärcher Puzzi 10/1',
     equipmentValue: 4551,
     includedConsumables: '2 × 100 g środka czyszczącego Kärcher RM 760',
     extraConsumable: { label: 'RM 760 (100 g)', price: 10 },
     deepCleaningNote: 'zabrudzone zbiorniki',
+    itemPrice: 90,
+    dailyRate: 45,
   };
   const nt22 = {
     deviceName: 'Kärcher NT 22/1 Ap L',
     equipmentValue: 984,
     mandatoryConsumable: { label: 'worek filtrujący', price: 15, note: 'Worki są materiałem zużywalnym.' },
     deepCleaningNote: 'zabrudzony filtr',
+    itemPrice: 105,
+    dailyRate: 52.5,
   };
   const period = 'od dnia 01.08.2026 r., godz. 09:00 (wydanie) do dnia 03.08.2026 r., godz. 09:00 (zwrot)';
+  const handover = {
+    accessories: 'Wąż, ssawka, środek czyszczący',
+    conditionNotes: 'Sprzęt sprawny, kompletny, bez uszkodzeń',
+    delivery: false,
+  };
 
   it('zachowuje numerację paragrafów z umowy papierowej wraz z §2a i §3a', () => {
-    const clauses = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45 });
+    const clauses = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45, ...handover });
     expect(clauses.map((clause) => clause.number)).toEqual(
       ['1', '2', '2a', '3', '3a', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']
     );
@@ -120,38 +132,98 @@ describe('treść umowy względem dokumentów papierowych', () => {
   });
 
   it('§1 podaje realny okres najmu i wartość sprzętu', () => {
-    const [first] = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45 });
-    expect(first.points?.[1]).toContain('4 551,00 zł');
+    const [first] = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45, ...handover });
+    expect(plain(first.points?.[1] || '')).toContain('4 551,00 zł');
     expect(first.points?.[2]).toContain('01.08.2026');
     expect(first.points?.[2]).toContain('03.08.2026');
   });
 
-  it('przy kilku urządzeniach wymienia każde z osobna i sumuje wartości', () => {
-    const clauses = buildContractClauses({ devices: [puzzi, nt22], rentalPeriod: period, totalPrice: 195, deposit: 0, dailyRate: 45 });
-    const subject = clauses[0].points?.[0] || '';
-    expect(subject).toContain('1) Kärcher Puzzi 10/1');
-    expect(subject).toContain('2) Kärcher NT 22/1 Ap L');
-    expect(clauses[0].points?.[1]).toContain('łącznie 5 535,00 zł');
+  it('przy kilku urządzeniach wymienia każde od nowej linii i sumuje wartości', () => {
+    const clauses = buildContractClauses({ devices: [puzzi, nt22], rentalPeriod: period, totalPrice: 195, deposit: 0, dailyRate: 45, ...handover });
+    const subject = plain(clauses[0].points?.[0] || '');
+    expect(subject).toContain('\na) Kärcher Puzzi 10/1,');
+    expect(subject).toContain('\nb) Kärcher NT 22/1 Ap L.');
+    expect(plain(clauses[0].points?.[1] || '')).toContain('Łączna wartość Sprzętu wynosi 5 535,00 zł');
+
+    // Czynsz rozbity na pozycje w §2, tak jak sprzęt w §1.
+    const rent = plain(clauses[1].points?.[0] || '');
+    expect(rent).toContain('\na) Kärcher Puzzi 10/1 – 90,00 zł,');
+    expect(rent).toContain('\nb) Kärcher NT 22/1 Ap L – 105,00 zł.');
 
     const cennik = clauses.find((clause) => clause.number === '12');
     expect(cennik?.points?.some((point) => point.includes('worek filtrujący') && point.includes('NT 22/1'))).toBe(true);
     expect(cennik?.points?.some((point) => point.includes('RM 760') && point.includes('Puzzi 10/1'))).toBe(true);
   });
 
-  it('§2a rozróżnia najem z kaucją i bez kaucji', () => {
-    const withDeposit = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 300, dailyRate: 45 });
-    const without = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45 });
-    expect(withDeposit.find((clause) => clause.number === '2a')?.points?.[0]).toContain('300,00 zł');
-    expect(without.find((clause) => clause.number === '2a')?.points?.[0]).toContain('kaucja wynosi 0,00 zł');
+  it('§12 podaje stawkę dobową osobno dla każdego urządzenia', () => {
+    const cennik = buildContractClauses({ devices: [puzzi, nt22], rentalPeriod: period, totalPrice: 195, deposit: 0, dailyRate: 97.5, ...handover })
+      .find((clause) => clause.number === '12');
+
+    const rates = plain(cennik?.points?.[0] || '');
+    expect(rates).toContain('\na) Kärcher Puzzi 10/1 – 45,00 zł brutto za dobę,');
+    expect(rates).toContain('\nb) Kärcher NT 22/1 Ap L – 52,50 zł brutto za dobę.');
+    expect(rates).toContain('Łączna stawka dobowa za cały Sprzęt wynosi 97,50 zł brutto');
+
+    // Każde urządzenie ma opisane materiały eksploatacyjne i zabrudzenia — także te bez nich.
+    const consumables = plain(cennik?.points?.find((point) => point.startsWith('Materiały eksploatacyjne')) || '');
+    expect(consumables).toContain('a) Kärcher Puzzi 10/1 – w cenie najmu');
+    expect(consumables).toContain('b) Kärcher NT 22/1 Ap L – worek filtrujący');
+
+    const cleaning = plain(cennik?.points?.find((point) => point.startsWith('Za ponadprzeciętne')) || '');
+    expect(cleaning).toContain('a) Kärcher Puzzi 10/1 – zabrudzone zbiorniki,');
+    expect(cleaning).toContain('b) Kärcher NT 22/1 Ap L – zabrudzony filtr.');
   });
 
-  it('protokół wydania przypisuje pozycje do konkretnego urządzenia', () => {
+  it('urządzenie bez materiałów eksploatacyjnych ma to wprost napisane w §12', () => {
+    const bare = { ...nt22, mandatoryConsumable: undefined, deviceName: 'Ozonmed PRO 10G' };
+    const cennik = buildContractClauses({ devices: [puzzi, bare], rentalPeriod: period, totalPrice: 195, deposit: 0, dailyRate: 97.5, ...handover })
+      .find((clause) => clause.number === '12');
+    expect(cennik?.points?.some((point) => point.includes('brak materiałów eksploatacyjnych rozliczanych odrębnie'))).toBe(true);
+  });
+
+  it('§1 przenosi akcesoria i stan sprzętu z dawnej sekcji "Dane najmu"', () => {
+    const [first] = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45, ...handover });
+    expect(first.points?.some((point) => point.includes('Wąż, ssawka, środek czyszczący'))).toBe(true);
+    expect(first.points?.some((point) => point.includes('Sprzęt sprawny, kompletny, bez uszkodzeń'))).toBe(true);
+  });
+
+  it('§2a rozróżnia najem z kaucją i bez kaucji', () => {
+    const withDeposit = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 300, dailyRate: 45, ...handover });
+    const without = buildContractClauses({ devices: [puzzi], rentalPeriod: period, totalPrice: 90, deposit: 0, dailyRate: 45, ...handover });
+    expect(plain(withDeposit.find((clause) => clause.number === '2a')?.points?.[0] || '')).toContain('300,00 zł');
+    expect(plain(without.find((clause) => clause.number === '2a')?.points?.[0] || '')).toContain('kaucja wynosi 0,00 zł');
+  });
+
+  it('protokół wydania grupuje pozycje per urządzenie', () => {
     const single = buildDefaultHandoverItems(['puzzi-10-1']);
     expect(single[0]).toBe('Odkurzacz Kärcher Puzzi 10/1');
+    expect(single.every((line) => !/^[a-z]\)/.test(line))).toBe(true);
 
     const many = buildDefaultHandoverItems(['puzzi-10-1', 'nt-22-1']);
-    expect(many[0]).toMatch(/^1\) Kärcher Puzzi 10\/1 — /);
-    expect(many.some((line) => line.startsWith('2) Kärcher NT 22/1 Ap L — '))).toBe(true);
+    expect(many[0]).toBe('a) Kärcher Puzzi 10/1:');
+    expect(many).toContain('b) Kärcher NT 22/1 Ap L:');
+    // Nazwa urządzenia tylko w nagłówku grupy, nie w każdej pozycji.
+    expect(many[1]).toBe('Odkurzacz Kärcher Puzzi 10/1');
+  });
+});
+
+describe('typografia polska w treści umowy', () => {
+  const NBSP = '\u00A0';
+
+  it('nie zostawia jednoliterowych sierót na końcu wiersza', () => {
+    expect(pl('w terminie 7 dni')).toBe(`w${NBSP}terminie 7${NBSP}dni`);
+    expect(pl('zgodnie z umową i instrukcją')).toBe(`zgodnie z${NBSP}umową i${NBSP}instrukcją`);
+  });
+
+  it('nie rozdziela numeru telefonu ani grup cyfr', () => {
+    expect(pl('tel. +48 570 038 828')).toBe(`tel.${NBSP}+48${NBSP}570${NBSP}038${NBSP}828`);
+    expect(pl('tel. 123 123 123')).toBe(`tel.${NBSP}123${NBSP}123${NBSP}123`);
+  });
+
+  it('trzyma razem odwołania do przepisów i jednostek redakcyjnych', () => {
+    expect(pl('(art. 471 k.c.)')).toBe(`(art.${NBSP}471${NBSP}k.c.)`);
+    expect(pl('Załącznik nr 3')).toBe(`Załącznik nr${NBSP}3`);
+    expect(pl('§1 ust. 3')).toBe(`§1 ust.${NBSP}3`);
   });
 });
 
@@ -218,6 +290,8 @@ describe('generator podpisanej umowy PDF', () => {
             includedConsumables: '2 × 100 g środka czyszczącego Kärcher RM 760',
             extraConsumable: { label: 'RM 760 (100 g)', price: 10 },
             deepCleaningNote: 'zabrudzone zbiorniki',
+            itemPrice: 90,
+            dailyRate: 45,
           },
           {
             deviceName: 'Kärcher NT 22/1 Ap L',
@@ -228,24 +302,39 @@ describe('generator podpisanej umowy PDF', () => {
               note: 'Worki wydawane są w oryginalnych opakowaniach jednostkowych.',
             },
             deepCleaningNote: 'zabrudzony filtr',
+            itemPrice: 105,
+            dailyRate: 52.5,
           },
         ],
         rentalPeriod: 'od dnia 01.08.2026 r., godz. 09:00 (wydanie) do dnia 03.08.2026 r., godz. 09:00 (zwrot)',
         totalPrice: 195,
         deposit: 300,
         dailyRate: 45,
+        accessories: 'Wąż, ssawka, środek czyszczący',
+        conditionNotes: 'Sprzęt sprawny, kompletny, bez uszkodzeń',
+        delivery: false,
       }),
-      handoverItems: ['Odkurzacz Kärcher Puzzi 10/1', 'Wąż spryskująco-odsysający 2,5 m'],
+      handoverItems: [
+        'a) Kärcher Puzzi 10/1:',
+        'Odkurzacz Kärcher Puzzi 10/1',
+        'Wąż spryskująco-odsysający 2,5 m',
+        'b) Kärcher NT 22/1 Ap L:',
+        'Odkurzacz Kärcher NT 22/1 Ap L',
+      ],
     };
 
-    const pdf = await generateContractPdf(snapshot, { renter: signature, lessor: signature }, {
-      signedAt: '2026-08-01T08:55:00.000Z',
-      signedIp: '127.0.0.1',
-      signedUserAgent: 'Vitest Contract Test',
-      contentHash: sha256(JSON.stringify(snapshot)),
-      renterSignatureHash: sha256(signature),
-      lessorSignatureHash: sha256(signature),
-    });
+    const pdf = await generateContractPdf(
+      snapshot,
+      { renter: signature, lessor: signature },
+      {
+        signedAt: '2026-08-01T08:55:00.000Z',
+        signedIp: '127.0.0.1',
+        signedUserAgent: 'Vitest Contract Test',
+        contentHash: sha256(JSON.stringify(snapshot)),
+        renterSignatureHash: sha256(signature),
+        lessorSignatureHash: sha256(signature),
+      }
+    );
 
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
     expect(pdf.length).toBeGreaterThan(10_000);
@@ -264,31 +353,49 @@ describe('generator podpisanej umowy PDF', () => {
       const content = await page.getTextContent();
       pages.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
     }
-    const extracted = pages.join(' ');
+    const extracted = pages.join(' ').replace(/\u00A0/g, ' ');
     expect(extracted).toContain('UMOWA NAJMU SPRZĘTU');
     expect(extracted).toContain('Łukasz Wiśniewski');
-    expect(extracted).toContain('Odkurzacz Piorący Kärcher');
-    expect(extracted).toContain('Odkurzacz Przemysłowy Kärcher NT 22/1');
-    expect(extracted).toContain('Sprzęt (pozycje)');
-    expect(extracted).toContain('Wynajmujący');
+    expect(extracted).toContain('Kärcher Puzzi 10/1');
+    expect(extracted).toContain('Kärcher NT 22/1 Ap L');
+    expect(extracted).toContain('zwaną dalej „Wynajmującym"');
     expect(extracted).toContain('OŚWIADCZENIE I PODPISY STRON');
     expect(extracted).toContain('Anna Żółć');
+    // Wersja wzoru nie należy do treści umowy.
+    expect(extracted).not.toContain('wersja wzoru');
+
+    // Protokół wydania jest osobnym dokumentem podpisywanym przy ladzie — klient
+    // podpisujący zdalnie nie może potwierdzać odbioru sprzętu, którego nie ma.
+    expect(extracted).not.toContain('ZAŁĄCZNIK NR 1');
+    expect(extracted).not.toContain('Odbierający Sprzęt');
+
+    // Koszty stwierdzone przy zwrocie nie wymagają aneksu — to musi wynikać z umowy.
+    expect(extracted).toContain('nie wymaga zawarcia aneksu');
+
+    // Klauzula RODO jest wpisana w treść umowy, a nie dołączana osobno.
+    const rodo = snapshot.clauses.find((clause) => clause.number === '8');
+    expect(rodo?.points?.[0]).toContain('WB Partners Sp. z o.o.');
+    expect(extracted).toContain('Prezesa Urzędu Ochrony Danych Osobowych');
+    expect(extracted).toContain('zautomatyzowanego podejmowania decyzji');
+    expect(extracted).not.toContain('Załącznik nr 4');
 
     // Treść z papierowej umowy, nie z wcześniejszego szablonu ogólnego.
     expect(extracted).toContain('ERPIX');
     expect(extracted).toContain('SPRZĘT NIE JEST UBEZPIECZONY');
     expect(extracted).toContain('4 551,00 zł');
-    expect(extracted).toContain('PROTOKÓŁ WYDANIA SPRZĘTU');
   });
 
-  it('dołącza instrukcję obsługi i klauzulę RODO do wiadomości', async () => {
+  it('dołącza wyłącznie instrukcje obsługi wynajętych urządzeń', async () => {
     const { collectRentalAttachments } = await import('../src/rental-attachments.js');
 
     const attachments = await collectRentalAttachments(['puzzi-10-1', 'nt-22-1']);
     const names = attachments.map((file) => file.filename);
 
-    expect(names.some((name) => name.includes('Puzzi 10/1'.replace('/', '')))).toBe(true);
-    expect(names).toContain('Klauzula informacyjna RODO.pdf');
+    expect(names).toContain('Instrukcja obslugi - Karcher Puzzi 10-1.pdf');
+    expect(names).toContain('Instrukcja obslugi - Karcher NT 22-1 Ap L.pdf');
+    // Klauzula RODO jest częścią podpisywanej umowy (§8), a nie osobnym plikiem.
+    expect(names.some((name) => /RODO/i.test(name))).toBe(false);
+    expect(names.every((name) => name.startsWith('Instrukcja obslugi'))).toBe(true);
     expect(attachments.every((file) => file.content.length > 1000)).toBe(true);
     // Każdy załącznik musi być prawdziwym PDF-em.
     expect(attachments.every((file) => file.content.subarray(0, 5).toString('ascii') === '%PDF-')).toBe(true);
@@ -298,6 +405,6 @@ describe('generator podpisanej umowy PDF', () => {
     const { collectRentalAttachments } = await import('../src/rental-attachments.js');
 
     const attachments = await collectRentalAttachments(['puzzi-10-1', 'puzzi-10-1']);
-    expect(attachments).toHaveLength(2); // instrukcja + RODO
+    expect(attachments).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Calendar,
@@ -23,6 +23,8 @@ import {
   getProductsByCategory, 
   calculateRentalCost, 
   getProductById,
+  availableAddons,
+  priceAddons,
   type Product 
 } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
@@ -37,7 +39,7 @@ const getTodayLocalDate = () => {
 };
 import { staggerContainerVariants, staggerItemVariants, revealVariants } from '@/lib/motion';
 import { useSubmitForm } from '@/hooks';
-import { submitReservation, checkAvailability, getProductBlockedDates, validateCoupon, type ReservationPayload } from '@/services/api';
+import { submitReservation, checkAvailability, getProductBlockedDates, validateCoupon, checkDeliveryArea, type ReservationPayload } from '@/services/api';
 import { useReservationContext } from '@/context/ReservationContext';
 
 interface FormData {
@@ -52,9 +54,14 @@ interface FormData {
   endTime: string;
   // Delivery
   delivery: boolean;
+  deliveryOut: boolean;
+  deliveryBack: boolean;
   city: string;
+  postalCode: string;
   address: string;
   weekendPickup: boolean;
+  /** Zamówione dodatki na sprzedaż: identyfikator pozycji → ilość. */
+  addons: Record<string, number>;
   // Contact
   firstName: string;
   lastName: string;
@@ -81,9 +88,13 @@ const initialFormData: FormData = {
   startTime: '09:00',
   endTime: '09:00',
   delivery: false,
+  deliveryOut: false,
+  deliveryBack: false,
   city: '',
+  postalCode: '',
   address: '',
   weekendPickup: false,
+  addons: {},
   firstName: '',
   lastName: '',
   email: '',
@@ -108,20 +119,10 @@ const AVAILABLE_HOURS = [
   '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'
 ];
 
-// Współrzędne Rzeszowa do obliczania odległości
-const RZESZOW_COORDS = { lat: 50.0412, lng: 21.9991 };
-
-// Funkcja do obliczania odległości (haversine formula)
-const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-  const R = 6371; // Promień Ziemi w km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLng/2) * Math.sin(dLng/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
+/** Zapis kodu jako „35-001” niezależnie od tego, jak klient go wpisał. */
+const formatujKod = (wartosc: string): string => {
+  const cyfry = wartosc.replace(/\D/g, '').slice(0, 5);
+  return cyfry.length <= 2 ? cyfry : `${cyfry.slice(0, 2)}-${cyfry.slice(2)}`;
 };
 
 export function Reservation() {
@@ -132,7 +133,7 @@ export function Reservation() {
   // Zajęte terminy wybranego produktu (blokada w kalendarzu)
   const [blockedRanges, setBlockedRanges] = useState<Array<{ startDate: string; endDate: string }>>([]);
   
-  // Stan dla sprawdzania odległości dostawy
+  // Obszar dowozu rozstrzyga kod pocztowy — bez pytania cudzego serwisu o mapę.
   const [deliveryDistanceStatus, setDeliveryDistanceStatus] = useState<'idle' | 'checking' | 'ok' | 'too_far'>('idle');
   const [deliveryDistanceMessage, setDeliveryDistanceMessage] = useState<string | null>(null);
 
@@ -147,6 +148,8 @@ export function Reservation() {
   // Apply pre-fill data when it changes
   useEffect(() => {
     if (preFillData) {
+      // Dane z widgetu kosztu przychodzą spoza Reacta — to synchronizacja, nie wyliczenie.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData(prev => ({
         ...prev,
         categoryId: preFillData.categoryId,
@@ -236,29 +239,47 @@ export function Reservation() {
     return start.getDay() === 5 && rentalDays === 3;
   }, [formData.startDate, rentalDays]);
 
-  // Check if pickup is on weekend (Saturday=6 or Sunday=0)
-  const isWeekendPickup = useMemo(() => {
-    if (!formData.startDate) return false;
-    const start = new Date(formData.startDate);
-    const day = start.getDay();
-    return day === 0 || day === 6; // Sunday or Saturday
-  }, [formData.startDate]);
+  // §12 umowy: opłata weekendowa należy się „każdorazowo", więc także za zwrot.
+  const zdarzeniaWeekendowe = useMemo(() => {
+    const weekendowy = (data: string) => {
+      if (!data) return false;
+      const dzien = new Date(`${data}T12:00:00`).getDay();
+      return dzien === 0 || dzien === 6;
+    };
+    return (weekendowy(formData.startDate) ? 1 : 0) + (weekendowy(formData.endDate) ? 1 : 0);
+  }, [formData.startDate, formData.endDate]);
+
+  const isWeekendPickup = zdarzeniaWeekendowe > 0;
+
+  /** Dodatki na sprzedaż do wybranego sprzętu — worki, środki czyszczące. */
+  const dostepneDodatki = useMemo(
+    () => (selectedProduct ? availableAddons([selectedProduct]).flatMap((wpis) => wpis.dodatki) : []),
+    [selectedProduct]
+  );
+  const wybraneDodatki = useMemo(
+    () => priceAddons(selectedProduct ? [selectedProduct] : [], formData.addons),
+    [selectedProduct, formData.addons]
+  );
 
   // Calculate cost
   const costSummary = useMemo(() => {
     if (!formData.productId || rentalDays === 0) return null;
-    return calculateRentalCost(
-      formData.productId, 
-      rentalDays, 
-      formData.delivery, 
+    const koszt = calculateRentalCost(
+      formData.productId,
+      rentalDays,
+      { dowoz: formData.deliveryOut, odbior: formData.deliveryBack },
       isWeekendRental,
-      isWeekendPickup // automatycznie na podstawie daty
+      zdarzeniaWeekendowe
     );
-  }, [formData.productId, rentalDays, formData.delivery, isWeekendRental, isWeekendPickup]);
+    if (!koszt) return null;
+    // Dodatki to sprzedaż towaru: doliczane raz, niezależnie od liczby dób.
+    return { ...koszt, addonsFee: wybraneDodatki.fee, total: koszt.total + wybraneDodatki.fee };
+  }, [formData.productId, rentalDays, formData.deliveryOut, formData.deliveryBack, isWeekendRental, zdarzeniaWeekendowe, wybraneDodatki.fee]);
 
   // Fetch blocked (reserved) date ranges when product changes
   useEffect(() => {
     if (!formData.productId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBlockedRanges([]);
       return;
     }
@@ -283,6 +304,7 @@ export function Reservation() {
   useEffect(() => {
     // Reset if missing required fields
     if (!formData.productId || !formData.startDate || !formData.endDate || rentalDays === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAvailabilityStatus('idle');
       setAvailabilityMessage(null);
       return;
@@ -391,116 +413,39 @@ export function Reservation() {
     setFormData((prev) => ({ ...prev, couponCode: '' }));
   };
 
-  // Funkcja do sprawdzania odległości adresu od Rzeszowa (używa Nominatim/OpenStreetMap)
-  const checkDeliveryDistance = useCallback(async (address: string, city: string) => {
-    // Wymaga przynajmniej miasta
-    if (!city) {
-      setDeliveryDistanceStatus('idle');
-      setDeliveryDistanceMessage(null);
-      return;
-    }
-
-    setDeliveryDistanceStatus('checking');
-    setDeliveryDistanceMessage(null);
-
-    try {
-      // Jeśli jest adres, szukaj pełnego adresu, w przeciwnym razie szukaj tylko miasta
-      const searchQuery = address ? `${address}, ${city}, Polska` : `${city}, Polska`;
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`,
-        { headers: { 'Accept-Language': 'pl' } }
-      );
-      
-      if (!response.ok) {
-        throw new Error('Geocoding failed');
-      }
-
-      const data = await response.json();
-      
-      if (data.length === 0) {
-        // Nie znaleziono adresu - spróbuj tylko z miastem jeśli szukaliśmy pełnego adresu
-        if (address) {
-          const cityResponse = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city + ', Polska')}&limit=1`,
-            { headers: { 'Accept-Language': 'pl' } }
-          );
-          const cityData = await cityResponse.json();
-          
-          if (cityData.length === 0) {
-            setDeliveryDistanceStatus('idle');
-            setDeliveryDistanceMessage('Nie udało się zweryfikować adresu. Skontaktuj się z nami telefonicznie.');
-            return;
-          }
-          
-          const distance = calculateDistance(
-            RZESZOW_COORDS.lat,
-            RZESZOW_COORDS.lng,
-            parseFloat(cityData[0].lat),
-            parseFloat(cityData[0].lon)
-          );
-          
-          if (distance > 30) {
-            setDeliveryDistanceStatus('too_far');
-            setDeliveryDistanceMessage(`Za daleko (${Math.round(distance)} km). Max 30 km od Rzeszowa.`);
-          } else {
-            setDeliveryDistanceStatus('ok');
-            setDeliveryDistanceMessage(`OK - ${Math.round(distance)} km od Rzeszowa`);
-          }
-          return;
-        }
-        
-        setDeliveryDistanceStatus('idle');
-        setDeliveryDistanceMessage('Nie znaleziono miasta. Sprawdź pisownię.');
-        return;
-      }
-
-      const { lat, lon } = data[0];
-      const distance = calculateDistance(
-        RZESZOW_COORDS.lat,
-        RZESZOW_COORDS.lng,
-        parseFloat(lat),
-        parseFloat(lon)
-      );
-
-      if (distance > 30) {
-        setDeliveryDistanceStatus('too_far');
-        setDeliveryDistanceMessage(`Za daleko (${Math.round(distance)} km). Max 30 km od Rzeszowa.`);
-      } else {
-        setDeliveryDistanceStatus('ok');
-        setDeliveryDistanceMessage(`OK - ${Math.round(distance)} km od Rzeszowa`);
-      }
-    } catch (error) {
-      console.error('Distance check error:', error);
-      setDeliveryDistanceStatus('idle');
-      setDeliveryDistanceMessage('Błąd sprawdzania. Spróbuj ponownie.');
-    }
-  }, []);
-
-  // Sprawdzanie odległości dostawy - z debounce żeby nie spamować API
+  /**
+   * Obszar dowozu rozstrzyga kod pocztowy. Wcześniej liczyła go zewnętrzna mapa
+   * (Nominatim) z promienia 30 km — rezerwacja zależała od cudzego serwisu,
+   * a wypożyczalnia obsługuje wyłącznie Rzeszów.
+   */
   useEffect(() => {
-    if (!formData.delivery || !formData.city) {
+    const dowolnyKurs = formData.deliveryOut || formData.deliveryBack;
+    if (!dowolnyKurs) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDeliveryDistanceStatus('idle');
       setDeliveryDistanceMessage(null);
       return;
     }
-
-    // Minimum 3 znaki żeby szukać
-    if (formData.city.length < 3) {
+    if (formData.postalCode.length < 6) {
       setDeliveryDistanceStatus('idle');
-      setDeliveryDistanceMessage(null);
+      setDeliveryDistanceMessage(formData.postalCode ? 'Uzupełnij kod pocztowy (00-000)' : null);
       return;
     }
 
-    // Pokaż "sprawdzam" od razu
     setDeliveryDistanceStatus('checking');
-
-    // Debounce 600ms - czekaj aż użytkownik skończy pisać
-    const timeoutId = setTimeout(() => {
-      checkDeliveryDistance(formData.address, formData.city);
-    }, 600);
-
-    return () => clearTimeout(timeoutId);
-  }, [formData.delivery, formData.city, formData.address, checkDeliveryDistance]);
+    let aktualne = true;
+    checkDeliveryArea(formData.postalCode).then((wynik) => {
+      if (!aktualne) return;
+      if (wynik.wObszarze) {
+        setDeliveryDistanceStatus('ok');
+        setDeliveryDistanceMessage('Dowozimy pod ten adres');
+      } else {
+        setDeliveryDistanceStatus('too_far');
+        setDeliveryDistanceMessage(wynik.powod || 'Poza obszarem dowozu');
+      }
+    });
+    return () => { aktualne = false; };
+  }, [formData.deliveryOut, formData.deliveryBack, formData.postalCode]);
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -540,21 +485,20 @@ export function Reservation() {
       return;
     }
 
-    // Block if delivery address is too far
-    if (formData.delivery && deliveryDistanceStatus === 'too_far') {
-      setValidationError('Adres dostawy jest poza zasięgiem (max 30 km od Rzeszowa). Wybierz odbiór osobisty lub zmień adres.');
+    const zamowionyDojazd = formData.deliveryOut || formData.deliveryBack;
+
+    if (zamowionyDojazd && deliveryDistanceStatus === 'too_far') {
+      setValidationError(deliveryDistanceMessage || 'Adres jest poza obszarem dowozu. Odznacz dojazd albo zmień adres.');
       return;
     }
 
-    // Block if delivery distance is still checking
-    if (formData.delivery && deliveryDistanceStatus === 'checking') {
-      setValidationError('Poczekaj na weryfikację adresu dostawy...');
+    if (zamowionyDojazd && deliveryDistanceStatus === 'checking') {
+      setValidationError('Poczekaj na sprawdzenie obszaru dowozu…');
       return;
     }
 
-    // Block if delivery address is missing
-    if (formData.delivery && (!formData.city || !formData.address)) {
-      setValidationError('Podaj pełny adres dostawy (miasto i adres).');
+    if (zamowionyDojazd && (!formData.postalCode || !formData.address)) {
+      setValidationError('Podaj kod pocztowy i adres, pod który mamy dojechać.');
       return;
     }
 
@@ -568,10 +512,14 @@ export function Reservation() {
       startTime: formData.startTime,
       endTime: formData.endTime,
       days: rentalDays,
-      delivery: formData.delivery,
-      city: formData.delivery ? formData.city : undefined,
-      address: formData.delivery ? formData.address : undefined,
+      delivery: zamowionyDojazd,
+      deliveryOut: formData.deliveryOut,
+      deliveryBack: formData.deliveryBack,
+      city: zamowionyDojazd ? 'Rzeszów' : undefined,
+      postalCode: zamowionyDojazd ? formData.postalCode : undefined,
+      address: zamowionyDojazd ? formData.address : undefined,
       weekendPickup: isWeekendPickup,
+      addons: wybraneDodatki.items.map((dodatek) => ({ id: dodatek.id, quantity: dodatek.ilosc })),
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
@@ -688,7 +636,7 @@ export function Reservation() {
                       <p className="text-sm text-text-secondary mb-2">{selectedProduct.description}</p>
                       <div className="flex flex-wrap gap-2">
                         {selectedProduct.features.map((f) => (
-                          <span key={f} className="text-xs px-2 py-1 rounded bg-gold/10 text-gold">
+                          <span key={f} className="text-xs px-2 py-1 rounded bg-gold/10 text-gold-light light:text-gold-dark">
                             {f}
                           </span>
                         ))}
@@ -698,6 +646,52 @@ export function Reservation() {
                           W cenie: {selectedProduct.includedAccessories.join(', ')}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Materiały zużywalne klient kupuje na własność — stąd osobna sekcja. */}
+                  {dostepneDodatki.length > 0 && (
+                    <div className="mt-4 p-4 rounded-lg bg-bg-primary/50 border border-border">
+                      <p className="text-sm font-medium text-text-primary">Chcesz coś dokupić?</p>
+                      <p className="text-xs text-text-muted mt-0.5 mb-3">
+                        Worki i środki czyszczące zostają u Ciebie — nie zwracasz ich razem ze sprzętem.
+                      </p>
+                      <div className="space-y-2">
+                        {dostepneDodatki.map((dodatek) => {
+                          const ilosc = formData.addons[dodatek.id] || 0;
+                          return (
+                            <div
+                              key={dodatek.id}
+                              className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${ilosc > 0 ? 'border-gold/50 bg-gold/10' : 'border-border'}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-sm text-text-primary">{dodatek.nazwa}</span>
+                                <span className="block text-xs text-text-muted">{formatPrice(dodatek.cena)}/szt.</span>
+                              </span>
+                              <span className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  aria-label={`Mniej: ${dodatek.nazwa}`}
+                                  disabled={ilosc === 0}
+                                  onClick={() => updateField('addons', { ...formData.addons, [dodatek.id]: Math.max(0, ilosc - 1) })}
+                                  className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  −
+                                </button>
+                                <span className="w-8 text-center text-sm font-semibold text-text-primary">{ilosc}</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Więcej: ${dodatek.nazwa}`}
+                                  onClick={() => updateField('addons', { ...formData.addons, [dodatek.id]: Math.min(50, ilosc + 1) })}
+                                  className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold transition-colors"
+                                >
+                                  +
+                                </button>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </Card>
@@ -757,8 +751,8 @@ export function Reservation() {
                   
                   {/* Info o obliczaniu doby */}
                   <div className="p-3 rounded-[--radius-sm] bg-gold/10 border border-gold/20 mb-3 flex items-start gap-2.5">
-                    <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" aria-hidden="true" />
-                    <p className="text-xs text-gold leading-relaxed">
+                    <Info className="w-4 h-4 text-gold-light light:text-gold-dark shrink-0 mt-0.5" aria-hidden="true" />
+                    <p className="text-xs text-gold-light light:text-gold-dark leading-relaxed">
                       Doba trwa 24h od godziny odbioru. Przykład: odbiór 21.01 o 09:00 = zwrot do 22.01 do 09:00 (1 doba). Zwrot po tej godzinie = dodatkowa doba.
                     </p>
                   </div>
@@ -773,8 +767,8 @@ export function Reservation() {
                   {/* Availability status indicator */}
                   {availabilityStatus === 'checking' && (
                     <div className="mt-3 p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 text-gold animate-spin" />
-                      <p className="text-sm text-gold">Sprawdzanie dostępności...</p>
+                      <Loader2 className="w-4 h-4 text-gold-light light:text-gold-dark animate-spin" />
+                      <p className="text-sm text-gold-light light:text-gold-dark">Sprawdzanie dostępności...</p>
                     </div>
                   )}
                   
@@ -806,110 +800,100 @@ export function Reservation() {
                   </h3>
                   
                   <div className="space-y-4">
-                    {/* Odbiór osobisty - domyślnie */}
-                    <div className="p-4 rounded-lg bg-bg-primary/50 border border-border">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center shrink-0">
-                          <Home className="w-5 h-5 text-gold" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              id="pickup-personal"
-                              name="deliveryOption"
-                              checked={!formData.delivery}
-                              onChange={() => updateField('delivery', false)}
-                              className="w-4 h-4 text-gold accent-gold"
-                            />
-                            <label htmlFor="pickup-personal" className="font-medium text-text-primary cursor-pointer">
-                              Odbiór osobisty
-                            </label>
-                            <span className="text-xs text-success font-medium">Bezpłatnie</span>
-                          </div>
-                          <p className="text-sm text-text-muted mt-1 ml-6">
-                            <MapPin className="w-3 h-3 inline mr-1" />
-                            {OFFICE_ADDRESS}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                    {/* Dowóz i odbiór to dwa niezależne kursy — klient może chcieć tylko jednego. */}
+                    <div className="p-4 rounded-lg bg-bg-primary/50 border border-border space-y-3">
+                      <p className="text-sm text-text-secondary">
+                        Domyślnie odbierasz i oddajesz sprzęt w naszym punkcie —{' '}
+                        <span className="text-text-primary">{OFFICE_ADDRESS}</span>. Możesz zamówić dojazd
+                        w jedną albo w obie strony.
+                      </p>
 
-                    {/* Dostawa pod adres */}
-                    <div className={`p-4 rounded-lg border transition-colors ${formData.delivery ? 'bg-gold/5 border-gold/30' : 'bg-bg-primary/50 border-border'}`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${formData.delivery ? 'bg-gold/20' : 'bg-bg-secondary'}`}>
-                          <Truck className={`w-5 h-5 ${formData.delivery ? 'text-gold' : 'text-text-muted'}`} />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              id="pickup-delivery"
-                              name="deliveryOption"
-                              checked={formData.delivery}
-                              onChange={() => updateField('delivery', true)}
-                              className="w-4 h-4 text-gold accent-gold"
-                            />
-                            <label htmlFor="pickup-delivery" className="font-medium text-text-primary cursor-pointer">
-                              Dostawa pod adres
-                            </label>
-                            <span className="text-xs text-gold font-medium">+40 zł</span>
-                          </div>
-                          <p className="text-xs text-text-muted mt-1 ml-6">
-                            Maksymalny zasięg: 30 km od Rzeszowa
-                          </p>
-                        </div>
-                      </div>
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-border-hover cursor-pointer transition-colors">
+                        <input
+                          type="checkbox"
+                          className="mt-1 w-4 h-4 accent-gold"
+                          checked={formData.deliveryOut}
+                          onChange={(e) => updateField('deliveryOut', e.target.checked)}
+                        />
+                        <span className="flex-1">
+                          <span className="flex items-center gap-2 flex-wrap">
+                            <Truck className="w-4 h-4 text-gold-light light:text-gold-dark" />
+                            <span className="font-medium text-text-primary">Przywieziemy sprzęt</span>
+                            <span className="text-xs text-gold-light light:text-gold-dark font-medium">+20 zł</span>
+                          </span>
+                          <span className="block text-xs text-text-muted mt-1">
+                            Dojazd pod Twój adres w dniu rozpoczęcia najmu
+                          </span>
+                        </span>
+                      </label>
 
-                      {formData.delivery && (
-                        <div className="mt-4 ml-13 space-y-4">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-border-hover cursor-pointer transition-colors">
+                        <input
+                          type="checkbox"
+                          className="mt-1 w-4 h-4 accent-gold"
+                          checked={formData.deliveryBack}
+                          onChange={(e) => updateField('deliveryBack', e.target.checked)}
+                        />
+                        <span className="flex-1">
+                          <span className="flex items-center gap-2 flex-wrap">
+                            <Home className="w-4 h-4 text-gold-light light:text-gold-dark" />
+                            <span className="font-medium text-text-primary">Odbierzemy sprzęt</span>
+                            <span className="text-xs text-gold-light light:text-gold-dark font-medium">+20 zł</span>
+                          </span>
+                          <span className="block text-xs text-text-muted mt-1">
+                            Przyjedziemy po sprzęt w dniu zakończenia najmu
+                          </span>
+                        </span>
+                      </label>
+
+                      {(formData.deliveryOut || formData.deliveryBack) && (
+                        <div className="pt-3 border-t border-border space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-4">
                             <Input
-                              label="Miasto"
-                              placeholder="Np. Rzeszów, Łańcut, Krosno..."
-                              value={formData.city}
-                              onChange={(e) => updateField('city', e.target.value)}
+                              label="Kod pocztowy"
+                              placeholder="35-000"
+                              inputMode="numeric"
+                              value={formData.postalCode}
+                              onChange={(e) => updateField('postalCode', formatujKod(e.target.value))}
                               leftIcon={<MapPin className="w-4 h-4" />}
-                              required={formData.delivery}
+                              required
                             />
                             <Input
                               label="Adres"
                               placeholder="Ulica, nr domu/mieszkania"
                               value={formData.address}
                               onChange={(e) => updateField('address', e.target.value)}
-                              required={formData.delivery}
+                              required
                             />
                           </div>
-                          
-                          {/* Status sprawdzania odległości */}
+
                           {deliveryDistanceStatus === 'checking' && (
                             <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 text-gold animate-spin" />
-                              <p className="text-sm text-gold">Sprawdzanie odległości...</p>
+                              <Loader2 className="w-4 h-4 text-gold-light light:text-gold-dark animate-spin" />
+                              <p className="text-sm text-gold-light light:text-gold-dark">Sprawdzam obszar dowozu…</p>
                             </div>
                           )}
-                          
+
                           {deliveryDistanceStatus === 'ok' && deliveryDistanceMessage && (
                             <div className="p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
                               <CheckCircle2 className="w-4 h-4 text-success" />
                               <p className="text-sm text-success">{deliveryDistanceMessage}</p>
                             </div>
                           )}
-                          
+
                           {deliveryDistanceStatus === 'too_far' && deliveryDistanceMessage && (
                             <div className="p-3 rounded-lg bg-error/10 border border-error/20 flex items-start gap-2">
                               <AlertCircle className="w-5 h-5 text-error shrink-0 mt-0.5" />
                               <div>
-                                <p className="text-sm font-semibold text-error">Adres poza zasięgiem dostawy</p>
+                                <p className="text-sm font-semibold text-error">Poza obszarem dowozu</p>
                                 <p className="text-xs text-error/80 mt-1">{deliveryDistanceMessage}</p>
                                 <p className="text-xs text-text-muted mt-2">
-                                  Wybierz odbiór osobisty lub skontaktuj się z nami: <strong>570 038 828</strong>
+                                  Odznacz dojazd, żeby odebrać sprzęt osobiście, albo zadzwoń: <strong>570 038 828</strong>
                                 </p>
                               </div>
                             </div>
                           )}
-                          
+
                           {deliveryDistanceStatus === 'idle' && deliveryDistanceMessage && (
                             <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 flex items-center gap-2">
                               <AlertCircle className="w-4 h-4 text-warning" />
@@ -922,9 +906,10 @@ export function Reservation() {
 
                     {isWeekendPickup && (
                       <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-gold" />
-                        <p className="text-sm text-gold">
-                          Odbiór w weekend - doliczono opłatę +30 zł
+                        <AlertCircle className="w-4 h-4 text-gold-light light:text-gold-dark" />
+                        <p className="text-sm text-gold-light light:text-gold-dark">
+                          Obsługa w weekend — doliczamy 30 zł za każde wydanie lub zwrot przypadające
+                          w sobotę, niedzielę albo święto
                         </p>
                       </div>
                     )}
@@ -1052,7 +1037,7 @@ export function Reservation() {
                   
                   <div className="space-y-3">
                     <label className="flex items-start gap-3 cursor-pointer group">
-                      <input
+                      <input spellCheck={false}
                         type="checkbox"
                         checked={formData.acceptTerms}
                         onChange={(e) => updateField('acceptTerms', e.target.checked)}
@@ -1065,7 +1050,7 @@ export function Reservation() {
                     </label>
                     
                     <label className="flex items-start gap-3 cursor-pointer group">
-                      <input
+                      <input spellCheck={false}
                         type="checkbox"
                         checked={formData.acceptRodo}
                         onChange={(e) => updateField('acceptRodo', e.target.checked)}
@@ -1107,20 +1092,34 @@ export function Reservation() {
                         </div>
                         {costSummary.deliveryFee > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-text-secondary">Transport:</span>
+                            <span className="text-text-secondary">
+                              {formData.deliveryOut && formData.deliveryBack
+                                ? 'Dowóz i odbiór:'
+                                : formData.deliveryOut ? 'Dowóz sprzętu:' : 'Odbiór sprzętu:'}
+                            </span>
                             <span className="text-text-primary">{formatPrice(costSummary.deliveryFee)}</span>
                           </div>
                         )}
                         {costSummary.weekendPickupFee > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-text-secondary">Odbiór weekend:</span>
+                            <span className="text-text-secondary">
+                              Obsługa w weekend{zdarzeniaWeekendowe > 1 ? ' (×2)' : ''}:
+                            </span>
                             <span className="text-text-primary">{formatPrice(costSummary.weekendPickupFee)}</span>
                           </div>
                         )}
+                        {wybraneDodatki.items.map((dodatek) => (
+                          <div key={dodatek.id} className="flex justify-between gap-3">
+                            <span className="text-text-secondary min-w-0">
+                              {dodatek.nazwa} × {dodatek.ilosc}:
+                            </span>
+                            <span className="text-text-primary whitespace-nowrap">{formatPrice(dodatek.suma)}</span>
+                          </div>
+                        ))}
                         {appliedCoupon && appliedCoupon.discountAmount > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-emerald-400">Kupon {appliedCoupon.code}:</span>
-                            <span className="text-emerald-400">-{formatPrice(appliedCoupon.discountAmount)}</span>
+                            <span className="text-emerald-400 light:text-emerald-700">Kupon {appliedCoupon.code}:</span>
+                            <span className="text-emerald-400 light:text-emerald-700">-{formatPrice(appliedCoupon.discountAmount)}</span>
                           </div>
                         )}
                         <div className="border-t border-border pt-2 mt-2">
@@ -1136,7 +1135,7 @@ export function Reservation() {
                         <div className="pt-3 mt-1 border-t border-border">
                           {appliedCoupon ? (
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs text-emerald-400">
+                              <span className="text-xs text-emerald-400 light:text-emerald-700">
                                 Kupon {appliedCoupon.code} został naliczony
                               </span>
                               <button
@@ -1153,7 +1152,7 @@ export function Reservation() {
                                 Masz kupon rabatowy?
                               </label>
                               <div className="flex gap-2">
-                                <input
+                                <input spellCheck={false}
                                   id="couponCode"
                                   value={formData.couponCode}
                                   onChange={(event) => updateField('couponCode', event.target.value.toUpperCase())}
@@ -1171,7 +1170,7 @@ export function Reservation() {
                                   type="button"
                                   onClick={() => void applyCoupon()}
                                   disabled={couponStatus === 'checking' || !formData.couponCode.trim()}
-                                  className="h-10 px-4 rounded-lg border border-gold/40 text-sm font-medium text-gold hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                  className="h-10 px-4 rounded-lg border border-gold/40 text-sm font-medium text-gold-light light:text-gold-dark hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                 >
                                   {couponStatus === 'checking' ? 'Sprawdzam…' : 'Zastosuj'}
                                 </button>
@@ -1181,7 +1180,7 @@ export function Reservation() {
                           {couponMessage && (
                             <p
                               role="status"
-                              className={`mt-2 text-xs ${couponStatus === 'invalid' ? 'text-red-400' : 'text-emerald-400'}`}
+                              className={`mt-2 text-xs ${couponStatus === 'invalid' ? 'text-red-400 light:text-red-700' : 'text-emerald-400 light:text-emerald-700'}`}
                             >
                               {couponMessage}
                             </p>

@@ -53,6 +53,16 @@ const captureRawBody = (req: express.Request, _res: express.Response, buf: Buffe
   (req as any).rawBody = buf;
 };
 app.use('/api/contracts', express.json({ limit: '512kb', verify: captureRawBody }));
+
+// Protokoly (wydania i zwrotu) tez nosza dwa recznie zlozone podpisy PNG.
+// Limit podniesiony tylko dla samego podpisu, nie dla calego panelu.
+const podpisyProtokolow = express.json({ limit: '512kb', verify: captureRawBody });
+app.use('/api/admin', (req, res, next) =>
+  /^\/reservations\/\d+\/(handover|return)\/sign\/?$/.test(req.path)
+    ? podpisyProtokolow(req, res, next)
+    : next()
+);
+
 app.use(express.json({ limit: '10kb', verify: captureRawBody }));
 
 // Rate limiting

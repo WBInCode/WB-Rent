@@ -15,9 +15,9 @@ interface CouponsPanelProps {
 }
 
 const STATUS_STYLES: Record<AdminCoupon['status'], string> = {
-  active: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
-  used: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
-  cancelled: 'bg-surface-strong border-border text-text-muted',
+  active: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 light:text-emerald-700',
+  used: 'bg-sky-500/10 border-sky-500/25 text-sky-300 light:text-sky-700',
+  cancelled: 'bg-surface-soft border-border text-text-muted',
 };
 
 const STATUS_LABEL: Record<AdminCoupon['status'], string> = {
@@ -116,14 +116,14 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-secondary overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
+      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
         <Metric label="Wszystkich" value={stats.total} />
-        <Metric label="Aktywnych" value={stats.active} tone="text-emerald-300" />
-        <Metric label="Wykorzystanych" value={stats.used} tone="text-sky-300" />
+        <Metric label="Aktywnych" value={stats.active} tone="text-emerald-300 light:text-emerald-700" />
+        <Metric label="Wykorzystanych" value={stats.used} tone="text-sky-300 light:text-sky-700" />
         <Metric label="Anulowanych" value={stats.cancelled} tone="text-text-muted" />
       </div>
 
-      <div className="rounded-[--radius-sm] border border-border bg-bg-secondary">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
         <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-text-primary">Kupony rabatowe</h3>
@@ -176,7 +176,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
                       {STATUS_LABEL[coupon.status]}
                     </span>
                     {coupon.email_sent_at && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-strong text-text-muted border border-border">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-soft text-text-muted border border-border">
                         wysłany
                       </span>
                     )}
@@ -213,7 +213,7 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-secondary border-border">
+          <Card padding="none" className="w-full max-w-xl max-h-[92vh] overflow-y-auto bg-bg-card border-border">
             <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-text-primary">Generuj kupon</h3>
@@ -299,11 +299,11 @@ export default function CouponsPanel({ onNotify }: CouponsPanelProps) {
               />
 
               <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
-                <input
+                <input spellCheck={false}
                   type="checkbox"
                   checked={form.sendEmail}
                   onChange={(event) => setForm({ ...form, sendEmail: event.target.checked })}
-                  className="mt-1 accent-gold"
+                  className="mt-1 accent-[#d4a853]"
                 />
                 <span className="text-sm text-text-secondary">
                   Wyślij kupon mailem od razu po wygenerowaniu (z kuponem PDF w załączniku).
@@ -350,7 +350,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
     >
       {children}
     </button>

@@ -56,10 +56,22 @@ export const reservationSchema = z.object({
   days: z.number().int().positive('Liczba dni musi być większa od 0'),
 
   // Delivery
+  // Dowóz i odbiór to dwa niezależne kursy; `delivery` zostaje dla zgodności
+  // ze starszymi klientami i oznacza „oba kursy".
   delivery: z.boolean().default(false),
+  deliveryOut: z.boolean().optional(),
+  deliveryBack: z.boolean().optional(),
   city: z.string().max(100, 'Miasto może mieć maksymalnie 100 znaków').optional(),
+  postalCode: z.string().max(10, 'Kod pocztowy może mieć maksymalnie 10 znaków').optional(),
   address: z.string().max(500, 'Adres może mieć maksymalnie 500 znaków').optional(),
   weekendPickup: z.boolean().default(false),
+
+  // Płatne dodatki (worek, środek czyszczący). Przeglądarka przysyła sam wybór —
+  // cenę ustala serwer z katalogu, więc nie da się jej podmienić w żądaniu.
+  addons: z.array(z.object({
+    id: z.string().trim().min(1).max(60),
+    quantity: z.number().int().min(1).max(50),
+  })).max(20, 'Możesz zamówić maksymalnie 20 dodatków').default([]),
 
   // Customer
   firstName: z
@@ -186,7 +198,8 @@ export const productInventorySchema = z.object({
   priceWeekend: z.number().min(0, 'Cena nie może być ujemna').max(100000),
   totalQuantity: z.number().int().min(0).max(10000),
   serviceQuantity: z.number().int().min(0).max(10000),
-  conditionStatus: z.enum(['good', 'attention', 'service', 'damaged']),
+  /** Sprzęt sprawny, ale czasowo zdjęty z najmu — decyzja właściciela, nie usterka. */
+  withdrawnQuantity: z.number().int().min(0).max(10000).default(0),
   inventoryNotes: z.string().trim().max(2000).default(''),
   features: z.array(z.string().trim().min(1).max(120))
     .max(12, 'Możesz dodać maksymalnie 12 cech')
@@ -194,13 +207,21 @@ export const productInventorySchema = z.object({
   includedAccessories: z.array(z.string().trim().min(1).max(160))
     .max(12, 'Możesz dodać maksymalnie 12 pozycji')
     .default([]),
-  optionalAccessories: z.array(z.string().trim().min(1).max(160))
+  // Każdy dodatek ma własną cenę — worek i środek czyszczący nie kosztują tyle
+  // samo. Zapis tekstowy przyjmujemy dla starszych zapisów w bazie.
+  optionalAccessories: z.array(z.union([
+    z.string().trim().min(1).max(160),
+    z.object({
+      nazwa: z.string().trim().min(1).max(160),
+      cena: z.number().min(0, 'Cena nie może być ujemna').max(100000).default(0),
+    }),
+  ]))
     .max(12, 'Możesz dodać maksymalnie 12 pozycji')
     .default([]),
   accessoryPrice: z.number().min(0, 'Cena nie może być ujemna').max(100000).default(0),
   isActive: z.boolean(),
-}).refine((data) => data.serviceQuantity <= data.totalQuantity, {
-  message: 'Liczba sztuk w serwisie nie może przekraczać stanu całkowitego',
+}).refine((data) => data.serviceQuantity + data.withdrawnQuantity <= data.totalQuantity, {
+  message: 'Sztuki w serwisie i wyłączone z użytku nie mogą przekraczać stanu całkowitego',
   path: ['serviceQuantity'],
 }).transform((data) => {
   const images = data.images?.length ? data.images : [data.image];

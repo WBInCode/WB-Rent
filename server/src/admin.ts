@@ -4,7 +4,7 @@ import { z, ZodError } from 'zod';
 import { queries } from './db.js';
 import { config } from './config.js';
 import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
-import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail } from './email.js';
+import { sendContactReply, sendReservationStatusEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail, sendSettlementRequestEmail } from './email.js';
 import { calculateRentalItemsPrice, getProductName, products } from './products.js';
 import {
   newsletterPostSchema,
@@ -14,8 +14,15 @@ import {
   couponCreateSchema,
   businessSettingsSchema,
 } from './schemas.js';
-import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail } from './contracts/service.js';
+import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema, createContractSession, getContractPreviewForReservation, readSignedContractPdfById, regenerateSignedContractPdf, resendSignedContractEmail, signContract } from './contracts/service.js';
+import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, readHandoverPdf } from './contracts/protocol-service.js';
+import { getOrCreateReturnDraft, saveReturnDraft, signReturnProtocol, readReturnPdf } from './contracts/return-service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
+import { resolvePaymentLink, resolveSettlementLink } from './payments/routes.js';
+import { describeRentalStage } from './reservation-stage.js';
+import { rozpiszKoszty } from './costs.js';
+import { opiszTermin, opiszMiejsca } from './rental-details.js';
+import { availableActions, canPrepareHandover, canPrepareReturn, canTransition, czyMoznaZamknacAutomatycznie } from './reservation-transitions.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 import { getProviderByName } from './payments/index.js';
@@ -48,11 +55,27 @@ const termChangeSchema = z.object({
 });
 
 const reservationStatuses = ['pending', 'confirmed', 'picked_up', 'returned', 'completed', 'rejected', 'cancelled'] as const;
+
+/** Wpis do historii, gdy pracownik nie dopisze wlasnej notatki. */
+const DOMYSLNA_NOTATKA: Record<string, string> = {
+  confirmed: 'Rezerwacja potwierdzona',
+  picked_up: 'Sprzęt wydany klientowi',
+  returned: 'Przyjęto zwrot sprzętu',
+  completed: 'Najem zamknięty i rozliczony',
+  rejected: 'Rezerwacja odrzucona',
+  cancelled: 'Rezerwacja anulowana',
+};
+
 const statusChangeSchema = z.object({
   status: z.enum(reservationStatuses),
   note: z.string().trim().max(500).optional(),
   changedBy: z.string().trim().max(120).optional(),
   notifyCustomer: z.boolean().optional(),
+  /**
+   * Świadome pominięcie warunków. System nie zastępuje decyzji pracownika —
+   * ma go ostrzec i zapisać, co zostało pominięte, a nie zamykać drogę.
+   */
+  force: z.boolean().optional(),
 });
 
 const reservationProductIds = (reservation: any): string[] => {
@@ -64,6 +87,34 @@ const reservationProductIds = (reservation: any): string[] => {
 
 const reservationProductNames = (reservation: any): string =>
   reservationProductIds(reservation).map(getProductName).join(', ');
+
+/**
+ * Domyka najem, gdy nie ma już czego rozstrzygać: sprzęt wrócił z podpisanym
+ * protokołem i udokumentowanym stanem, a należność jest zapłacona. Zwraca
+ * zaktualizowaną rezerwację albo null, jeśli warunki nie są spełnione.
+ */
+async function zamknijNajemJesliRozliczony(reservationId: number, changedBy?: string) {
+  const rezerwacja = await queries.getReservationById(reservationId);
+  if (!rezerwacja || rezerwacja.status !== 'returned') return null;
+
+  const kontekst = {
+    returnPhotos: await queries.countReservationPhotos(reservationId, 'after'),
+    handoverPhotos: await queries.countReservationPhotos(reservationId, 'before'),
+    handoverProtocolSigned: await queries.hasSignedProtocol(reservationId, 'handover'),
+    returnProtocolSigned: await queries.hasSignedProtocol(reservationId, 'return'),
+  };
+  if (!czyMoznaZamknacAutomatycznie(rezerwacja, kontekst)) return null;
+  if (!canTransition(rezerwacja, 'completed', kontekst).ok) return null;
+
+  const wynik = await queries.updateReservationStatus({
+    id: reservationId,
+    status: 'completed',
+    note: 'Najem rozliczony automatycznie: sprzęt zwrócony, protokół podpisany, płatność zaksięgowana',
+    changedBy: changedBy || 'System',
+    notifyCustomer: false,
+  });
+  return wynik.changed ? wynik.reservation : null;
+}
 
 // Admin authentication middleware - verifies signed, expiring token
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -89,6 +140,19 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   message: { success: false, message: 'Zbyt wiele prób logowania. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * Umowa to dokument z danymi z dowodu i podpisami obu Stron. Nawet za
+ * zalogowanym pracownikiem stoi przeglądarka, więc odczyt i podpis dostają
+ * własny limit — tak samo jak publiczna ścieżka podpisu z linku.
+ */
+const umowaLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  message: { success: false, message: 'Zbyt wiele operacji na umowach. Spróbuj ponownie za chwilę.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -231,6 +295,21 @@ router.put('/products/:id', adminAuth, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const data = productInventorySchema.parse({ ...req.body, id });
+
+    // Stock must never drop below what is already booked, otherwise active
+    // reservations point at equipment the system no longer has. The condition
+    // flag is deliberately excluded - equipment breaks mid-rental and staff must
+    // still be able to mark it; it only blocks new bookings.
+    const rentable = Math.max(data.totalQuantity - data.serviceQuantity - data.withdrawnQuantity, 0);
+    const booked = await queries.getPeakActiveReservations(id);
+    if (rentable < booked) {
+      res.status(409).json({
+        success: false,
+        message: `Nie można zejść poniżej ${booked} szt. — tyle sztuk jest równocześnie zarezerwowanych na przyszłe terminy. Najpierw anuluj lub zakończ te rezerwacje.`,
+      });
+      return;
+    }
+
     const product = await queries.updateProduct(id, data);
     if (!product) {
       res.status(404).json({ success: false, message: 'Produkt nie istnieje' });
@@ -360,6 +439,47 @@ router.get('/contracts/reservation/:reservationId', adminAuth, async (req: Reque
   }
 });
 
+/**
+ * Umowa do podpisania na miejscu. Klient stoi przy ladzie, więc nie ma sensu
+ * odsyłać go do linku — dokument i oba podpisy idą na urządzeniu pracownika.
+ */
+router.get('/reservations/:id/contract', adminAuth, umowaLimiter, async (req: Request, res: Response) => {
+  try {
+    const preview = await getContractPreviewForReservation(Number(req.params.id));
+    if (!preview) {
+      res.status(404).json({ success: false, message: 'Umowa nie została przygotowana' });
+      return;
+    }
+    res.json({ success: true, data: preview });
+  } catch (error) {
+    console.error('Contract preview (admin) error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się otworzyć umowy' });
+  }
+});
+
+router.post('/reservations/:id/contract/sign', adminAuth, umowaLimiter, async (req: Request, res: Response) => {
+  try {
+    const result = await signContract({
+      reservationId: Number(req.params.id),
+      renterSignatureDataUrl: String(req.body?.renterSignature || ''),
+      lessorSignatureDataUrl: String(req.body?.lessorSignature || ''),
+      accepted: req.body?.accepted === true,
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        || req.socket.remoteAddress || 'unknown',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+    res.json({
+      success: true,
+      message: 'Umowa podpisana przez obie Strony.',
+      data: { contractNumber: result.contractNumber, pdfHash: result.pdfHash },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać umowy';
+    const status = /już podpisana|nie istnieje/.test(message) ? 409 : 400;
+    res.status(status).json({ success: false, message });
+  }
+});
+
 router.get('/contracts/:id/pdf', adminAuth, async (req: Request, res: Response) => {
   try {
     const pdf = await readSignedContractPdfById(Number(req.params.id));
@@ -420,144 +540,601 @@ router.post('/contracts/:id/resend-email', adminAuth, async (req: Request, res: 
 });
 
 // Get all reservations
-router.get('/reservations', adminAuth, async (req: Request, res: Response) => {
+router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    const reservations = await queries.getReservations();
 
-  router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res: Response) => {
+    const now = Date.now();
+    const idki = reservations.map((r: any) => r.id);
+    const zdjeciaZwrotu = await queries.countPhotosForReservations(idki, 'after');
+    const zdjeciaWydania = await queries.countPhotosForReservations(idki, 'before');
+    const zProtokolem = await queries.signedProtocolsForReservations(idki, 'handover');
+    const zProtokolemZwrotu = await queries.signedProtocolsForReservations(idki, 'return');
+    const zEtapem = reservations.map((reservation: any) => {
+      const context = {
+        returnPhotos: zdjeciaZwrotu[reservation.id] ?? 0,
+        handoverPhotos: zdjeciaWydania[reservation.id] ?? 0,
+        handoverProtocolSigned: zProtokolem.has(reservation.id),
+        returnProtocolSigned: zProtokolemZwrotu.has(reservation.id),
+      };
+      return {
+        ...reservation,
+        stage: describeRentalStage(reservation, now),
+        actions: availableActions(reservation, context, now),
+        handoverSigned: zProtokolem.has(reservation.id),
+        returnSigned: zProtokolemZwrotu.has(reservation.id),
+        handoverPhotos: context.handoverPhotos,
+        // Rozpis i terminy liczy serwer, żeby panel, mail i umowa pokazywały
+        // dokładnie te same pozycje i tę samą sumę.
+        koszty: rozpiszKoszty(reservation),
+        terminy: {
+          odbior: opiszTermin(reservation.start_date, reservation.start_time),
+          zwrot: opiszTermin(reservation.end_date, reservation.end_time),
+          miejsca: opiszMiejsca(reservation),
+        },
+      };
+    });
+
+    res.json({ success: true, data: zEtapem });
+  } catch (error) {
+    console.error('Admin reservations error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+router.get('/reservations/:id/term-changes', adminAuth, async (req: Request, res: Response) => {
+  const reservation = await queries.getReservationById(Number(req.params.id));
+  if (!reservation) {
+    res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+    return;
+  }
+  const changes = await queries.getReservationTermChanges(reservation.id);
+  res.json({ success: true, data: changes });
+});
+
+// === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
+
+router.get('/reservations/:id/handover', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const { protocol, snapshot } = await getOrCreateHandoverDraft(reservationId);
+    const przygotowanie = canPrepareHandover(reservation);
+    const zdjecia = await queries.countReservationPhotos(reservationId, 'before');
+    const umowa = await queries.getContractByReservationId(reservationId);
+    const akcje = availableActions(
+      reservation,
+      {
+        returnPhotos: await queries.countReservationPhotos(reservationId, 'after'),
+        handoverPhotos: zdjecia,
+        handoverProtocolSigned: protocol.status === 'signed',
+      },
+      Date.now()
+    );
+    const wydanie = akcje.find((akcja) => akcja.action === 'hand_over');
+
+    res.json({
+      success: true,
+      data: {
+        status: protocol.status,
+        signedAt: protocol.signed_at,
+        snapshot,
+        // Odcisk treści, którą zobaczy podpisujący — wraca przy podpisie.
+        contentHash: protocol.content_hash,
+        customerName: reservation.name,
+        photoCount: zdjecia,
+        // Umowa podpisywana jest na tym samym ekranie, więc jej stan jest
+        // pierwszym krokiem wydania, a nie osobną sprawą gdzie indziej.
+        contractStatus: (umowa?.status ?? 'missing') as 'missing' | 'ready' | 'signed',
+        canSign: protocol.status === 'draft' && przygotowanie.ok,
+        blockedReason: przygotowanie.ok ? null : przygotowanie.reason,
+        // Wydanie to osobny krok: wymaga podpisanego protokołu i zdjęć.
+        canRelease: Boolean(wydanie?.available),
+        releaseBlockedReason: wydanie?.available ? null : wydanie?.reason ?? null,
+        released: reservation.status === 'picked_up',
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się otworzyć protokołu wydania';
+    console.error('Handover draft error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/handover', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { snapshot, contentHash } = await saveHandoverDraft(Number(req.params.id), req.body);
+    res.json({ success: true, data: { snapshot, contentHash }, message: 'Protokół przygotowany do podpisu' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się zapisać protokołu';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/handover/sign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    if (await queries.hasSignedProtocol(reservationId, 'handover')) {
+      res.status(409).json({ success: false, message: 'Protokół wydania został już podpisany' });
+      return;
+    }
+
+    // Protokół podpisuje się przy wydaniu, więc umowa musi być podpisana i najem
+    // opłacony. Samo wydanie ma warunek szerszy — sprawdzany dopiero przy nim.
+    const przygotowanie = canPrepareHandover(reservation);
+    if (!przygotowanie.ok) {
+      res.status(409).json({ success: false, message: przygotowanie.reason });
+      return;
+    }
+
+    const { staffSignature, renterSignature, contentHash } = req.body ?? {};
+    const wynik = await signHandoverProtocol({
+      reservationId,
+      contentHash: String(contentHash || ''),
+      staffSignatureDataUrl: String(staffSignature || ''),
+      renterSignatureDataUrl: String(renterSignature || ''),
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+
+    res.json({
+      success: true,
+      data: wynik,
+      message: wynik.emailDelivered
+        ? `Protokół ${wynik.protocolNumber} podpisany i wysłany do klienta. Dodaj zdjęcia i wydaj sprzęt.`
+        : `Protokół ${wynik.protocolNumber} podpisany, ale e-mail nie został wysłany. Dodaj zdjęcia i wydaj sprzęt.`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać protokołu';
+    console.error('Handover sign error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.get('/reservations/:id/handover/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const plik = await readHandoverPdf(Number(req.params.id));
+    if (!plik) {
+      res.status(404).json({ success: false, message: 'Podpisany protokół wydania nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${plik.filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(plik.buffer);
+  } catch (error) {
+    console.error('Handover pdf error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
+  }
+});
+
+// === PROTOKÓŁ ZWROTU (Załącznik nr 2) ===
+
+router.get('/reservations/:id/return', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const { protocol, snapshot } = await getOrCreateReturnDraft(reservationId);
+    const przygotowanie = canPrepareReturn(reservation);
+    const zdjecia = await queries.countReservationPhotos(reservationId, 'after');
+    const akcje = availableActions(
+      reservation,
+      {
+        returnPhotos: zdjecia,
+        handoverPhotos: await queries.countReservationPhotos(reservationId, 'before'),
+        handoverProtocolSigned: await queries.hasSignedProtocol(reservationId, 'handover'),
+        returnProtocolSigned: protocol.status === 'signed',
+      },
+      Date.now()
+    );
+    const zwrot = akcje.find((akcja) => akcja.action === 'register_return');
+
+    res.json({
+      success: true,
+      data: {
+        status: protocol.status,
+        signedAt: protocol.signed_at,
+        snapshot,
+        contentHash: protocol.content_hash,
+        customerName: reservation.name,
+        photoCount: zdjecia,
+        canSign: protocol.status === 'draft' && przygotowanie.ok,
+        blockedReason: przygotowanie.ok ? null : przygotowanie.reason,
+        canRegister: Boolean(zwrot?.available),
+        registerBlockedReason: zwrot?.available ? null : zwrot?.reason ?? null,
+        registered: ['returned', 'completed'].includes(reservation.status),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Nie udało się otworzyć protokołu zwrotu';
+    console.error('Return draft error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/return', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { snapshot, contentHash } = await saveReturnDraft(Number(req.params.id), req.body);
+    res.json({ success: true, data: { snapshot, contentHash }, message: 'Protokół przygotowany do podpisu' });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się zapisać protokołu';
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.post('/reservations/:id/return/sign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservationId = Number(req.params.id);
+    const reservation = await queries.getReservationById(reservationId);
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    if (await queries.hasSignedProtocol(reservationId, 'return')) {
+      res.status(409).json({ success: false, message: 'Protokół zwrotu został już podpisany' });
+      return;
+    }
+
+    const przygotowanie = canPrepareReturn(reservation);
+    if (!przygotowanie.ok) {
+      res.status(409).json({ success: false, message: przygotowanie.reason });
+      return;
+    }
+
+    const { staffSignature, renterSignature, contentHash } = req.body ?? {};
+    const wynik = await signReturnProtocol({
+      reservationId,
+      contentHash: String(contentHash || ''),
+      staffSignatureDataUrl: String(staffSignature || ''),
+      renterSignatureDataUrl: String(renterSignature || ''),
+      ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1',
+      userAgent: String(req.headers['user-agent'] || 'unknown'),
+    });
+
+    res.json({
+      success: true,
+      data: wynik,
+      message: wynik.emailDelivered
+        ? `Protokół ${wynik.protocolNumber} podpisany i wysłany do klienta. Dodaj zdjęcia i przyjmij zwrot.`
+        : `Protokół ${wynik.protocolNumber} podpisany, ale e-mail nie został wysłany. Dodaj zdjęcia i przyjmij zwrot.`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź dane protokołu' });
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'Nie udało się podpisać protokołu';
+    console.error('Return sign error:', error);
+    res.status(400).json({ success: false, message });
+  }
+});
+
+router.get('/reservations/:id/return/pdf', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const plik = await readReturnPdf(Number(req.params.id));
+    if (!plik) {
+      res.status(404).json({ success: false, message: 'Podpisany protokół zwrotu nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${plik.filename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(plik.buffer);
+  } catch (error) {
+    console.error('Return pdf error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
+  }
+});
+
+// === DOPŁATY ROZLICZENIOWE ===
+// Koszt naprawy znany dopiero po fakturze serwisu, dopłata z protokołu zwrotu.
+// To osobna należność od czynszu najmu — ma własną kwotę i własny link.
+const doplataSchema = z.object({
+  amount: z.number().positive('Kwota dopłaty musi być większa od zera').max(100000),
+  label: z.string().trim().min(3, 'Opisz, czego dotyczy dopłata').max(160),
+  wyslijMailem: z.boolean().default(true),
+});
+
+router.get('/reservations/:id/settlements', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const doplaty = await queries.getSettlementPayments(Number(req.params.id));
+    res.json({ success: true, data: doplaty });
+  } catch (error) {
+    console.error('Admin settlements error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać dopłat' });
+  }
+});
+
+router.post('/reservations/:id/settlements', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = doplataSchema.parse(req.body);
     const reservation = await queries.getReservationById(Number(req.params.id));
     if (!reservation) {
       res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
       return;
     }
-    const changes = await queries.getReservationTermChanges(reservation.id);
-    res.json({ success: true, data: changes });
-  });
 
-  router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {
-    try {
-      const input = termChangeSchema.parse(req.body);
-      const reservation = await queries.getReservationById(Number(req.params.id));
-      if (!reservation) {
-        res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
-        return;
-      }
-      if (reservation.status !== 'picked_up') {
-        res.status(409).json({ success: false, message: 'Termin można zmienić tylko dla wydanego sprzętu' });
-        return;
-      }
-      if (input.isIndefinite && reservation.is_indefinite) {
-        res.status(400).json({ success: false, message: 'Ten wynajem jest już bezterminowy' });
-        return;
-      }
-
-      let endDate: string | null = null;
-      let days = Number(reservation.days);
-      let basePrice = Number(reservation.base_price);
-      let totalPrice = Number(reservation.total_price);
-      if (!input.isIndefinite) {
-        if (!input.endDate || Number.isNaN(Date.parse(input.endDate))) {
-          res.status(400).json({ success: false, message: 'Podaj prawidłową datę zwrotu' });
-          return;
-        }
-        endDate = input.endDate;
-        const currentEnd = reservation.end_date ? String(reservation.end_date) : null;
-        const currentEndAt = currentEnd
-          ? Date.parse(`${currentEnd.slice(0, 10)}T${reservation.end_time || '09:00'}`)
-          : null;
-        const newEndAt = Date.parse(`${endDate}T${input.endTime}`);
-        if (currentEndAt !== null && newEndAt <= currentEndAt) {
-          res.status(400).json({ success: false, message: 'Nowy termin musi być późniejszy od obecnego terminu zwrotu' });
-          return;
-        }
-        if (Date.parse(endDate) < Date.parse(String(reservation.start_date))) {
-          res.status(400).json({ success: false, message: 'Termin zwrotu nie może być wcześniejszy od odbioru' });
-          return;
-        }
-
-        const dateDiff = Math.round(
-          (Date.parse(endDate) - Date.parse(String(reservation.start_date))) / 86_400_000
-        );
-        const [startHour, startMinute] = String(reservation.start_time || '09:00').split(':').map(Number);
-        const [endHour, endMinute] = input.endTime.split(':').map(Number);
-        const extraDay = endHour * 60 + endMinute > startHour * 60 + startMinute ? 1 : 0;
-        days = Math.max(1, dateDiff + extraDay);
-        const pickupDay = new Date(`${String(reservation.start_date)}T12:00:00`).getDay();
-        const pricing = calculateRentalItemsPrice(
-          reservationProductIds(reservation),
-          days,
-          pickupDay === 5 && days === 3
-        );
-        if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
-        basePrice = pricing.basePrice;
-        const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
-        totalPrice = basePrice + fixedFees;
-      }
-
-      const result = await queries.changeReservationTerm({
-        id: reservation.id,
-        endDate,
-        endTime: input.endTime,
-        isIndefinite: input.isIndefinite,
-        days,
-        basePrice,
-        totalPrice,
-        itemPrices: input.isIndefinite
-          ? (reservation.items || []).map((item: any) => ({ productId: String(item.product_id), itemPrice: Number(item.item_price) }))
-          : (calculateRentalItemsPrice(
-              reservationProductIds(reservation),
-              days,
-              new Date(`${String(reservation.start_date)}T12:00:00`).getDay() === 5 && days === 3
-            )?.items.map((item) => ({ productId: item.productId, itemPrice: item.itemPrice })) || []),
-        note: input.note,
-        changedBy: input.changedBy,
-      });
-      if (result.conflicts?.length) {
-        const conflict = result.conflicts[0];
-        res.status(409).json({
-          success: false,
-          message: `Nie można zmienić terminu: ${getProductName(conflict.product_id)} jest zarezerwowany od ${conflict.start_date}`,
-          data: { conflicts: result.conflicts },
-        });
-        return;
-      }
-
-      const priceDelta = totalPrice - Number(reservation.total_price);
-      const emailResult = await sendRentalTermChangedEmail({
-        email: reservation.email,
-        name: reservation.name,
-        productName: reservationProductNames(reservation),
-        endDate: input.isIndefinite ? 'bezterminowo - do odwołania' : `${endDate} ${input.endTime}`,
-        totalPrice,
-        priceDelta,
-        note: input.note,
-      });
-      res.json({
-        success: true,
-        message: input.isIndefinite ? 'Wynajem zmieniono na bezterminowy' : 'Termin wynajmu został przedłużony',
-        data: { reservation: result.reservation, priceDelta, emailDelivered: emailResult.delivered },
-      });
-    } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zmiany' });
-        return;
-      }
-      console.error('Reservation term change error:', error);
-      res.status(500).json({ success: false, message: 'Nie udało się zmienić terminu wynajmu' });
-    }
-  });
-  try {
-    const status = req.query.status as string | undefined;
-    
-    let reservations;
-    if (status && status !== 'all') {
-      reservations = await queries.getReservationsByStatus(status);
-    } else {
-      reservations = await queries.getReservations();
+    const link = await resolveSettlementLink(reservation.id, input.amount, input.label, '127.0.0.1');
+    if (link.status !== 'ready') {
+      const powod = link.status === 'paid' ? 'Ta dopłata została już opłacona' : link.reason;
+      res.status(409).json({ success: false, message: powod });
+      return;
     }
 
-    res.json({ success: true, data: reservations });
+    let wyslano = false;
+    if (input.wyslijMailem) {
+      const wynik = await sendSettlementRequestEmail(reservation.email, reservation.name, {
+        kwota: input.amount,
+        opis: input.label,
+        link: link.url,
+        numerRezerwacji: reservation.id,
+      });
+      wyslano = wynik.delivered;
+    }
+
+    res.json({
+      success: true,
+      message: wyslano
+        ? `Dopłata ${input.amount.toFixed(2)} zł wysłana do klienta`
+        : `Dopłata ${input.amount.toFixed(2)} zł przygotowana — skopiuj link i przekaż klientowi`,
+      data: { ...link, wyslano },
+    });
   } catch (error) {
-    console.error('Admin reservations error:', error);
-    res.status(500).json({ success: false, message: 'Błąd serwera' });
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane dopłaty' });
+      return;
+    }
+    console.error('Admin settlement create error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się przygotować dopłaty' });
+  }
+});
+
+// === LINK DO PŁATNOŚCI ===
+// Zwraca ten sam link przy kolejnych wywołaniach, żeby klient nie dostał kilku
+// otwartych sesji płatności i nie zapłacił dwa razy.
+router.get('/reservations/:id/payment-link', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const link = await resolvePaymentLink(Number(req.params.id), '127.0.0.1');
+    res.json({ success: true, data: link });
+  } catch (error) {
+    console.error('Admin payment link error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się przygotować linku do płatności' });
+  }
+});
+
+// Wpłata przyjęta przy ladzie. Bez tego wydanie sprzętu blokowałoby się na
+// "rezerwacja nieopłacona", mimo że pieniądze są w kasie.
+const manualPaymentSchema = z.object({
+  method: z.enum(['cash', 'transfer', 'terminal'], { message: 'Wybierz formę wpłaty: gotówka, przelew lub terminal' }),
+  amount: z.number({ message: 'Podaj kwotę wpłaty' }).positive('Kwota musi być większa od zera').max(100000),
+  confirmedBy: z.string({ message: 'Podaj imię i nazwisko pracownika' }).trim().min(3, 'Podaj imię i nazwisko pracownika').max(120),
+});
+
+router.post('/reservations/:id/mark-paid', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = manualPaymentSchema.parse(req.body);
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    // Ta sama bramka co dla płatności online. Inaczej gotówka omijałaby wymóg
+    // podpisanej umowy i pozwalała wydać sprzęt bez dokumentu.
+    const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
+    if (link.status === 'paid') {
+      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+      return;
+    }
+    if (link.status === 'unavailable' && !link.canPayManually) {
+      res.status(409).json({ success: false, message: link.reason });
+      return;
+    }
+
+    await queries.recordManualPayment({
+      reservationId: reservation.id,
+      amount: input.amount,
+      method: input.method,
+      confirmedBy: input.confirmedBy,
+    });
+
+    const nazwa = { cash: 'gotówką', transfer: 'przelewem', terminal: 'terminalem' }[input.method];
+    // Wplata mogla byc ostatnia rzecza, na ktora czekal zwrocony najem.
+    const zamkniete = await zamknijNajemJesliRozliczony(reservation.id, input.confirmedBy);
+    res.json({
+      success: true,
+      message: zamkniete
+        ? `Zapisano wpłatę ${nazwa}. Najem został rozliczony i zakończony.`
+        : `Zapisano wpłatę ${nazwa}. Link online przestał działać.`,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane wpłaty' });
+      return;
+    }
+    console.error('Manual payment error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zapisać wpłaty' });
+  }
+});
+
+router.post('/reservations/:id/payment-link/send', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const link = await resolvePaymentLink(reservation.id, '127.0.0.1');
+    if (link.status === 'paid') {
+      res.status(409).json({ success: false, message: 'Ta rezerwacja jest już opłacona' });
+      return;
+    }
+    if (link.status === 'unavailable') {
+      res.status(409).json({ success: false, message: link.reason });
+      return;
+    }
+
+    const result = await sendPaymentLinkEmail(
+      reservation.email,
+      reservation.name,
+      reservation.id,
+      link.amount,
+      link.url
+    );
+    if (!result.delivered) {
+      res.status(502).json({
+        success: false,
+        message: 'Link został przygotowany, ale e-mail nie został wysłany. Skopiuj link ręcznie.',
+      });
+      return;
+    }
+
+    res.json({ success: true, message: `Link do płatności wysłany na ${reservation.email}` });
+  } catch (error) {
+    console.error('Admin payment link send error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wysłać linku do płatności' });
+  }
+});
+
+router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = termChangeSchema.parse(req.body);
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    if (reservation.status !== 'picked_up') {
+      res.status(409).json({ success: false, message: 'Termin można zmienić tylko dla wydanego sprzętu' });
+      return;
+    }
+    if (input.isIndefinite && reservation.is_indefinite) {
+      res.status(400).json({ success: false, message: 'Ten wynajem jest już bezterminowy' });
+      return;
+    }
+
+    let endDate: string | null = null;
+    let days = Number(reservation.days);
+    let basePrice = Number(reservation.base_price);
+    let totalPrice = Number(reservation.total_price);
+    if (!input.isIndefinite) {
+      if (!input.endDate || Number.isNaN(Date.parse(input.endDate))) {
+        res.status(400).json({ success: false, message: 'Podaj prawidłową datę zwrotu' });
+        return;
+      }
+      endDate = input.endDate;
+      const currentEnd = reservation.end_date ? String(reservation.end_date) : null;
+      const currentEndAt = currentEnd
+        ? Date.parse(`${currentEnd.slice(0, 10)}T${reservation.end_time || '09:00'}`)
+        : null;
+      const newEndAt = Date.parse(`${endDate}T${input.endTime}`);
+      if (currentEndAt !== null && newEndAt <= currentEndAt) {
+        res.status(400).json({ success: false, message: 'Nowy termin musi być późniejszy od obecnego terminu zwrotu' });
+        return;
+      }
+      if (Date.parse(endDate) < Date.parse(String(reservation.start_date))) {
+        res.status(400).json({ success: false, message: 'Termin zwrotu nie może być wcześniejszy od odbioru' });
+        return;
+      }
+
+      const dateDiff = Math.round(
+        (Date.parse(endDate) - Date.parse(String(reservation.start_date))) / 86_400_000
+      );
+      const [startHour, startMinute] = String(reservation.start_time || '09:00').split(':').map(Number);
+      const [endHour, endMinute] = input.endTime.split(':').map(Number);
+      const extraDay = endHour * 60 + endMinute > startHour * 60 + startMinute ? 1 : 0;
+      days = Math.max(1, dateDiff + extraDay);
+      const pickupDay = new Date(`${String(reservation.start_date)}T12:00:00`).getDay();
+      const pricing = calculateRentalItemsPrice(
+        reservationProductIds(reservation),
+        days,
+        pickupDay === 5 && days === 3
+      );
+      if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
+      basePrice = pricing.basePrice;
+      const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
+      totalPrice = basePrice + fixedFees;
+    }
+
+    const result = await queries.changeReservationTerm({
+      id: reservation.id,
+      endDate,
+      endTime: input.endTime,
+      isIndefinite: input.isIndefinite,
+      days,
+      basePrice,
+      totalPrice,
+      itemPrices: input.isIndefinite
+        ? (reservation.items || []).map((item: any) => ({ productId: String(item.product_id), itemPrice: Number(item.item_price) }))
+        : (calculateRentalItemsPrice(
+            reservationProductIds(reservation),
+            days,
+            new Date(`${String(reservation.start_date)}T12:00:00`).getDay() === 5 && days === 3
+          )?.items.map((item) => ({ productId: item.productId, itemPrice: item.itemPrice })) || []),
+      note: input.note,
+      changedBy: input.changedBy,
+    });
+    if (result.conflicts?.length) {
+      const conflict = result.conflicts[0];
+      res.status(409).json({
+        success: false,
+        message: `Nie można zmienić terminu: ${getProductName(conflict.product_id)} jest zarezerwowany od ${conflict.start_date}`,
+        data: { conflicts: result.conflicts },
+      });
+      return;
+    }
+
+    const priceDelta = totalPrice - Number(reservation.total_price);
+    const emailResult = await sendRentalTermChangedEmail({
+      email: reservation.email,
+      name: reservation.name,
+      productName: reservationProductNames(reservation),
+      endDate: input.isIndefinite ? 'bezterminowo - do odwołania' : `${endDate} ${input.endTime}`,
+      totalPrice,
+      priceDelta,
+      note: input.note,
+    });
+    res.json({
+      success: true,
+      message: input.isIndefinite ? 'Wynajem zmieniono na bezterminowy' : 'Termin wynajmu został przedłużony',
+      data: { reservation: result.reservation, priceDelta, emailDelivered: emailResult.delivered },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane zmiany' });
+      return;
+    }
+    console.error('Reservation term change error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się zmienić terminu wynajmu' });
   }
 });
 
@@ -584,21 +1161,46 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       return;
     }
 
+    // Warunki, które normalnie wstrzymują przejście. Pracownik może je pominąć
+    // świadomie (force) — wtedy trafiają do historii, żeby było wiadomo, co i kto
+    // pominął. Bez tego system decydowałby za obsługę stojącą przy kliencie.
+    const pominiete: string[] = [];
+
     if (status === 'picked_up' && config.contracts.enabled) {
-      const signed = await queries.hasSignedContract(Number(id));
-      if (!signed) {
-        res.status(409).json({
-          success: false,
-          message: 'Nie można wydać sprzętu przed podpisaniem umowy najmu',
-        });
-        return;
-      }
+      if (!await queries.hasSignedContract(Number(id))) pominiete.push('brak podpisanej umowy najmu');
+      if (!await queries.hasSignedProtocol(Number(id), 'handover')) pominiete.push('brak podpisanego protokołu wydania');
     }
 
     if (status === 'returned' && reservation.is_indefinite) {
+      pominiete.push('nieustalony termin zwrotu wynajmu bezterminowego');
+    }
+
+    const przejscie = canTransition(
+      reservation,
+      status,
+      {
+        returnPhotos: await queries.countReservationPhotos(reservation.id, 'after'),
+        handoverPhotos: await queries.countReservationPhotos(reservation.id, 'before'),
+        handoverProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'handover'),
+        returnProtocolSigned: await queries.hasSignedProtocol(reservation.id, 'return'),
+      }
+    );
+    if (!przejscie.ok && przejscie.reason && !pominiete.includes(przejscie.reason)) {
+      pominiete.push(przejscie.reason);
+    }
+
+    // Kolejność statusów to nie warunek biznesowy tylko spójność danych —
+    // tego nie da się pominąć, bo powstałby stan nie do odtworzenia.
+    if (przejscie.kolejnoscBledna) {
+      res.status(409).json({ success: false, message: przejscie.reason });
+      return;
+    }
+
+    if (pominiete.length > 0 && !input.force) {
       res.status(409).json({
         success: false,
-        message: 'Najpierw ustal faktyczny termin zwrotu i rozlicz wynajem bezterminowy',
+        message: `Nie wszystko jest gotowe: ${pominiete.join(', ')}`,
+        data: { pominiete, mozliwoscWymuszenia: true },
       });
       return;
     }
@@ -623,10 +1225,15 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
     
     const notifyCustomer = input.notifyCustomer
       ?? ['confirmed', 'rejected', 'picked_up', 'returned'].includes(status);
+    // Pominięte warunki zostają w historii — przy sporze trzeba wiedzieć,
+    // że sprzęt wyszedł np. bez podpisanego protokołu i kto tak zdecydował.
+    const notatka = input.note || DOMYSLNA_NOTATKA[status] || `Status zmieniono na: ${status}`;
     const updateResult = await queries.updateReservationStatus({
       id: Number(id),
       status,
-      note: input.note || `Status zmieniono na: ${status}`,
+      note: pominiete.length > 0
+        ? `${notatka} — WYMUSZONO mimo: ${pominiete.join(', ')}`
+        : notatka,
       changedBy: input.changedBy || 'Panel administratora',
       notifyCustomer,
     });
@@ -653,41 +1260,10 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       }
     }
     
-    // Send email when equipment is picked up
-    if (notifyCustomer && status === 'picked_up') {
-      try {
-        await sendPickedUpEmail({
-          email: reservation.email,
-          name: reservation.name,
-          productName: reservationProductNames(reservation),
-          startDate: reservation.start_date,
-          endDate: reservation.end_date || 'bezterminowo',
-          totalPrice: reservation.total_price,
-        });
-        console.log(`📧 Picked up email sent to ${reservation.email}`);
-      } catch (emailError) {
-        console.error('Email send error:', emailError);
-      }
-    }
-    
-    // Send email when equipment is returned
+    // Wydanie i zwrot maja wlasne, pelne maile wysylane razem z protokolem.
+    // Osobne powiadomienie bylo drugim mailem o tym samym - a kazda zbedna
+    // wiadomosc zbliza nadawce do folderu spam.
     if (status === 'returned') {
-      if (notifyCustomer) {
-        try {
-          await sendReturnedEmail({
-            email: reservation.email,
-            name: reservation.name,
-            productName: reservationProductNames(reservation),
-            startDate: reservation.start_date,
-            endDate: reservation.end_date || 'bezterminowo',
-            totalPrice: reservation.total_price,
-          });
-          console.log(`📧 Returned email sent to ${reservation.email}`);
-        } catch (emailError) {
-          console.error('Email send error:', emailError);
-        }
-      }
-
       // Auto-send availability notifications
       try {
         for (const productId of reservationProductIds(reservation)) {
@@ -729,11 +1305,19 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         console.error('Auto-notify error:', notifyError);
       }
     }
-    
+
+    // Sprzet wrocil, protokol podpisany, pieniadze zaksiegowane - nie ma juz na co
+    // czekac ani czego decydowac. Osobny klik "zakoncz" tylko udawalby wybor.
+    let finalna = updateResult.reservation;
+    if (status === 'returned') {
+      const zamkniete = await zamknijNajemJesliRozliczony(reservation.id, input.changedBy);
+      if (zamkniete) finalna = zamkniete;
+    }
+
     res.json({ 
       success: true, 
       message: `Status zmieniony na: ${status}`,
-      data: updateResult.reservation
+      data: finalna
     });
   } catch (error) {
     if (error instanceof ZodError) {

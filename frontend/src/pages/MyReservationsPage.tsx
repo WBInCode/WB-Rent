@@ -10,9 +10,12 @@ import {
   CreditCard,
   Ban,
   Check,
+  CalendarPlus,
 } from 'lucide-react';
 import { Button, Card, Badge, Input } from '@/components/ui';
 import { UtilityPageShell } from '@/components/UtilityPageShell';
+import { PrzedluzenieNajmu } from '@/components/PrzedluzenieNajmu';
+import { opiszEtapDlaKlienta, type StageTone } from '@/utils/rentalStage';
 import {
   requestMyReservationsLink,
   getMyReservations,
@@ -22,29 +25,13 @@ import {
   type MyReservation,
 } from '@/services/api';
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Oczekuje na potwierdzenie',
-  confirmed: 'Potwierdzona',
-  picked_up: 'Sprzęt wydany',
-  returned: 'Sprzęt zwrócony',
-  completed: 'Zakończona',
-  rejected: 'Odrzucona',
-  cancelled: 'Anulowana',
-};
-
-const STATUS_COLORS: Record<string, 'warning' | 'success' | 'error' | 'default' | 'info'> = {
-  pending: 'warning',
-  confirmed: 'success',
-  picked_up: 'info',
-  returned: 'info',
-  completed: 'success',
-  rejected: 'error',
-  cancelled: 'error',
-};
-
-const todayLocal = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const TON_PLAKIETKI: Record<StageTone, 'warning' | 'success' | 'error' | 'default' | 'info'> = {
+  neutral: 'default',
+  info: 'info',
+  warning: 'warning',
+  success: 'success',
+  error: 'error',
+  alert: 'error',
 };
 
 export function MyReservationsPage() {
@@ -63,6 +50,7 @@ export function MyReservationsPage() {
   const [reservations, setReservations] = useState<MyReservation[]>([]);
   const [ownerEmail, setOwnerEmail] = useState('');
   const [paymentsEnabled, setPaymentsEnabled] = useState(false);
+  const [extendFor, setExtendFor] = useState<{ id: number; koniec: string } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -131,13 +119,16 @@ export function MyReservationsPage() {
     setBusyId(null);
   };
 
-  const canCancel = (r: MyReservation) =>
-    ['pending', 'confirmed'].includes(r.status) && r.start_date > todayLocal();
+  // Anulowanie i zaplate rozstrzyga serwer. Wczesniej przycisk "Opłać" pokazywal
+  // sie takze przed podpisaniem umowy i konczyl bledem bez wyjscia, a "Anuluj"
+  // pozwalal klientowi skasowac podpisany i oplacony najem jednym klikiem.
+  const canCancel = (r: MyReservation) => !r.cancelBlockedReason;
 
-  const canPay = (r: MyReservation) =>
-    paymentsEnabled &&
-    r.payment_status !== 'paid' &&
-    !['rejected', 'cancelled', 'completed', 'returned'].includes(r.status);
+  const canPay = (r: MyReservation) => paymentsEnabled && Boolean(r.canPayOnline);
+
+  // Przedłużyć można tylko trwający najem z ustalonym terminem zwrotu.
+  const canExtend = (r: MyReservation) =>
+    ['confirmed', 'picked_up'].includes(r.status) && !r.is_indefinite && Boolean(r.end_date);
 
   return (
     <UtilityPageShell maxWidth="3xl">
@@ -152,7 +143,7 @@ export function MyReservationsPage() {
           <Card variant="glass" className="p-8 mt-6">
             {requestState === 'sent' ? (
               <div className="text-center py-6">
-                <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto mb-4" />
+                <CheckCircle2 className="w-14 h-14 text-green-500 light:text-green-700 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-text-primary mb-2">Sprawdź skrzynkę</h2>
                 <p className="text-text-secondary">{requestMessage}</p>
               </div>
@@ -183,7 +174,7 @@ export function MyReservationsPage() {
                   </Button>
                 </form>
                 {requestState === 'error' && (
-                  <p className="text-red-400 text-sm mt-3">{requestMessage}</p>
+                  <p className="text-red-400 light:text-red-700 text-sm mt-3">{requestMessage}</p>
                 )}
               </>
             )}
@@ -199,7 +190,7 @@ export function MyReservationsPage() {
 
         {token && listState === 'unauthorized' && (
           <Card variant="glass" className="p-8 mt-6 text-center">
-            <XCircle className="w-14 h-14 text-red-500 mx-auto mb-4" />
+            <XCircle className="w-14 h-14 text-red-500 light:text-red-700 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-text-primary mb-2">Link wygasł</h2>
             <p className="text-text-secondary mb-6">
               Link dostępu jest nieprawidłowy lub stracił ważność (24h).
@@ -228,13 +219,15 @@ export function MyReservationsPage() {
                 <p className="text-text-secondary">Brak rezerwacji dla tego adresu.</p>
               </Card>
             ) : (
-              reservations.map((r) => (
+              reservations.map((r) => {
+                const etap = opiszEtapDlaKlienta(r.stage);
+                return (
                 <Card key={r.id} variant="glass" className="p-5">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap mb-2">
-                        <Badge variant={STATUS_COLORS[r.status] || 'default'}>
-                          {STATUS_LABELS[r.status] || r.status}
+                        <Badge variant={TON_PLAKIETKI[etap.ton]}>
+                          {etap.etykieta}
                         </Badge>
                         {r.payment_status === 'paid' && (
                           <Badge variant="success"><Check className="w-3 h-3" aria-hidden="true" /> Opłacona</Badge>
@@ -258,6 +251,14 @@ export function MyReservationsPage() {
                         </span>
                         <span className="font-medium text-gold">{r.total_price} zł</span>
                       </div>
+                      {etap.wskazowka && (
+                        <p className="text-sm text-text-muted mt-2">{etap.wskazowka}</p>
+                      )}
+                      {r.cancelBlockedReason?.includes('skontaktuj') && (
+                        <p className="text-xs text-text-muted mt-1">
+                          Rezygnacja: {r.cancelBlockedReason.split('—')[1]?.trim() || r.cancelBlockedReason}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex gap-2 shrink-0">
@@ -276,13 +277,23 @@ export function MyReservationsPage() {
                           Opłać
                         </Button>
                       )}
+                      {canExtend(r) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setExtendFor({ id: r.id, koniec: String(r.end_date).slice(0, 10) })}
+                        >
+                          <CalendarPlus className="w-4 h-4 mr-1.5" />
+                          Przedłuż
+                        </Button>
+                      )}
                       {canCancel(r) && (
                         <Button
                           variant="ghost"
                           size="sm"
                           disabled={busyId === r.id}
                           onClick={() => handleCancel(r.id)}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          className="text-red-400 light:text-red-700 hover:text-red-300 light:text-red-700 hover:bg-red-500/10"
                         >
                           <Ban className="w-4 h-4 mr-1.5" />
                           Anuluj
@@ -291,9 +302,19 @@ export function MyReservationsPage() {
                     </div>
                   </div>
                 </Card>
-              ))
+                );
+              })
             )}
           </div>
+        )}
+
+        {extendFor && (
+          <PrzedluzenieNajmu
+            reservationId={extendFor.id}
+            token={token}
+            obecnyKoniec={extendFor.koniec}
+            onClose={() => setExtendFor(null)}
+          />
         )}
     </UtilityPageShell>
   );

@@ -21,8 +21,8 @@ import {
   Truck,
   User,
 } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
-import { products, getProductById, calculateRentalCost, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
+import { products, getProductById, calculateRentalCost, isCatalogLoaded, availableAddons, priceAddons, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
 import { type ReservationPayload } from '@/services/api';
 import {
   createContractSession,
@@ -34,10 +34,25 @@ import {
   type CreateContractPayload,
 } from '@/services/adminApi';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const todayLocal = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+/** Dowozimy wyłącznie po Rzeszowie, więc miasto nie jest pytaniem — to stała. */
+const MIASTO_DOSTAWY = 'Rzeszów';
+
+const GODZINY = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+];
+
+/** Zapis kodu jako „35-001" niezależnie od tego, jak pracownik go wpisał. */
+const formatujKod = (wartosc: string): string => {
+  const cyfry = wartosc.replace(/\D/g, '').slice(0, 5);
+  return cyfry.length <= 2 ? cyfry : `${cyfry.slice(0, 2)}-${cyfry.slice(2)}`;
 };
 
 interface RentalForm {
@@ -48,9 +63,13 @@ interface RentalForm {
   isIndefinite: boolean;
   startTime: string;
   endTime: string;
-  delivery: boolean;
-  city: string;
+  /** Dowóz i odbiór to dwa niezależne kursy — klient może chcieć tylko jednego. */
+  deliveryOut: boolean;
+  deliveryBack: boolean;
+  postalCode: string;
   deliveryAddress: string;
+  /** Zamówione dodatki: identyfikator pozycji → ilość. */
+  addons: Record<string, number>;
   firstName: string;
   lastName: string;
   email: string;
@@ -84,9 +103,11 @@ const initialForm: RentalForm = {
   isIndefinite: false,
   startTime: '09:00',
   endTime: '09:00',
-  delivery: false,
-  city: 'Rzeszów',
+  deliveryOut: false,
+  deliveryBack: false,
+  postalCode: '',
   deliveryAddress: '',
+  addons: {},
   firstName: '',
   lastName: '',
   email: '',
@@ -158,10 +179,30 @@ export function StaffRentalPage() {
     setHandoverItems((current) => [...current, '']);
   };
 
+  // "a) <urządzenie>:" jest nagłówkiem grupy - pozycje numerujemy w obrębie grupy.
+  const handoverMarkers = useMemo(() => {
+    const znaczniki: string[] = [];
+    let number = 0;
+    for (const item of handoverItems) {
+      if (/^[a-z]\)/.test(item)) {
+        number = 0;
+        znaczniki.push('');
+        continue;
+      }
+      number += 1;
+      znaczniki.push(`${number}.`);
+    }
+    return znaczniki;
+  }, [handoverItems]);
+
   const selectedProducts = useMemo(() => form.productIds
     .map((productId) => getProductById(productId))
     .filter((product): product is NonNullable<typeof product> => Boolean(product)), [form.productIds]);
   const selectedProduct = selectedProducts[0];
+
+  /** Dodatki na sprzedaż do wybranego sprzętu — worki, środki czyszczące. */
+  const dostepneDodatki = useMemo(() => availableAddons(selectedProducts), [selectedProducts]);
+  const wybraneDodatki = useMemo(() => priceAddons(selectedProducts, form.addons), [selectedProducts, form.addons]);
 
   const price = useMemo(() => {
     if (selectedProducts.length === 0 || !form.startDate || (!form.isIndefinite && !form.endDate)) return null;
@@ -179,17 +220,26 @@ export function StaffRentalPage() {
     }).filter((item): item is NonNullable<typeof item> => Boolean(item));
     if (lineItems.length !== selectedProducts.length) return null;
     const base = lineItems.reduce((sum, item) => sum + item.price, 0);
-    const deliveryFee = form.delivery ? DELIVERY_FEE * 2 : 0;
-    const weekendFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
+    // Każdy kurs płatny osobno: dowóz i odbiór to dwa niezależne przejazdy.
+    const kursy = (form.deliveryOut ? 1 : 0) + (form.deliveryBack ? 1 : 0);
+    const deliveryFee = kursy * DELIVERY_FEE;
+    // §12 umowy: opłata weekendowa „każdorazowo" — także za zwrot.
+    const weekendowy = (dzien: number) => dzien === 0 || dzien === 6;
+    const returnDay = form.isIndefinite || !form.endDate
+      ? null
+      : new Date(`${form.endDate}T12:00:00`).getDay();
+    const weekendFee = ((weekendowy(pickupDay) ? 1 : 0) + (returnDay !== null && weekendowy(returnDay) ? 1 : 0))
+      * WEEKEND_PICKUP_FEE;
     return {
       days,
       lineItems,
       base,
       deliveryFee,
       weekendFee,
-      total: base + deliveryFee + weekendFee,
+      addonsFee: wybraneDodatki.fee,
+      total: base + deliveryFee + weekendFee + wybraneDodatki.fee,
     };
-  }, [selectedProducts, form.startDate, form.endDate, form.isIndefinite, form.startTime, form.endTime, form.delivery]);
+  }, [selectedProducts, form.startDate, form.endDate, form.isIndefinite, form.startTime, form.endTime, form.deliveryOut, form.deliveryBack, wybraneDodatki.fee]);
 
   // What the customer actually pays: system total, minus a manual discount,
   // or entirely replaced by a price the employee typed in.
@@ -233,7 +283,12 @@ export function StaffRentalPage() {
       rejectWith('Data zwrotu nie może być wcześniejsza niż data odbioru.', 'data-zwrotu');
       return;
     }
-    if (form.delivery && form.deliveryAddress.trim().length < 5) {
+    const zamowionyDojazd = form.deliveryOut || form.deliveryBack;
+    if (zamowionyDojazd && !/^\d{2}-\d{3}$/.test(form.postalCode)) {
+      rejectWith('Podaj kod pocztowy adresu dostawy w formacie 00-000.', 'kod-pocztowy');
+      return;
+    }
+    if (zamowionyDojazd && form.deliveryAddress.trim().length < 5) {
       rejectWith('Podaj pełny adres dostawy.', 'adres-dostawy');
       return;
     }
@@ -264,7 +319,7 @@ export function StaffRentalPage() {
       return;
     }
     if (form.documentNumber.trim() && !/^[\p{L}\d\s-]+$/u.test(form.documentNumber.trim())) {
-      rejectWith('Numer dokumentu może zawierać tylko litery, cyfry, spacje i myślniki.', 'numer-dokumentu-(opcjonalnie)');
+      rejectWith('Numer dokumentu tożsamości może zawierać tylko litery, cyfry, spacje i myślniki.', 'numer-dokumentu-tożsamości-(opcjonalnie)');
       return;
     }
     if (form.employeeName.trim().length < 3) {
@@ -323,9 +378,13 @@ export function StaffRentalPage() {
       startTime: form.startTime,
       endTime: form.endTime,
       days: price.days,
-      delivery: form.delivery,
-      city: form.city,
-      address: form.delivery ? form.deliveryAddress : undefined,
+      delivery: form.deliveryOut && form.deliveryBack,
+      deliveryOut: form.deliveryOut,
+      deliveryBack: form.deliveryBack,
+      city: zamowionyDojazd ? MIASTO_DOSTAWY : undefined,
+      postalCode: zamowionyDojazd ? form.postalCode : undefined,
+      address: zamowionyDojazd ? form.deliveryAddress : undefined,
+      addons: wybraneDodatki.items.map((dodatek) => ({ id: dodatek.id, quantity: dodatek.ilosc })),
       weekendPickup: [0, 6].includes(new Date(`${form.startDate}T12:00:00`).getDay()),
       firstName: form.firstName,
       lastName: form.lastName,
@@ -382,7 +441,7 @@ export function StaffRentalPage() {
       <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4 py-12">
         <Card variant="glass" className="max-w-xl w-full p-8">
           <div className="text-center">
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-5" />
+            <CheckCircle2 className="w-16 h-16 text-green-500 light:text-green-700 mx-auto mb-5" />
             <h1 className="text-2xl font-bold">Wynajem i umowa gotowe</h1>
             <p className="text-text-secondary mt-2">
               Rezerwacja #{session.reservationId} • {session.contractNumber}
@@ -410,6 +469,21 @@ export function StaffRentalPage() {
 
           <div className="mt-8 pt-6 border-t border-border">
             <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Package className="w-4 h-4 text-gold" /> Następny krok: wydanie sprzętu
+            </h2>
+            <p className="text-xs text-text-muted mt-1 mb-4">
+              Po podpisaniu umowy i opłaceniu najmu otwórz protokół wydania — tam dodasz zdjęcia stanu,
+              uwagi i zbierzesz oba podpisy. Podpisany protokół oznacza sprzęt jako wydany.
+            </p>
+            <Link to={`/admin/wydanie/${session.reservationId}`}>
+              <Button variant="secondary" className="w-full">
+                <FileSignature className="w-4 h-4 mr-2" /> Otwórz protokół wydania
+              </Button>
+            </Link>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-border">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
               <Camera className="w-4 h-4 text-gold" /> Dokumentacja stanu sprzętu
             </h2>
             <p className="text-xs text-text-muted mt-1 mb-4">
@@ -421,7 +495,7 @@ export function StaffRentalPage() {
               onNotify={(message, tone) => setError(tone === 'error' ? message : '')}
             />
             {error && (
-              <p className="mt-3 text-sm text-red-300">{error}</p>
+              <p className="mt-3 text-sm text-red-300 light:text-red-700">{error}</p>
             )}
           </div>
 
@@ -436,14 +510,17 @@ export function StaffRentalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#090909] text-text-primary">
-      <div className="border-b border-white/10 bg-[#0d0d0d]">
+    <div className="min-h-screen bg-bg-primary text-text-primary">
+      <div className="border-b border-border bg-bg-secondary">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
           <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-gold transition-colors">
             <ArrowLeft className="w-4 h-4" /> Panel admina
           </Link>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
-            <ShieldCheck className="w-4 h-4 text-green-500" /> Tryb bezpiecznej obsługi klienta
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
+              <ShieldCheck className="w-4 h-4 text-green-500 light:text-green-700" /> Tryb bezpiecznej obsługi klienta
+            </div>
+            <ThemeToggle className="h-9 w-9" />
           </div>
         </div>
       </div>
@@ -501,7 +578,7 @@ export function StaffRentalPage() {
                     <span className="block text-sm font-semibold text-text-primary">Wynajem bezterminowy</span>
                     <span className="block text-xs text-text-muted mt-0.5">Bez planowanej daty zwrotu, rozliczany według faktycznego czasu najmu</span>
                   </span>
-                  <input
+                  <input spellCheck={false}
                     type="checkbox"
                     role="switch"
                     checked={form.isIndefinite}
@@ -510,41 +587,91 @@ export function StaffRentalPage() {
                   />
                 </label>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Input label="Data odbioru" type="date" min={todayLocal()} value={form.startDate} onChange={(event) => update('startDate', event.target.value)} required />
-                  <Input label="Godzina odbioru" type="time" value={form.startTime} onChange={(event) => update('startTime', event.target.value)} required />
+                  <DatePicker label="Data odbioru" minDate={todayLocal()} value={form.startDate} onChange={(value) => update('startDate', value)} required />
+                  <Select
+                    label="Godzina odbioru"
+                    value={form.startTime}
+                    onChange={(event) => update('startTime', event.target.value)}
+                    options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
+                    required
+                  />
                   {!form.isIndefinite && (
                     <>
-                      <Input label="Data zwrotu" type="date" min={form.startDate} value={form.endDate} onChange={(event) => update('endDate', event.target.value)} required />
-                      <Input label="Godzina zwrotu" type="time" value={form.endTime} onChange={(event) => update('endTime', event.target.value)} required />
+                      <DatePicker label="Data zwrotu" minDate={form.startDate || todayLocal()} value={form.endDate} onChange={(value) => update('endDate', value)} required />
+                      <Select
+                        label="Godzina zwrotu"
+                        value={form.endTime}
+                        onChange={(event) => update('endTime', event.target.value)}
+                        options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
+                        required
+                      />
                     </>
                   )}
                 </div>
                 {form.isIndefinite && (
-                  <div className="mt-4 p-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] text-xs text-amber-200">
+                  <div className="mt-4 p-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] text-xs text-amber-200 light:text-amber-800">
                     Sprzęt pozostanie niedostępny dla kolejnych rezerwacji do czasu ustalenia terminu i zwrotu.
                   </div>
                 )}
 
-                <div className="grid sm:grid-cols-2 gap-3 mt-5" role="radiogroup" aria-label="Sposób odbioru">
-                  <PickupOption
-                    selected={!form.delivery}
-                    icon={<Package className="w-5 h-5" />}
-                    title="Odbiór osobisty"
-                    description="Klient odbiera i zwraca sprzęt w punkcie"
-                    onClick={() => update('delivery', false)}
+                {/* Dowóz i odbiór to dwa niezależne kursy, każdy płatny osobno. */}
+                <div className="mt-5 p-4 rounded-lg border border-border bg-bg-primary/40 space-y-3">
+                  <p className="text-sm text-text-secondary">
+                    Domyślnie klient odbiera i zwraca sprzęt w punkcie. Zaznacz kursy, które zamawia.
+                  </p>
+                  <DeliveryLeg
+                    checked={form.deliveryOut}
+                    onChange={(value) => update('deliveryOut', value)}
+                    icon={<Truck className="w-4 h-4" />}
+                    title="Przywozimy sprzęt"
+                    description="Dojazd pod adres klienta w dniu rozpoczęcia najmu"
                   />
-                  <PickupOption
-                    selected={form.delivery}
-                    icon={<Truck className="w-5 h-5" />}
-                    title="Dostawa i odbiór"
-                    description="Transport pod wskazany adres • +40 zł"
-                    onClick={() => update('delivery', true)}
+                  <DeliveryLeg
+                    checked={form.deliveryBack}
+                    onChange={(value) => update('deliveryBack', value)}
+                    icon={<Package className="w-4 h-4" />}
+                    title="Odbieramy sprzęt"
+                    description="Przyjazd po sprzęt w dniu zakończenia najmu"
                   />
+                  {(form.deliveryOut || form.deliveryBack) && (
+                    <div className="grid sm:grid-cols-[150px_1fr] gap-4 pt-3 border-t border-border">
+                      <Input
+                        label="Kod pocztowy"
+                        placeholder="35-000"
+                        inputMode="numeric"
+                        value={form.postalCode}
+                        onChange={(event) => update('postalCode', formatujKod(event.target.value))}
+                        hint={MIASTO_DOSTAWY}
+                        required
+                      />
+                      <Input
+                        label="Adres dostawy"
+                        placeholder="Ulica, nr domu/mieszkania"
+                        value={form.deliveryAddress}
+                        onChange={(event) => update('deliveryAddress', event.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
-                {form.delivery && (
-                  <div className="grid sm:grid-cols-2 gap-4 mt-4 p-4 rounded-lg bg-gold/5 border border-gold/20">
-                    <Input label="Miasto" value={form.city} onChange={(event) => update('city', event.target.value)} required />
-                    <Input label="Adres dostawy" value={form.deliveryAddress} onChange={(event) => update('deliveryAddress', event.target.value)} required />
+
+                {dostepneDodatki.length > 0 && (
+                  <div className="mt-5 p-4 rounded-lg border border-border bg-bg-primary/40">
+                    <p className="text-sm font-semibold text-text-primary">Dodatki na sprzedaż</p>
+                    <p className="text-xs text-text-muted mt-0.5 mb-3">
+                      Worki, środki czyszczące. Klient kupuje je na własność — nie podlegają zwrotowi.
+                    </p>
+                    <div className="space-y-2">
+                      {dostepneDodatki.flatMap(({ dodatki }) => dodatki).map((dodatek) => (
+                        <AddonRow
+                          key={dodatek.id}
+                          nazwa={dodatek.nazwa}
+                          cena={dodatek.cena}
+                          ilosc={form.addons[dodatek.id] || 0}
+                          onChange={(ilosc) => update('addons', { ...form.addons, [dodatek.id]: ilosc })}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </FormCard>
@@ -577,7 +704,7 @@ export function StaffRentalPage() {
                     required
                   />
                   <Input
-                    label="Numer dokumentu (opcjonalnie)"
+                    label="Numer dokumentu tożsamości (opcjonalnie)"
                     value={form.documentNumber}
                     onChange={(event) => update('documentNumber', event.target.value.toUpperCase())}
                     maxLength={30}
@@ -591,7 +718,7 @@ export function StaffRentalPage() {
                     <span className="block text-sm font-semibold text-text-primary">Faktura VAT</span>
                     <span className="block text-xs text-text-muted mt-0.5">Uzupełnij dane nabywcy do faktury</span>
                   </span>
-                  <input type="checkbox" checked={form.wantsInvoice} onChange={(event) => update('wantsInvoice', event.target.checked)} className="w-5 h-5 accent-gold" />
+                  <input spellCheck={false} type="checkbox" checked={form.wantsInvoice} onChange={(event) => update('wantsInvoice', event.target.checked)} className="w-5 h-5 accent-gold" />
                 </label>
                 {form.wantsInvoice && (
                   <div className="grid sm:grid-cols-2 gap-4 mt-4 p-4 rounded-lg bg-gold/5 border border-gold/20">
@@ -638,13 +765,13 @@ export function StaffRentalPage() {
                     <ul className="mt-3 space-y-2">
                       {handoverItems.map((item, index) => (
                         <li key={index} className="flex items-center gap-2">
-                          <span className="w-6 shrink-0 text-xs text-text-muted tabular-nums">{index + 1}.</span>
-                          <input
+                          <span className="w-6 shrink-0 text-xs text-text-muted tabular-nums">{handoverMarkers[index]}</span>
+                          <input spellCheck={false}
                             id={`protokol-wydania-${index + 1}`}
                             aria-label={`Pozycja ${index + 1} protokołu wydania`}
                             value={item}
                             onChange={(event) => updateHandoverItem(index, event.target.value)}
-                            className="w-full bg-bg-card border border-border rounded-[--radius-sm] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted transition-all hover:border-border-hover focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/30"
+                            className={`w-full bg-bg-card border border-border rounded-[--radius-sm] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted transition-all hover:border-border-hover focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/30 ${handoverMarkers[index] ? '' : 'font-semibold text-gold'}`}
                           />
                           <button
                             type="button"
@@ -687,7 +814,7 @@ export function StaffRentalPage() {
                       <h2 className="text-xl font-bold leading-snug">Wybrany zestaw</h2>
                       <div className="mt-4 space-y-2">
                         {price?.lineItems.map(({ product, price: itemPrice }, index) => (
-                          <div key={product.id} className="flex items-start justify-between gap-3 p-3 rounded-[--radius-sm] bg-white/[0.025] border border-white/[0.07]">
+                          <div key={product.id} className="flex items-start justify-between gap-3 p-3 rounded-[--radius-sm] bg-surface-soft border border-border">
                             <div className="min-w-0">
                               <p className="text-[10px] uppercase tracking-wider text-text-muted">Pozycja {index + 1}</p>
                               <p className="text-sm font-medium mt-0.5 leading-snug">{shortProductName(product.name)}</p>
@@ -703,8 +830,22 @@ export function StaffRentalPage() {
                             label={form.isIndefinite ? 'Opłata startowa • 1 doba' : `Najem • ${price.days} ${price.days === 1 ? 'doba' : 'doby'}`}
                             value={`${price.base} zł`}
                           />
-                          {price.deliveryFee > 0 && <SummaryRow label="Dostawa i odbiór" value={`${price.deliveryFee} zł`} />}
+                          {price.deliveryFee > 0 && (
+                            <SummaryRow
+                              label={form.deliveryOut && form.deliveryBack
+                                ? 'Dowóz i odbiór'
+                                : form.deliveryOut ? 'Dowóz sprzętu' : 'Odbiór sprzętu'}
+                              value={`${price.deliveryFee} zł`}
+                            />
+                          )}
                           {price.weekendFee > 0 && <SummaryRow label="Odbiór weekendowy" value={`${price.weekendFee} zł`} />}
+                          {wybraneDodatki.items.map((dodatek) => (
+                            <SummaryRow
+                              key={dodatek.id}
+                              label={`${dodatek.nazwa} × ${dodatek.ilosc}`}
+                              value={`${dodatek.suma} zł`}
+                            />
+                          ))}
                           {finalPricing && finalPricing.discount > 0 && (
                             <SummaryRow label="Rabat pracownika" value={`-${finalPricing.discount} zł`} />
                           )}
@@ -780,7 +921,7 @@ export function StaffRentalPage() {
                 ) : (
                   <div className="p-7 text-center">
                     <div className="w-16 h-16 rounded-[--radius-sm] bg-gold/10 border border-gold/20 flex items-center justify-center mx-auto">
-                      <Package className="w-8 h-8 text-gold" />
+                      <Package className="w-8 h-8 text-gold-light light:text-gold-dark" />
                     </div>
                     <h2 className="font-bold text-lg mt-4">Najpierw wybierz sprzęt</h2>
                     <p className="text-sm text-text-muted mt-2">Kliknij zdjęcie urządzenia w katalogu powyżej.</p>
@@ -789,7 +930,7 @@ export function StaffRentalPage() {
 
                 <div className="px-5 pb-5">
                   {error && (
-                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/25 text-sm text-red-300">{error}</div>
+                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/25 text-sm text-red-300 light:text-red-700">{error}</div>
                   )}
                   <Button type="submit" variant="primary" size="lg" className="w-full" disabled={selectedProducts.length === 0 || submitting}>
                     {submitting ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <FileSignature className="w-5 h-5 mr-2" />}
@@ -822,11 +963,11 @@ function FormCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card variant="glass" className="p-5 sm:p-7 border-white/10">
+    <Card variant="glass" className="p-5 sm:p-7 border-border">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">{icon}</div>
+        <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 border border-gold/25 flex items-center justify-center text-gold-light light:text-gold-dark shrink-0">{icon}</div>
         <div className="min-w-0">
-          <p className="text-[11px] text-gold uppercase tracking-[0.16em] font-semibold">Krok {number}</p>
+          <p className="text-[11px] text-gold-light light:text-gold-dark uppercase tracking-[0.16em] font-semibold">Krok {number}</p>
           <h2 className="font-bold text-xl mt-0.5">{title}</h2>
           <p className="text-sm text-text-muted mt-1">{description}</p>
         </div>
@@ -846,12 +987,22 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
     { id: 'pozostale', label: 'Pozostałe' },
   ];
   const visibleProducts = filter === 'all' ? products : products.filter((product) => product.categoryId === filter);
+  const katalogAktualny = isCatalogLoaded();
+
+  // 0 sztuk w magazynie = sprzętu nie ma fizycznie, nie da się go wynająć na żaden termin.
+  // 0 dostępnych dziś przy niezerowym stanie = jest wypożyczony, ale przyszły termin bywa wolny.
+  const stanSprzetu = (product: typeof products[number]) => {
+    if (!katalogAktualny) return { blokada: false, etykieta: '' };
+    if (product.totalQuantity === 0) return { blokada: true, etykieta: 'Brak w magazynie' };
+    if (product.availableToday === 0) return { blokada: false, etykieta: 'Wypożyczony dziś' };
+    return { blokada: false, etykieta: '' };
+  };
 
   return (
-    <section className="rounded-[--radius-sm] border border-white/10 bg-[#111] overflow-hidden">
-      <div className="px-5 sm:px-7 py-5 border-b border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+    <section className="rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden">
+      <div className="px-5 sm:px-7 py-5 border-b border-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-gold-light light:text-gold-dark shrink-0">
             <Layers3 className="w-5 h-5" />
           </div>
           <div>
@@ -871,7 +1022,7 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
               aria-selected={filter === item.id}
               onClick={() => setFilter(item.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition-colors ${
-                filter === item.id ? 'bg-gold text-black border-gold' : 'bg-transparent text-text-secondary border-border hover:border-gold/40 hover:text-white'
+                filter === item.id ? 'bg-gold text-gold-contrast border-gold' : 'bg-transparent text-text-secondary border-border hover:border-gold/40 hover:text-text-primary'
               }`}
             >
               {item.label}
@@ -881,30 +1032,39 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-px bg-white/10">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-px bg-surface-strong">
         {visibleProducts.map((product) => {
           const selected = selectedIds.includes(product.id);
+          const { blokada, etykieta } = stanSprzetu(product);
           return (
             <button
               key={product.id}
               type="button"
               aria-pressed={selected}
-              aria-label={`${selected ? 'Usuń' : 'Dodaj'} ${product.name}`}
+              disabled={blokada}
+              aria-label={`${blokada ? 'Niedostępny' : selected ? 'Usuń' : 'Dodaj'} ${product.name}`}
               onClick={() => onToggle(product.id)}
-              className={`group relative text-left bg-[#111] p-3 sm:p-4 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-[-2px] ${
-                selected ? 'bg-gold/[0.08]' : 'hover:bg-white/[0.035]'
+              className={`group relative text-left bg-bg-card p-3 sm:p-4 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-[-2px] ${
+                blokada ? 'opacity-45 cursor-not-allowed' : selected ? 'bg-gold/[0.08]' : 'hover:bg-surface-soft'
               }`}
             >
               <div className={`relative aspect-[4/3] rounded-lg bg-white overflow-hidden border transition-colors ${selected ? 'border-gold' : 'border-transparent group-hover:border-gold/30'}`}>
                 <img src={product.image} alt="" className="absolute inset-0 w-full h-full object-contain p-2 sm:p-3" loading="lazy" />
                 {selected && (
-                  <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gold text-black flex items-center justify-center shadow-lg">
+                  <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gold text-gold-contrast flex items-center justify-center shadow-lg">
                     <Check className="w-4 h-4" strokeWidth={3} />
+                  </span>
+                )}
+                {etykieta && (
+                  <span className={`absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                    blokada ? 'bg-error text-white' : 'bg-amber-500 text-black'
+                  }`}>
+                    {etykieta}
                   </span>
                 )}
               </div>
               <div className="pt-3">
-                <p className="text-[10px] uppercase tracking-wider text-gold/80">{categoryLabel(product.categoryId)}</p>
+                <p className="text-[10px] uppercase tracking-wider text-gold">{categoryLabel(product.categoryId)}</p>
                 <h3 className="text-xs sm:text-sm font-semibold leading-snug mt-1 line-clamp-2 min-h-[2.5rem]">{shortProductName(product.name)}</h3>
                 <div className="flex items-baseline justify-between gap-2 mt-2">
                   <span className="text-[11px] text-text-muted">od</span>
@@ -919,27 +1079,73 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
   );
 }
 
-function PickupOption({ selected, icon, title, description, onClick }: { selected: boolean; icon: React.ReactNode; title: string; description: string; onClick: () => void }) {
+function DeliveryLeg({ checked, onChange, icon, title, description }: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      className={`relative text-left p-4 rounded-lg border transition-colors ${selected ? 'border-gold bg-gold/10' : 'border-border bg-bg-primary/40 hover:border-border-hover'}`}
-    >
-      <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${selected ? 'bg-gold text-black' : 'bg-white/5 text-text-muted'}`}>{icon}</span>
-      <span className="block text-sm font-semibold mt-3">{title}</span>
-      <span className="block text-xs text-text-muted mt-1 leading-relaxed">{description}</span>
-      {selected && <Check className="absolute top-3 right-3 w-4 h-4 text-gold" />}
-    </button>
+    <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${checked ? 'border-gold/50 bg-gold/10' : 'border-border hover:border-border-hover'}`}>
+      <input
+        type="checkbox"
+        className="mt-1 w-4 h-4 accent-gold shrink-0"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="flex-1">
+        <span className="flex items-center gap-2 flex-wrap text-text-primary">
+          {icon}
+          <span className="text-sm font-semibold">{title}</span>
+          <span className="text-xs font-medium text-gold">+{DELIVERY_FEE} zł</span>
+        </span>
+        <span className="block text-xs text-text-muted mt-1">{description}</span>
+      </span>
+    </label>
+  );
+}
+
+function AddonRow({ nazwa, cena, ilosc, onChange }: {
+  nazwa: string;
+  cena: number;
+  ilosc: number;
+  onChange: (ilosc: number) => void;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${ilosc > 0 ? 'border-gold/50 bg-gold/10' : 'border-border'}`}>
+      <span className="min-w-0">
+        <span className="block text-sm text-text-primary truncate">{nazwa}</span>
+        <span className="block text-xs text-text-muted">{cena} zł/szt.</span>
+      </span>
+      <span className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          aria-label={`Mniej: ${nazwa}`}
+          onClick={() => onChange(Math.max(0, ilosc - 1))}
+          disabled={ilosc === 0}
+          className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          −
+        </button>
+        <span className="w-8 text-center text-sm font-semibold text-text-primary">{ilosc}</span>
+        <button
+          type="button"
+          aria-label={`Więcej: ${nazwa}`}
+          onClick={() => onChange(Math.min(50, ilosc + 1))}
+          className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold transition-colors"
+        >
+          +
+        </button>
+      </span>
+    </div>
   );
 }
 
 function ProcessStep({ number, label, active = false }: { number: string; label: string; active?: boolean }) {
   return (
     <div className={`flex items-center gap-1.5 ${active ? 'text-gold' : 'text-text-muted'}`}>
-      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${active ? 'bg-gold text-black border-gold' : 'border-border'}`}>{number}</span>
+      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border ${active ? 'bg-gold text-gold-contrast border-gold' : 'border-border'}`}>{number}</span>
       <span className="hidden sm:inline">{label}</span>
     </div>
   );
