@@ -1081,9 +1081,10 @@ export const sendHandoverProtocolEmail = async (
       <div style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h4 style="color: #b8972a; margin: 0 0 8px 0;">Potrzebujesz sprzętu dłużej?</h4>
         <p style="margin: 0 0 14px; color: #d4d4d8; line-height: 1.6;">
-          Najem możesz przedłużyć przed upływem terminu zwrotu — bez dodatkowych formalności.
+          Zadzwoń pod <strong style="color: #ffffff;">570 038 828</strong> przed upływem terminu zwrotu —
+          ustalimy nowy termin i prześlemy dopłatę do opłacenia. Najem przedłuża się z chwilą zapłaty.
         </p>
-        ${przycisk(kontekst.linkPrzedluzenia, 'Przedłuż najem', false)}
+        ${przycisk(kontekst.linkPrzedluzenia, 'Zobacz swój najem', false)}
       </div>` : ''}
 
       <p style="color: #e5e5e5; line-height: 1.6;">
