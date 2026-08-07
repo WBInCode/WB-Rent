@@ -667,6 +667,26 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         CHECK (service_quantity + withdrawn_quantity <= total_quantity);
     `,
   },
+  {
+    // Przeniesiona z numeru 13: ten byl juz zajety przez podpisy protokolu
+    // wydania, wiec bazy, ktore go zapisaly, pominelyby te migracje i kolumny
+    // zwrotow nigdy by nie powstaly. Zapisy sa idempotentne, wiec ponowne
+    // wykonanie tam, gdzie juz przeszly, niczego nie zmienia.
+    version: 24,
+    name: 'payment-refunds-and-reconciliation',
+    sql: `
+      ALTER TABLE payments
+        ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS refund_amount REAL,
+        ADD COLUMN IF NOT EXISTS refund_external_id TEXT,
+        ADD COLUMN IF NOT EXISTS refund_reason TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP;
+
+      -- Uzgadnianie statusow szuka platnosci wiszacych w 'pending'.
+      CREATE INDEX IF NOT EXISTS idx_payments_pending
+        ON payments (status, created_at) WHERE status = 'pending';
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -2339,6 +2359,21 @@ export const queries = {
     return result.rows;
   },
 
+  /** Payments still 'pending' long enough that a lost webhook is likely. */
+  getStalePendingPayments: async (minAgeSeconds: number, limit = 25) => {
+    const result = await pool.query(
+      `SELECT * FROM payments
+       WHERE status = 'pending'
+         AND external_id IS NOT NULL
+         AND created_at < CURRENT_TIMESTAMP - ($1 || ' seconds')::interval
+         AND created_at > CURRENT_TIMESTAMP - INTERVAL '7 days'
+       ORDER BY created_at ASC
+       LIMIT $2`,
+      [String(minAgeSeconds), limit]
+    );
+    return result.rows;
+  },
+
   /** Retires older sessions so only one payment link per reservation stays open. */
   cancelPendingPayments: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental', label?: string) => {
     // Dopłaty rozliczeniowe bywają różne i niezależne (naprawa, przedłużenie),
@@ -2352,6 +2387,51 @@ export const queries = {
       [reservationId, kind, label ?? null]
     );
     return result.rows;
+  },
+
+  touchPaymentChecked: async (sessionId: string) => {
+    await pool.query(
+      `UPDATE payments SET last_checked_at = CURRENT_TIMESTAMP WHERE session_id = $1`,
+      [sessionId]
+    );
+  },
+
+  /** Refunds intentionally override 'paid' - the money went back to the customer. */
+  markPaymentRefunded: async (data: {
+    sessionId: string;
+    amount: number;
+    reason: string;
+    refundExternalId?: string;
+  }) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const payment = await client.query(
+        `UPDATE payments
+         SET status = 'refunded',
+             refunded_at = CURRENT_TIMESTAMP,
+             refund_amount = $1,
+             refund_reason = $2,
+             refund_external_id = COALESCE($3, refund_external_id)
+         WHERE session_id = $4
+         RETURNING reservation_id, provider`,
+        [data.amount, data.reason, data.refundExternalId, data.sessionId]
+      );
+      const row = payment.rows[0];
+      if (row) {
+        await client.query(
+          `UPDATE reservations SET payment_status = 'refunded' WHERE id = $1`,
+          [row.reservation_id]
+        );
+      }
+      await client.query('COMMIT');
+      return row?.reservation_id as number | undefined;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   },
 
   /** Update payment + mirror the status onto the reservation. */

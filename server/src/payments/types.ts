@@ -23,11 +23,25 @@ export interface CreatePaymentResult {
   externalId?: string;
 }
 
-export type PaymentStatus = 'paid' | 'failed' | 'cancelled' | 'pending';
+export type PaymentStatus = 'paid' | 'failed' | 'cancelled' | 'pending' | 'refunded';
 
 export type WebhookResult =
-  | { ok: true; sessionId: string; externalId?: string; status: PaymentStatus }
+  | {
+      ok: true;
+      sessionId: string;
+      externalId?: string;
+      status: PaymentStatus;
+      /** Gateway holds the funds and waits for an explicit capture call. */
+      needsCapture?: boolean;
+    }
   | { ok: false; reason: string };
+
+export interface RefundInput {
+  externalId: string;
+  /** Missing = full refund. In PLN. */
+  amount?: number;
+  reason: string;
+}
 
 export interface PaymentProvider {
   readonly name: 'payu' | 'przelewy24' | 'stripe';
@@ -42,4 +56,9 @@ export interface PaymentProvider {
     headers: Record<string, string | string[] | undefined>,
     rawBody: Buffer
   ): Promise<WebhookResult>;
+  /** Ask the gateway for the current status - used when a webhook never arrives. */
+  fetchStatus?(externalId: string): Promise<PaymentStatus | null>;
+  /** Confirm an order the gateway is holding for manual acceptance. */
+  capture?(externalId: string): Promise<void>;
+  refund?(input: RefundInput): Promise<{ refundId?: string }>;
 }

@@ -3,6 +3,8 @@ import { queries } from './db.js';
 import { getProductName } from './products.js';
 import { sendPickupReminderEmail, sendReturnReminderEmail } from './email.js';
 import { resendSignedContractEmail } from './contracts/service.js';
+import { reconcilePendingPayments } from './payments/routes.js';
+import { paymentsEnabled } from './payments/index.js';
 
 const reservationProductNames = (reservation: any) => {
   const productIds = Array.isArray(reservation.items) && reservation.items.length > 0
@@ -129,7 +131,18 @@ export function initScheduler() {
     timezone: 'Europe/Warsaw'
   });
 
-  console.log('📅 Scheduler initialized - reminders daily at 9:00 AM, deferred contracts hourly, extension holds every 5 min');
+  // Siatka bezpieczenstwa na zgubione powiadomienia z bramki platnosci.
+  cron.schedule('*/5 * * * *', async () => {
+    if (!paymentsEnabled()) return;
+    try {
+      const zmienione = await reconcilePendingPayments();
+      if (zmienione > 0) console.log(`💳 Uzgodniono ${zmienione} platnosci z bramka`);
+    } catch (error) {
+      console.error('Blad uzgadniania platnosci:', error);
+    }
+  });
+
+  console.log('📅 Scheduler initialized - reminders daily at 9:00 AM, deferred contracts hourly, extension holds and payment reconciliation every 5 min');
 }
 
 export { sendDailyReminders, wyslijZalegleUmowy, wygasNieoplaconeAneksy };

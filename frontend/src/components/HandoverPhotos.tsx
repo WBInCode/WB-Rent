@@ -132,7 +132,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
       <div className="relative flex-1 overflow-hidden">
         <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
         {error && (
-          <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-lg bg-black/80 p-4 text-center text-sm text-white">
+          <p className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-lg bg-black/80 p-4 text-center text-sm text-text-primary">
             {error}
           </p>
         )}
@@ -152,7 +152,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
           onClick={() => void shoot()}
           disabled={!ready}
           aria-label="Zrób zdjęcie"
-          className="h-16 w-16 rounded-full border-4 border-white bg-white/20 transition-transform active:scale-95 disabled:opacity-40"
+          className="h-16 w-16 rounded-full border-4 border-white bg-surface-strong transition-transform active:scale-95 disabled:opacity-40"
         />
         <span className="w-11" />
       </div>
@@ -312,7 +312,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
                   type="button"
                   onClick={() => void remove(photo)}
                   aria-label={`Usuń zdjęcie ${photo.id}`}
-                  className="absolute right-1 top-1 rounded-md bg-black/70 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  className="absolute right-1 top-1 rounded-md bg-black/70 p-1.5 text-text-primary opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

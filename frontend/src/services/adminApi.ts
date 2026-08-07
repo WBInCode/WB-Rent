@@ -215,6 +215,18 @@ export async function getHandoverTemplate(productIds: string[]) {
   return adminFetch(`/contracts/handover-template?products=${encodeURIComponent(productIds.join(','))}`);
 }
 
+// === PŁATNOŚCI ===
+export async function getReservationPayment(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/payment`);
+}
+
+export async function refundPayment(sessionId: string, payload: { amount?: number; reason: string }) {
+  return adminFetch(`/payments/${encodeURIComponent(sessionId)}/refund`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getReservationContract(reservationId: number) {
   return adminFetch(`/contracts/reservation/${reservationId}`);
 }

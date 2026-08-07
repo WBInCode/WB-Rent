@@ -4,7 +4,9 @@ import {
   adminLogout, 
   isAdminLoggedIn, 
   getStats, 
-  getReservations, 
+  getReservations,
+  getReservationPayment,
+  refundPayment, 
   updateReservationStatus,
   getReservationStatusChanges,
   changeReservationTerm,
@@ -47,10 +49,10 @@ import DocumentsPanel from '@/components/DocumentsPanel';
 import DiscountsPanel from '@/components/DiscountsPanel';
 import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
+import ThemeToggle from '@/components/ThemeToggle';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
 import { DoplatyPanel } from '@/components/DoplatyPanel';
-import ThemeToggle from '@/components/ThemeToggle';
 import { opiszEtap, pasujeDoFiltru, FILTRY, type KluczFiltru, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
 import { ACTION_TARGET_STATUS, type ActionAvailability, type RentalAction } from '@/utils/rentalActions';
 import {
@@ -92,6 +94,7 @@ import {
   Settings,
   FileSignature,
   Download,
+  Undo2,
   Copy,
   ExternalLink,
   Loader2,
@@ -109,7 +112,6 @@ import {
   Building2,
   AlertTriangle,
   PackageCheck,
-  Undo2,
 } from 'lucide-react';
 
 type AdminTab = 'reservations' | 'products' | 'calendar' | 'contacts' | 'revenue' | 'reminders' | 'newsletter' | 'notifications' | 'documents' | 'discounts' | 'coupons' | 'business' | 'settings';
@@ -922,6 +924,44 @@ export function AdminPanel() {
     }
   };
 
+  const [refundFor, setRefundFor] = useState<Reservation | null>(null);
+  const [refundForm, setRefundForm] = useState({ amount: '', reason: '' });
+  const [refunding, setRefunding] = useState(false);
+
+  const openRefund = (reservation: Reservation) => {
+    setRefundFor(reservation);
+    setRefundForm({ amount: '', reason: '' });
+  };
+
+  const submitRefund = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!refundFor) return;
+    if (refundForm.reason.trim().length < 3) {
+      showToast('error', 'Podaj powód zwrotu');
+      return;
+    }
+    setRefunding(true);
+    const payment = await getReservationPayment(refundFor.id);
+    if (!payment.success || !payment.data?.sessionId) {
+      setRefunding(false);
+      showToast('error', 'Nie znaleziono płatności dla tej rezerwacji');
+      return;
+    }
+    const kwota = refundForm.amount.trim() ? Number(refundForm.amount) : undefined;
+    const result = await refundPayment(payment.data.sessionId, {
+      amount: kwota,
+      reason: refundForm.reason.trim(),
+    });
+    setRefunding(false);
+    if (!result.success) {
+      showToast('error', result.message || 'Nie udało się wykonać zwrotu');
+      return;
+    }
+    showToast('success', result.message || 'Zwrot został zlecony');
+    setRefundFor(null);
+    void loadData();
+  };
+
   const [newPostTitle, setNewPostTitle] = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [sendingNewsletter, setSendingNewsletter] = useState(false);
@@ -1434,6 +1474,10 @@ export function AdminPanel() {
                       <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-2">
                         <StageBadge info={reservation.stage} />
+                        {/* Zwrot pieniędzy nie jest etapem najmu, więc stoi obok. */}
+                        {reservation.payment_status === 'refunded' && (
+                          <Badge variant="default">Zwrócona</Badge>
+                        )}
                         {reservation.status === 'picked_up' && (
                           <Button
                             variant="outline"
@@ -1546,6 +1590,16 @@ export function AdminPanel() {
                             title="Pobierz podpisany protokół wydania"
                           >
                             <ClipboardCheck className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {reservation.payment_status === 'paid' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openRefund(reservation)}
+                            title="Zwróć płatność klientowi"
+                          >
+                            <Undo2 className="w-4 h-4" />
                           </Button>
                         )}
                         <Button
@@ -3242,6 +3296,53 @@ export function AdminPanel() {
                 </>
               )}
             </div>
+          </Card>
+        </div>
+      )}
+
+      {refundFor && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card variant="glass" className="w-full max-w-md p-6 border-border">
+            <form onSubmit={submitRefund}>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold">Zwrot płatności</h2>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setRefundFor(null)} aria-label="Zamknij">
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <p className="text-sm text-text-secondary mb-4">
+                Rezerwacja #{refundFor.id} • {refundFor.name} • wpłacono {refundFor.total_price} zł
+              </p>
+
+              <Input
+                label="Kwota zwrotu (zł)"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder={`całość: ${refundFor.total_price}`}
+                value={refundForm.amount}
+                onChange={(event) => setRefundForm((current) => ({ ...current, amount: event.target.value }))}
+              />
+              <p className="text-xs text-text-muted mt-1 mb-4">Puste pole oznacza zwrot całej kwoty.</p>
+
+              <Textarea
+                label="Powód zwrotu"
+                rows={3}
+                required
+                value={refundForm.reason}
+                onChange={(event) => setRefundForm((current) => ({ ...current, reason: event.target.value }))}
+              />
+
+              <div className="flex gap-3 mt-5">
+                <Button type="button" variant="ghost" className="flex-1" onClick={() => setRefundFor(null)}>
+                  Anuluj
+                </Button>
+                <Button type="submit" variant="primary" className="flex-1" disabled={refunding}>
+                  {refunding ? 'Zlecam…' : 'Zwróć pieniądze'}
+                </Button>
+              </div>
+            </form>
           </Card>
         </div>
       )}

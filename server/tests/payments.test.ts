@@ -106,3 +106,122 @@ describe('rejestr providerów', () => {
     expect(getProviderByName('payu')!.isConfigured()).toBe(true);
   });
 });
+
+describe('PayU: odbiór, odpytanie statusu i zwrot', () => {
+  const payu = getProviderByName('payu')!;
+  const secondKey = 'test-second-key';
+
+  const podpisz = (payload: object) => {
+    const body = Buffer.from(JSON.stringify(payload));
+    const hash = crypto.createHash('md5').update(Buffer.concat([body, Buffer.from(secondKey)])).digest('hex');
+    return { body, header: `signature=${hash};algorithm=MD5` };
+  };
+
+  it('WAITING_FOR_CONFIRMATION zgłasza potrzebę odbioru środków', async () => {
+    const { body, header } = podpisz({
+      order: { extOrderId: 'wbrent-7-aa', orderId: 'PAYU-7', status: 'WAITING_FOR_CONFIRMATION' },
+    });
+    const wynik = await payu.handleWebhook({ 'openpayu-signature': header }, body);
+    expect(wynik.ok).toBe(true);
+    if (wynik.ok) {
+      expect(wynik.status).toBe('pending');
+      expect(wynik.needsCapture).toBe(true);
+      expect(wynik.externalId).toBe('PAYU-7');
+    }
+  });
+
+  it('COMPLETED nie wywołuje odbioru środków', async () => {
+    const { body, header } = podpisz({
+      order: { extOrderId: 'wbrent-8-bb', orderId: 'PAYU-8', status: 'COMPLETED' },
+    });
+    const wynik = await payu.handleWebhook({ 'openpayu-signature': header }, body);
+    expect(wynik.ok).toBe(true);
+    if (wynik.ok) {
+      expect(wynik.status).toBe('paid');
+      expect(wynik.needsCapture).toBe(false);
+    }
+  });
+
+  it('moduł udostępnia odbiór, odpytanie statusu i zwrot', () => {
+    expect(typeof payu.capture).toBe('function');
+    expect(typeof payu.fetchStatus).toBe('function');
+    expect(typeof payu.refund).toBe('function');
+  });
+
+  it('fetchStatus mapuje odpowiedź bramki na status systemowy', async () => {
+    const oryginalny = globalThis.fetch;
+    const wywolania: string[] = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      wywolania.push(String(url));
+      if (String(url).includes('/oauth/authorize')) {
+        return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 }), { status: 200 });
+      }
+      expect(init?.method).toBe('GET');
+      return new Response(JSON.stringify({ orders: [{ status: 'COMPLETED' }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      expect(await payu.fetchStatus!('PAYU-9')).toBe('paid');
+      expect(wywolania.some((u) => u.includes('/api/v2_1/orders/PAYU-9'))).toBe(true);
+    } finally {
+      globalThis.fetch = oryginalny;
+    }
+  });
+
+  it('zwrot wysyła kwotę w groszach i opis do bramki', async () => {
+    const oryginalny = globalThis.fetch;
+    let cialo: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/oauth/authorize')) {
+        return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 }), { status: 200 });
+      }
+      expect(String(url)).toContain('/api/v2_1/orders/PAYU-10/refunds');
+      cialo = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ status: { statusCode: 'SUCCESS' }, refund: { refundId: 'R-1' } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      const wynik = await payu.refund!({ externalId: 'PAYU-10', amount: 45.5, reason: 'Zwrot kaucji' });
+      expect(wynik.refundId).toBe('R-1');
+      expect(cialo.refund.amount).toBe('4550');
+      expect(cialo.refund.description).toBe('Zwrot kaucji');
+    } finally {
+      globalThis.fetch = oryginalny;
+    }
+  });
+
+  it('brak kwoty oznacza zwrot całości', async () => {
+    const oryginalny = globalThis.fetch;
+    let cialo: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/oauth/authorize')) {
+        return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 }), { status: 200 });
+      }
+      cialo = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ status: { statusCode: 'SUCCESS' } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await payu.refund!({ externalId: 'PAYU-11', reason: 'Rezygnacja klienta' });
+      expect(cialo.refund.amount).toBeUndefined();
+    } finally {
+      globalThis.fetch = oryginalny;
+    }
+  });
+
+  it('odrzucony zwrot kończy się błędem, a nie cichym sukcesem', async () => {
+    const oryginalny = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).includes('/oauth/authorize')) {
+        return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ status: { statusCode: 'ERROR_VALUE_INVALID' } }), { status: 400 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await expect(payu.refund!({ externalId: 'PAYU-12', reason: 'test' })).rejects.toThrow(/refund failed/i);
+    } finally {
+      globalThis.fetch = oryginalny;
+    }
+  });
+});

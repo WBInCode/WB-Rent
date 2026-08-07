@@ -252,6 +252,46 @@ export async function resolveSettlementLink(
   };
 }
 
+/**
+ * Ask the gateway what really happened. Webhooks get lost (network, deploy,
+ * misconfigured notify URL) and without this a paid rental stays 'pending' forever.
+ */
+async function syncPaymentWithGateway(payment: {
+  session_id: string;
+  provider: string;
+  external_id?: string | null;
+  status: string;
+}): Promise<string> {
+  if (payment.status !== 'pending' || !payment.external_id) return payment.status;
+
+  const provider = getProviderByName(payment.provider);
+  if (!provider?.isConfigured() || !provider.fetchStatus) return payment.status;
+
+  try {
+    const remote = await provider.fetchStatus(payment.external_id);
+    await queries.touchPaymentChecked(payment.session_id);
+    if (!remote || remote === 'pending') return payment.status;
+
+    await queries.updatePaymentStatus({ sessionId: payment.session_id, status: remote });
+    console.log(`💳 Uzgodniono ${payment.session_id}: pending -> ${remote} (${payment.provider})`);
+    return remote;
+  } catch (error) {
+    console.error(`Nie udało się odpytać bramki o ${payment.session_id}:`, error);
+    return payment.status;
+  }
+}
+
+/** Periodic safety net for payments whose notification never arrived. */
+export async function reconcilePendingPayments(minAgeSeconds = 120): Promise<number> {
+  const stale = await queries.getStalePendingPayments(minAgeSeconds);
+  let zmienione = 0;
+  for (const payment of stale) {
+    const status = await syncPaymentWithGateway(payment);
+    if (status !== 'pending') zmienione += 1;
+  }
+  return zmienione;
+}
+
 // --- Public config (frontend feature detection) ---
 router.get('/config', (_req: Request, res: Response) => {
   const provider = getActiveProvider();
@@ -308,9 +348,15 @@ router.get('/status/:sessionId', async (req: Request, res: Response) => {
       return;
     }
 
+    // Strona powrotu odpytuje co 3 s - bramkę pytamy najwyżej raz na 15 s.
+    const ostatnieSprawdzenie = payment.last_checked_at ? new Date(payment.last_checked_at).getTime() : 0;
+    const status = Date.now() - ostatnieSprawdzenie > 15_000
+      ? await syncPaymentWithGateway(payment)
+      : payment.status;
+
     res.json({
       success: true,
-      status: payment.status,
+      status,
       amount: payment.amount,
       reservationId: payment.reservation_id,
       provider: payment.provider,
@@ -385,6 +431,16 @@ router.post('/webhook/:provider', async (req: Request, res: Response) => {
             note: `Aneks ${aktywowany.extension.number} — przedłużenie opłacone`,
           }).catch((err) => console.error('Mail o przedłużeniu:', err));
         }
+      }
+    }
+
+    // Punkt bez automatycznego odbioru trzyma srodki do czasu potwierdzenia.
+    if (result.needsCapture && result.externalId && provider.capture) {
+      try {
+        await provider.capture(result.externalId);
+        console.log(`💳 Odebrano platnosc ${result.sessionId} (${providerName})`);
+      } catch (error) {
+        console.error(`Nie udalo sie odebrac platnosci ${result.sessionId}:`, error);
       }
     }
 
