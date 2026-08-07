@@ -110,27 +110,25 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
             <span className="text-lg font-bold text-gold">{money(info.amount)}</span>
           </div>
 
-          <p className="text-[11px] font-mono text-text-muted break-all bg-surface-strong rounded px-2 py-1.5 mb-3">
-            {info.url}
-          </p>
-
+          {/* Adres płatności jest długi i nikt go nie przepisuje — liczy się
+              otwarcie na telefonie klienta albo skopiowanie. */}
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void copy()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm bg-gold text-gold-contrast font-medium hover:bg-gold-light transition-colors"
-            >
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Skopiowano' : 'Kopiuj link'}
-            </button>
             <a
               href={info.url}
               target="_blank"
               rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm bg-gold text-gold-contrast font-medium hover:bg-gold-light transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" /> Otwórz płatność
+            </a>
+            <button
+              type="button"
+              onClick={() => void copy()}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm border border-border text-text-secondary hover:border-gold/40 hover:text-gold transition-colors"
             >
-              <ExternalLink className="w-4 h-4" /> Otwórz
-            </a>
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Skopiowano' : 'Kopiuj link'}
+            </button>
             <button
               type="button"
               onClick={() => void send()}
@@ -140,6 +138,14 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               Wyślij mailem
             </button>
+          </div>
+
+          <p className="text-[11px] text-text-muted mt-3">
+            {info.reused ? 'Ten sam link co poprzednio — klient nie zapłaci dwa razy.' : 'Nowy link płatności.'}
+          </p>
+
+          {/* Wpłata przy ladzie to inna droga niż link, więc stoi osobno. */}
+          <div className="mt-4 pt-4 border-t border-border">
             <ManualPaymentForm
               reservationId={reservationId}
               amount={info.amount}
@@ -149,10 +155,6 @@ export function PaymentLinkPanel({ reservationId, onNotify }: PaymentLinkPanelPr
               }}
             />
           </div>
-
-          <p className="text-[11px] text-text-muted mt-3">
-            {info.reused ? 'Ten sam link co poprzednio — klient nie zapłaci dwa razy.' : 'Nowy link płatności.'}
-          </p>
         </>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Banknote, Check, CreditCard, Landmark, Loader2 } from 'lucide-react';
+import { AlertTriangle, Banknote, Check, CreditCard, Loader2 } from 'lucide-react';
 import { markReservationPaid, type ManualPaymentMethod } from '@/services/adminApi';
 
 interface ManualPaymentFormProps {
@@ -8,9 +8,9 @@ interface ManualPaymentFormProps {
   onDone: (message: string, tone: 'success' | 'error') => void;
 }
 
+/** Przy ladzie klient płaci gotówką albo kartą — przelew idzie inną drogą. */
 const METODY: Array<{ id: ManualPaymentMethod; etykieta: string; Ikona: typeof Banknote }> = [
   { id: 'cash', etykieta: 'Gotówka', Ikona: Banknote },
-  { id: 'transfer', etykieta: 'Przelew', Ikona: Landmark },
   { id: 'terminal', etykieta: 'Terminal', Ikona: CreditCard },
 ];
 
