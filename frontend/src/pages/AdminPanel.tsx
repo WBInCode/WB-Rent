@@ -641,7 +641,6 @@ export function AdminPanel() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const [statusFor, setStatusFor] = useState<Reservation | null>(null);
-  const [statusHistoryOnly, setStatusHistoryOnly] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusHistory, setStatusHistory] = useState<ReservationStatusChange[]>([]);
   const [statusForm, setStatusForm] = useState({
@@ -742,7 +741,6 @@ export function AdminPanel() {
 
   const openStatusModal = async (reservation: Reservation, targetStatus: string) => {
     if (targetStatus === reservation.status) return;
-    setStatusHistoryOnly(false);
     setStatusFor(reservation);
     setStatusHistory([]);
     setStatusForm({
@@ -751,16 +749,6 @@ export function AdminPanel() {
       changedBy: localStorage.getItem('wb-rent-employee-name') || '',
       notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(targetStatus),
     });
-    const response = await getReservationStatusChanges(reservation.id);
-    if (response.success && Array.isArray(response.data)) {
-      setStatusHistory(response.data);
-    }
-  };
-
-  const openStatusHistory = async (reservation: Reservation) => {
-    setStatusHistoryOnly(true);
-    setStatusFor(reservation);
-    setStatusHistory([]);
     const response = await getReservationStatusChanges(reservation.id);
     if (response.success && Array.isArray(response.data)) {
       setStatusHistory(response.data);
@@ -1503,8 +1491,8 @@ export function AdminPanel() {
                         </p>
                       </div>
 
-                      {/* Do pięciu ikon — bez stałej szerokości wylewały się na kwotę. */}
-                      <div className="flex flex-nowrap items-center justify-end gap-1 sm:w-[252px] shrink-0">
+                      {/* Do czterech ikon — bez stałej szerokości wylewały się na kwotę. */}
+                      <div className="flex flex-nowrap items-center justify-end gap-1 sm:w-[208px] shrink-0">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
                             variant="ghost"
@@ -1552,14 +1540,6 @@ export function AdminPanel() {
                           title={expandedId === reservation.id ? 'Ukryj szczegóły' : 'Pokaż szczegóły'}
                         >
                           <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void openStatusHistory(reservation)}
-                          title="Historia zmian statusu"
-                        >
-                          <History className="w-4 h-4" />
                         </Button>
                       </div>
 
@@ -2724,8 +2704,8 @@ export function AdminPanel() {
             <form onSubmit={handleManualStatusChange} className="p-6">
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div>
-                  <p className="text-xs uppercase text-gold font-semibold">{statusHistoryOnly ? 'Historia procesu' : 'Ręczna zmiana'} • rezerwacja #{statusFor.id}</p>
-                  <h2 className="text-xl font-bold mt-1">{statusHistoryOnly ? 'Historia zmian statusu' : 'Zmień status wynajmu'}</h2>
+                  <p className="text-xs uppercase text-gold font-semibold">Ręczna zmiana • rezerwacja #{statusFor.id}</p>
+                  <h2 className="text-xl font-bold mt-1">Zmień status wynajmu</h2>
                   <p className="text-sm text-text-muted mt-1">
                     {statusFor.name} • {reservationProductLabel(statusFor)}
                   </p>
@@ -2735,7 +2715,6 @@ export function AdminPanel() {
                 </Button>
               </div>
 
-              {!statusHistoryOnly && <>
               <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-3 items-end mb-6">
                 <div className="p-4 rounded-[--radius-sm] bg-surface-soft border border-border">
                   <p className="text-[11px] uppercase text-text-muted mb-2">Obecny status</p>
@@ -2801,9 +2780,8 @@ export function AdminPanel() {
                   />
                 </label>
               )}
-              </>}
 
-              {(statusHistoryOnly || statusHistory.length > 0) && (
+              {statusHistory.length > 0 && (
                 <div className="mt-6 pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
                     <History className="w-4 h-4 text-gold" /> Ostatnie zmiany statusu
@@ -2832,15 +2810,15 @@ export function AdminPanel() {
               )}
 
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 mt-6">
-                <Button type="button" variant="ghost" onClick={() => setStatusFor(null)}>{statusHistoryOnly ? 'Zamknij' : 'Anuluj'}</Button>
-                {!statusHistoryOnly && <Button
+                <Button type="button" variant="ghost" onClick={() => setStatusFor(null)}>Anuluj</Button>
+                <Button
                   type="submit"
                   variant="primary"
                   disabled={statusSaving || statusForm.changedBy.trim().length < 3}
                 >
                   {statusSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                   Zapisz status
-                </Button>}
+                </Button>
               </div>
             </form>
           </Card>
