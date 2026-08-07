@@ -396,7 +396,7 @@ export function StaffRentalPage() {
       <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4 py-12">
         <Card variant="glass" className="max-w-xl w-full p-8">
           <div className="text-center">
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-5" />
+            <CheckCircle2 className="w-16 h-16 text-green-500 light:text-green-700 mx-auto mb-5" />
             <h1 className="text-2xl font-bold">Wynajem i umowa gotowe</h1>
             <p className="text-text-secondary mt-2">
               Rezerwacja #{session.reservationId} • {session.contractNumber}
@@ -473,7 +473,7 @@ export function StaffRentalPage() {
           </Link>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
-              <ShieldCheck className="w-4 h-4 text-green-500" /> Tryb bezpiecznej obsługi klienta
+              <ShieldCheck className="w-4 h-4 text-green-500 light:text-green-700" /> Tryb bezpiecznej obsługi klienta
             </div>
             <ThemeToggle className="h-9 w-9" />
           </div>
@@ -552,7 +552,7 @@ export function StaffRentalPage() {
                   )}
                 </div>
                 {form.isIndefinite && (
-                  <div className="mt-4 p-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] text-xs text-amber-200">
+                  <div className="mt-4 p-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] text-xs text-amber-200 light:text-amber-800">
                     Sprzęt pozostanie niedostępny dla kolejnych rezerwacji do czasu ustalenia terminu i zwrotu.
                   </div>
                 )}
@@ -812,7 +812,7 @@ export function StaffRentalPage() {
                 ) : (
                   <div className="p-7 text-center">
                     <div className="w-16 h-16 rounded-[--radius-sm] bg-gold/10 border border-gold/20 flex items-center justify-center mx-auto">
-                      <Package className="w-8 h-8 text-gold" />
+                      <Package className="w-8 h-8 text-gold-light light:text-gold-dark" />
                     </div>
                     <h2 className="font-bold text-lg mt-4">Najpierw wybierz sprzęt</h2>
                     <p className="text-sm text-text-muted mt-2">Kliknij zdjęcie urządzenia w katalogu powyżej.</p>
@@ -856,9 +856,9 @@ function FormCard({
   return (
     <Card variant="glass" className="p-5 sm:p-7 border-border">
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">{icon}</div>
+        <div className="w-11 h-11 rounded-[--radius-sm] bg-gold/10 border border-gold/25 flex items-center justify-center text-gold-light light:text-gold-dark shrink-0">{icon}</div>
         <div className="min-w-0">
-          <p className="text-[11px] text-gold uppercase tracking-[0.16em] font-semibold">Krok {number}</p>
+          <p className="text-[11px] text-gold-light light:text-gold-dark uppercase tracking-[0.16em] font-semibold">Krok {number}</p>
           <h2 className="font-bold text-xl mt-0.5">{title}</h2>
           <p className="text-sm text-text-muted mt-1">{description}</p>
         </div>
@@ -893,7 +893,7 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
     <section className="rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden">
       <div className="px-5 sm:px-7 py-5 border-b border-border flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-gold shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/25 flex items-center justify-center text-gold-light light:text-gold-dark shrink-0">
             <Layers3 className="w-5 h-5" />
           </div>
           <div>

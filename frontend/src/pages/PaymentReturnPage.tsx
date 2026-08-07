@@ -79,7 +79,7 @@ export function PaymentReturnPage() {
       case 'paid':
         return (
           <>
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-6" />
+            <CheckCircle2 className="w-16 h-16 text-green-500 light:text-green-700 mx-auto mb-6" />
             <h1 className="text-2xl font-bold text-text-primary mb-2">Płatność przyjęta!</h1>
             <p className="text-text-secondary">
               Dziękujemy — rezerwacja #{payment?.reservationId} została opłacona
@@ -106,7 +106,7 @@ export function PaymentReturnPage() {
       case 'cancelled':
         return (
           <>
-            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+            <XCircle className="w-16 h-16 text-red-500 light:text-red-700 mx-auto mb-6" />
             <h1 className="text-2xl font-bold text-text-primary mb-2">
               {state === 'failed' ? 'Płatność nie powiodła się' : 'Płatność anulowana'}
             </h1>
@@ -119,7 +119,7 @@ export function PaymentReturnPage() {
       case 'notfound':
         return (
           <>
-            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+            <XCircle className="w-16 h-16 text-red-500 light:text-red-700 mx-auto mb-6" />
             <h1 className="text-2xl font-bold text-text-primary mb-2">Nie znaleziono płatności</h1>
             <p className="text-text-secondary">
               Link jest nieprawidłowy lub wygasł. Jeśli dokonałeś płatności, skontaktuj się z nami.
@@ -131,7 +131,7 @@ export function PaymentReturnPage() {
 
   return (
     <UtilityPageShell maxWidth="md">
-      <section className="w-full border-y border-white/10 py-8 sm:py-10 text-center">
+      <section className="w-full border-y border-border py-8 sm:py-10 text-center">
         <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-text-muted font-bold mb-6">
           <ReceiptText className="w-4 h-4 text-gold" aria-hidden="true" /> Status płatności
         </div>

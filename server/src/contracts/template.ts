@@ -87,6 +87,12 @@ export interface ClauseInput {
   totalPrice: number;
   deposit: number;
   dailyRate: number;
+  /**
+   * Wszystkie skladniki naleznosci. Umowa obok dowodu zakupu jest miejscem, w
+   * ktorym nie moze byc zadnej watpliwosci, za co Najemca placi - sama kwota
+   * laczna tego nie tlumaczy.
+   */
+  costLines?: Array<{ etykieta: string; kwota: string }>;
   /** Handover facts that used to sit in a separate "Dane najmu" table. */
   accessories: string;
   conditionNotes: string;
@@ -134,6 +140,7 @@ export function buildContractClauses(input: ClauseInput): ContractClause[] {
     totalPrice,
     deposit,
     dailyRate,
+    costLines,
     accessories,
     conditionNotes,
     delivery,
@@ -165,6 +172,19 @@ export function buildContractClauses(input: ClauseInput): ContractClause[] {
         devices.map((device) => `${device.deviceName} – ${money(device.itemPrice)}`)
       )}.\nPłatność za uzgodniony okres najmu oraz za każdy kolejny okres przedłużenia następuje z góry, najpóźniej przed upływem bieżącego okresu najmu.`
     : `Czynsz najmu za cały uzgodniony okres wynosi ${money(totalPrice)} brutto. Płatność za uzgodniony okres najmu oraz za każdy kolejny okres przedłużenia następuje z góry, najpóźniej przed upływem bieżącego okresu najmu.`;
+
+  // Pelne wyliczenie naleznosci. Bez niego z umowy nie dalo sie odczytac, skad
+  // bierze sie kwota laczna - a to jedyne miejsce obok dowodu zakupu, ktore
+  // musi tlumaczyc kazda zlotowke.
+  const breakdownPoint = costLines && costLines.length > 0
+    ? `Na kwotę należną składają się:\n${lettered(
+        costLines.map((line) => `${line.etykieta} – ${line.kwota.replace(/ /g, '\u00A0')}`)
+      )}.\nŁącznie do zapłaty: ${money(totalPrice)} brutto.${
+        deposit > 0
+          ? ` Kwota ta nie obejmuje kaucji zwrotnej ${money(deposit)}, o której mowa w §7.`
+          : ''
+      } Powyższe wyliczenie wyczerpuje należności za uzgodniony okres najmu; opłaty dodatkowe mogą wynikać wyłącznie z §12 (Cennik) i wymagają zaistnienia opisanych tam zdarzeń.`
+    : null;
 
   const included = devices.filter((device) => device.includedConsumables);
   const consumablesInRent = included.length > 0
@@ -220,6 +240,7 @@ export function buildContractClauses(input: ClauseInput): ContractClause[] {
       title: 'Rozliczenie najmu',
       points: [
         `${rentPoint}${consumablesInRent}`,
+        ...(breakdownPoint ? [breakdownPoint] : []),
         'Rozliczenie usługi najmu następuje w chwili zwrotu Sprzętu, po sporządzeniu Protokołu zwrotu (Załącznik nr 2). W tym momencie Wynajmujący wystawi i wyda Najemcy dowód zakupu dokumentujący najem wraz z ewentualnymi świadczeniami dodatkowymi (w tym opłatami wskazanymi w §12 Cennik).',
         'Strony zgodnie postanawiają, że stan Sprzętu przy zwrocie oraz wynikające z niego należności – opłaty porządkowe, koszty braków lub rozkompletowania zestawu i koszty uszkodzeń – zostaną stwierdzone i wyliczone w Protokole zwrotu (Załącznik nr 2), według stawek określonych w §12 (Cennik) oraz zasad z ust. 4 niniejszego paragrafu. Protokół zwrotu podpisany przez obie Strony stanowi wystarczającą podstawę do naliczenia tych należności i nie wymaga zawarcia aneksu do niniejszej Umowy. Najemca zobowiązuje się do ich zapłaty w terminie 7 dni od doręczenia dokumentu sprzedaży.',
         'Jeżeli w toku oględzin przy zwrocie stwierdzone zostaną uszkodzenia Sprzętu lub usterki wymagające naprawy, Wynajmujący zleci naprawę w autoryzowanym serwisie Kärcher (ERPIX Kärcher Rzeszów) lub innym autoryzowanym serwisie Kärcher. Najemca zostanie obciążony rzeczywistymi, udokumentowanymi kosztami naprawy/części wykazanymi na fakturze serwisowej, którą jest zobowiązany opłacić w terminie 7 dni. Do czasu otrzymania faktury serwisu w Protokole zwrotu odnotowuje się samą pozycję kosztu, a jego wysokość Wynajmujący wskazuje po wycenie.',

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { queries } from '../db.js';
 import { sendReturnProtocolEmail } from '../email.js';
+import { resolvePaymentLink } from '../payments/routes.js';
 import { describeRentalStage } from '../reservation-stage.js';
 import { encryptContractData, decryptContractData, sha256 } from './crypto.js';
 import {
@@ -250,6 +251,14 @@ export async function signReturnProtocol(data: {
     notes: 'Protokół zwrotu podpisany elektronicznie przy odbiorze sprzętu.',
   }).catch((error) => console.error('Register return document error:', error));
 
+  // Sam wykaz kwot niczego nie zalatwia - klient musi wiedziec, czy ma jeszcze
+  // zaplacic i gdzie kliknac. Gdy uregulowal gotowka przy ladzie, mowimy to wprost.
+  const rezerwacja = await queries.getReservationById(data.reservationId);
+  const zaplacono = rezerwacja?.payment_status === 'paid';
+  const platnosc = zaplacono || finalny.balance <= 0
+    ? null
+    : await resolvePaymentLink(data.reservationId, '127.0.0.1').catch(() => null);
+
   const emailResult = finalny.renter.email
     ? await sendReturnProtocolEmail(finalny.renter.email, finalny.renter.name, finalny.protocolNumber, pdf, {
         chargesTotal: finalny.chargesTotal,
@@ -260,6 +269,8 @@ export async function signReturnProtocol(data: {
           label: pozycja.note ? `${pozycja.label} — ${pozycja.note}` : pozycja.label,
           amount: pozycja.amount,
         })),
+        linkPlatnosci: platnosc?.status === 'ready' ? platnosc.url : null,
+        zaplaconoNaMiejscu: zaplacono,
       })
     : { delivered: false, transport: 'none' as const };
 

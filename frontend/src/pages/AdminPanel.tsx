@@ -98,7 +98,6 @@ import {
   Menu,
   ChevronRight,
   ShieldCheck,
-  RotateCcw,
   CalendarPlus,
   History,
   Infinity as InfinityIcon,
@@ -172,7 +171,37 @@ interface Reservation {
   actions?: ActionAvailability[];
   /** Czy istnieje podpisany protokół wydania (Załącznik nr 1). */
   handoverSigned?: boolean;
+  /** Rozpis należności wyliczony przez serwer — ten sam co w mailu i umowie. */
+  koszty?: KosztyOpis;
+  /** Terminy i miejsca odbioru oraz zwrotu. */
+  terminy?: {
+    odbior: TerminOpis | null;
+    zwrot: TerminOpis | null;
+    miejsca: { odbior: MiejsceOpis; zwrot: MiejsceOpis };
+  };
   created_at: string;
+}
+
+interface TerminOpis {
+  data: string;
+  dataSlownie: string;
+  dzienTygodnia: string;
+  godzina: string;
+  pelny: string;
+  weekend: boolean;
+}
+
+interface MiejsceOpis {
+  tryb: string;
+  adres: string;
+  uKlienta: boolean;
+}
+
+interface KosztyOpis {
+  pozycje: Array<{ klucz: string; etykieta: string; opis?: string; kwota: number }>;
+  suma: number;
+  korektaReczna: { kwota: number; powod: string } | null;
+  kaucja: number;
 }
 
 interface ReservationTermChange {
@@ -311,7 +340,7 @@ const STAGE_BADGE_STYLE: Record<StageTone, string> = {
   warning: 'bg-amber-500/10 border-amber-400/30 text-amber-300 light:text-amber-700',
   success: 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 light:text-emerald-700',
   error: 'bg-red-500/10 border-red-400/30 text-red-300 light:text-red-700',
-  alert: 'bg-red-500/20 border-red-400/60 text-red-200',
+  alert: 'bg-red-500/20 border-red-400/60 text-red-200 light:text-red-800',
 };
 
 /** Jedna plakietka opisujaca faktyczny etap najmu zamiast trzech osobnych statusow. */
@@ -354,7 +383,7 @@ const ACTION_STYLE: Record<RentalAction, {
     Ikona: CheckCircle,
     klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
   },
-  cancel: { etykieta: 'Anuluj', Ikona: XCircle, klasa: '', drugorzedna: true },
+  cancel: { etykieta: 'Anuluj rezerwację', Ikona: XCircle, klasa: '', drugorzedna: true },
   reject: { etykieta: 'Odrzuć', Ikona: XCircle, klasa: '', drugorzedna: true },
 };
 
@@ -367,12 +396,15 @@ function StageActions({
   actions?: ActionAvailability[];
   onAction: (action: RentalAction) => void;
 }) {
-  if (!actions || actions.length === 0) {
-    return <p className="text-xs text-text-muted italic">Najem zamknięty — brak dalszych kroków</p>;
+  // Akcje oznaczone jako automatyczne wykonuje system — przycisk tylko udawałby wybór.
+  const widoczne = (actions ?? []).filter((item) => !item.automatic);
+
+  if (widoczne.length === 0) {
+    return <p className="text-xs text-text-muted italic">Brak dalszych kroków</p>;
   }
 
-  const glowne = actions.filter((item) => !ACTION_STYLE[item.action].drugorzedna);
-  const drugorzedne = actions.filter((item) => ACTION_STYLE[item.action].drugorzedna);
+  const glowne = widoczne.filter((item) => !ACTION_STYLE[item.action].drugorzedna);
+  const drugorzedne = widoczne.filter((item) => ACTION_STYLE[item.action].drugorzedna);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -419,15 +451,84 @@ function StageActions({
   );
 }
 
-const STATUS_DESCRIPTIONS: Record<string, string> = {
-  pending: 'Przywraca rezerwację do kolejki oczekujących.',
-  confirmed: 'Potwierdza termin i gotowość realizacji rezerwacji.',
-  picked_up: 'Oznacza sprzęt jako wydany. Wymaga podpisanej umowy.',
-  returned: 'Potwierdza fizyczny zwrot sprzętu i zwalnia termin.',
-  completed: 'Kończy proces po zwrocie i rozliczeniu wynajmu.',
-  rejected: 'Odrzuca rezerwację i zwalnia sprzęt dla innych klientów.',
-  cancelled: 'Anuluje rezerwację i zwalnia zajęty termin.',
-};
+const zloty = (kwota: number) => `${kwota.toFixed(2).replace('.', ',')} zł`;
+
+/** Termin z dniem tygodnia i adresem — data sama nie mówi, gdzie się stawić. */
+function TerminBox({
+  tytul,
+  termin,
+  miejsce,
+  bezterminowo,
+}: {
+  tytul: string;
+  termin?: TerminOpis | null;
+  miejsce?: { tryb: string; adres: string };
+  bezterminowo?: boolean;
+}) {
+  return (
+    <div className="p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
+      <p className="text-[11px] uppercase tracking-wide text-gold mb-2">{tytul}</p>
+      {bezterminowo ? (
+        <p className="text-text-primary font-medium">Najem bezterminowy — do odwołania</p>
+      ) : termin ? (
+        <>
+          <p className="text-text-primary font-medium capitalize">{termin.dzienTygodnia}</p>
+          <p className="text-text-primary">{termin.dataSlownie}</p>
+          {termin.godzina && <p className="text-text-secondary">godz. {termin.godzina}</p>}
+        </>
+      ) : (
+        <p className="text-text-muted">termin do ustalenia</p>
+      )}
+      {miejsce && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <p className="text-xs text-text-muted">{miejsce.tryb}</p>
+          <p className="text-text-secondary text-[13px] mt-0.5">{miejsce.adres}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Pełny rozpis należności — te same pozycje co w mailu i w umowie. */
+function RozpisKosztow({ koszty }: { koszty?: KosztyOpis }) {
+  if (!koszty) return null;
+  return (
+    <div className="p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
+      <p className="text-[11px] uppercase tracking-wide text-gold mb-3">Podsumowanie kosztów</p>
+      <div className="space-y-1.5">
+        {koszty.pozycje.map((pozycja) => (
+          <div key={pozycja.klucz} className="flex justify-between gap-4">
+            <span className="text-text-secondary">
+              {pozycja.etykieta}
+              {pozycja.opis && <span className="text-text-muted text-xs block">{pozycja.opis}</span>}
+            </span>
+            <span className={`whitespace-nowrap ${pozycja.kwota < 0 ? 'text-emerald-400 light:text-emerald-700' : 'text-text-primary'}`}>
+              {zloty(pozycja.kwota)}
+            </span>
+          </div>
+        ))}
+        {koszty.korektaReczna && (
+          <div className="flex justify-between gap-4">
+            <span className="text-text-secondary">
+              {koszty.korektaReczna.powod}
+              <span className="text-text-muted text-xs block">korekta ceny</span>
+            </span>
+            <span className="text-text-primary whitespace-nowrap">{zloty(koszty.korektaReczna.kwota)}</span>
+          </div>
+        )}
+      </div>
+      <div className="flex justify-between gap-4 mt-3 pt-3 border-t border-border">
+        <span className="font-semibold text-text-primary">Razem do zapłaty</span>
+        <span className="font-semibold text-gold whitespace-nowrap">{zloty(koszty.suma)}</span>
+      </div>
+      {koszty.kaucja > 0 && (
+        <p className="text-xs text-text-muted mt-2">
+          Dodatkowo kaucja zwrotna {zloty(koszty.kaucja)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const CUSTOMER_STATUS_EMAILS = ['confirmed', 'rejected', 'picked_up', 'returned'];
 
@@ -1118,7 +1219,7 @@ export function AdminPanel() {
                       type="button"
                       onClick={() => selectTab(item.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                        active ? 'bg-gold/12 text-gold border border-gold/20' : 'text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-soft'
+                        active ? 'bg-gold/12 text-gold-light light:text-gold-dark border border-gold/20' : 'text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-soft'
                       }`}
                     >
                       <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
@@ -1236,7 +1337,7 @@ export function AdminPanel() {
             {/* Reservations list */}
             {widoczneRezerwacje.length === 0 ? (
               <Card variant="glass" className="p-12 text-center border-dashed">
-                <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold flex items-center justify-center mx-auto mb-4">
+                <div className="w-12 h-12 rounded-[--radius-sm] bg-gold/10 text-gold-light light:text-gold-dark flex items-center justify-center mx-auto mb-4">
                   <Calendar className="w-6 h-6" />
                 </div>
                 <h3 className="font-semibold">Brak rezerwacji w tym widoku</h3>
@@ -1394,65 +1495,9 @@ export function AdminPanel() {
                         >
                           <History className="w-4 h-4" />
                         </Button>
-                        
-                        {/* Pending: Potwierdź lub Odrzuć */}
-                        {reservation.status === 'pending' && (
-                          <>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleStatusChange(reservation.id, 'confirmed', 'reservation')}
-                              title="Potwierdź rezerwację"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleStatusChange(reservation.id, 'rejected', 'reservation')}
-                              title="Odrzuć rezerwację"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
-                        
-                        {/* Confirmed: Wydaj sprzęt */}
-                        {reservation.status === 'confirmed' && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'picked_up', 'reservation')}
-                            title="Oznacz jako wydane"
-                            disabled={reservation.contract_status !== 'signed'}
-                          >
-                            <Package className="w-4 h-4 mr-1.5" /> Wydaj
-                          </Button>
-                        )}
-                        
-                        {/* Picked up: Oznacz jako zwrócone */}
-                        {reservation.status === 'picked_up' && !reservation.is_indefinite && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'returned', 'reservation')}
-                            title="Oznacz jako zwrócone"
-                          >
-                            <RotateCcw className="w-4 h-4 mr-1.5" /> Zwrot
-                          </Button>
-                        )}
-                        
-                        {/* Returned: Zakończ (rozlicz) */}
-                        {reservation.status === 'returned' && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handleStatusChange(reservation.id, 'completed', 'reservation')}
-                            title="Zakończ i rozlicz"
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1.5" /> Zakończ
-                          </Button>
-                        )}
+                        {/* Polecenia obsługi najmu są w jednym miejscu — w kolumnie
+                            „Kolejny krok". Powtórzone tutaj kazały zgadywać, czym
+                            różni się „Wydaj" od „Wydaj sprzęt". */}
                       </div>
                     </div>
                   </div>
@@ -1468,24 +1513,25 @@ export function AdminPanel() {
                         <p className="text-text-muted mb-1">Telefon:</p>
                         <p className="text-text-primary">{reservation.phone}</p>
                       </div>
-                      <div>
-                        <p className="text-text-muted mb-1">Miasto:</p>
-                        <p className="text-text-primary">{reservation.city}</p>
+
+                      <div className="md:col-span-2 grid sm:grid-cols-2 gap-4">
+                        <TerminBox
+                          tytul="Odbiór sprzętu"
+                          termin={reservation.terminy?.odbior}
+                          miejsce={reservation.terminy?.miejsca.odbior}
+                        />
+                        <TerminBox
+                          tytul="Zwrot sprzętu"
+                          termin={reservation.terminy?.zwrot}
+                          miejsce={reservation.terminy?.miejsca.zwrot}
+                          bezterminowo={Boolean(reservation.is_indefinite)}
+                        />
                       </div>
-                      {reservation.address && (
-                        <div>
-                          <p className="text-text-muted mb-1">Adres dostawy:</p>
-                          <p className="text-text-primary">{reservation.address}</p>
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-text-muted mb-1">Cena bazowa:</p>
-                        <p className="text-text-primary">{reservation.base_price} zł</p>
+
+                      <div className="md:col-span-2">
+                        <RozpisKosztow koszty={reservation.koszty} />
                       </div>
-                      <div>
-                        <p className="text-text-muted mb-1">Dostawa:</p>
-                        <p className="text-text-primary">{reservation.delivery_fee} zł</p>
-                      </div>
+
                       {reservation.notes && (
                         <div className="md:col-span-2">
                           <p className="text-text-muted mb-1">Notatki:</p>
@@ -1495,10 +1541,14 @@ export function AdminPanel() {
                       <div className="md:col-span-2">
                         <PaymentLinkPanel reservationId={reservation.id} onNotify={notifyPanel} />
                       </div>
-                      <div className="md:col-span-2">
-                        <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
-                        <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
-                      </div>
+                      {/* Zdjęcia mają sens dopiero, gdy sprzęt fizycznie krąży —
+                          przed wydaniem nie ma czego sfotografować. */}
+                      {['picked_up', 'returned', 'completed'].includes(reservation.status) && (
+                        <div className="md:col-span-2">
+                          <p className="text-text-muted mb-2">Zdjęcia stanu sprzętu:</p>
+                          <HandoverPhotos reservationId={reservation.id} onNotify={notifyPanel} />
+                        </div>
+                      )}
                       {reservationItems(reservation).length > 1 && (
                         <div className="md:col-span-2 p-4 bg-surface-soft border border-border rounded-[--radius-sm]">
                           <p className="text-text-muted mb-3">Pozycje na umowie:</p>
@@ -1514,7 +1564,7 @@ export function AdminPanel() {
                       )}
                       {reservation.wants_invoice === 1 && (
                         <div className="md:col-span-2 mt-4 p-4 bg-gold/10 border border-gold/30 rounded-lg">
-                          <p className="text-gold font-semibold mb-3 flex items-center gap-2">
+                          <p className="text-gold-light light:text-gold-dark font-semibold mb-3 flex items-center gap-2">
                             <FileText className="w-4 h-4" />
                             Dane do faktury
                           </p>
@@ -1894,7 +1944,7 @@ export function AdminPanel() {
             <Card variant="glass" className="p-6 relative overflow-hidden">
               <h3 className="text-lg font-semibold text-text-primary mb-6 flex items-center gap-3">
                 <div className="p-2 rounded-[--radius-sm] bg-gold/10">
-                  <Calendar className="w-5 h-5 text-gold" />
+                  <Calendar className="w-5 h-5 text-gold-light light:text-gold-dark" />
                 </div>
                 Szczegóły miesięczne
               </h3>
@@ -1995,7 +2045,7 @@ export function AdminPanel() {
                   </p>
                 </div>
                 <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
-                  <h4 className="text-orange-400 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o zwrocie</h4>
+                  <h4 className="text-orange-400 light:text-orange-700 font-medium mb-2 flex items-center gap-2"><Clock className="w-4 h-4" aria-hidden="true" /> Przypomnienie o zwrocie</h4>
                   <p className="text-text-muted text-sm">
                     Wysyłane do klientów, którzy mają zwrócić sprzęt następnego dnia.
                   </p>
@@ -2013,7 +2063,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-green-500/10">
-                    <Users className="w-5 h-5 text-green-500" />
+                    <Users className="w-5 h-5 text-green-500 light:text-green-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">
@@ -2026,7 +2076,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-blue-500/10">
-                    <FileText className="w-5 h-5 text-blue-500" />
+                    <FileText className="w-5 h-5 text-blue-500 light:text-blue-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">{newsletterPosts.length}</p>
@@ -2037,7 +2087,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-gold/10">
-                    <Send className="w-5 h-5 text-gold" />
+                    <Send className="w-5 h-5 text-gold-light light:text-gold-dark" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-text-primary">
@@ -2298,7 +2348,7 @@ export function AdminPanel() {
               <Card variant="glass" className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                    <Bell className="w-5 h-5 text-yellow-400" />
+                    <Bell className="w-5 h-5 text-yellow-400 light:text-yellow-700" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-gold">
@@ -2366,7 +2416,7 @@ export function AdminPanel() {
                           <td className="py-3 px-2">
                             <span className={`px-2 py-1 rounded-full text-xs ${
                               notification.status === 'waiting' 
-                                ? 'bg-yellow-500/20 text-yellow-400' 
+                                ? 'bg-yellow-500/20 text-yellow-400 light:text-yellow-700' 
                                 : 'bg-green-500/20 text-green-400 light:text-green-700'
                             }`}>
                               {notification.status === 'waiting' ? 'Oczekuje' : 'Wysłano'}
@@ -2615,7 +2665,8 @@ export function AdminPanel() {
               </div>
 
               <div className="p-4 rounded-[--radius-sm] bg-sky-500/[0.06] border border-sky-500/20 text-sm text-text-secondary">
-                {STATUS_DESCRIPTIONS[statusForm.targetStatus]}
+                {statusFor.name} • {reservationProductLabel(statusFor)} • {statusFor.start_date}
+                {statusFor.end_date ? ` – ${statusFor.end_date}` : ''}
               </div>
 
               {statusForm.targetStatus === 'picked_up' && statusFor.contract_status !== 'signed' && (
@@ -2864,7 +2915,7 @@ export function AdminPanel() {
 
               {contractSession ? (
                 <div className="py-6 text-center">
-                  <CheckCircle className={`w-14 h-14 mx-auto mb-4 ${contractSignedId ? 'text-green-500' : 'text-gold'}`} />
+                  <CheckCircle className={`w-14 h-14 mx-auto mb-4 ${contractSignedId ? 'text-green-500 light:text-green-700' : 'text-gold'}`} />
                   <h3 className="text-xl font-semibold text-text-primary">
                     {contractSignedId ? 'Umowa podpisana' : 'Umowa gotowa do podpisu'}
                   </h3>
@@ -3052,7 +3103,7 @@ export function AdminPanel() {
               {/* Reply success message */}
               {replySuccess ? (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-6 text-center">
-                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                  <CheckCircle className="w-12 h-12 text-green-500 light:text-green-700 mx-auto mb-3" />
                   <p className="text-lg font-semibold text-green-400 light:text-green-700">
                     Odpowiedź wysłana!
                   </p>
@@ -3146,7 +3197,7 @@ export function AdminPanel() {
             <div className="p-6">
               <div className="text-center mb-6">
                 <div className="w-14 h-14 rounded-full bg-gold/20 flex items-center justify-center mx-auto mb-4">
-                  <AlertCircle className="w-7 h-7 text-gold" />
+                  <AlertCircle className="w-7 h-7 text-gold-light light:text-gold-dark" />
                 </div>
                 <h3 className="text-lg font-bold text-text-primary mb-2">Potwierdzenie</h3>
                 <p className="text-text-muted">{confirmModal.message}</p>
@@ -3190,7 +3241,7 @@ function Metric({
   tone: 'gold' | 'amber' | 'green' | 'blue';
 }) {
   const tones = {
-    gold: 'bg-gold/10 text-gold',
+    gold: 'bg-gold/10 text-gold-light light:text-gold-dark',
     amber: 'bg-amber-500/10 text-amber-400 light:text-amber-700',
     green: 'bg-green-500/10 text-green-400 light:text-green-700',
     blue: 'bg-sky-500/10 text-sky-400 light:text-sky-700',
@@ -3220,7 +3271,7 @@ function RevenueMetric({
   const tones = {
     green: 'bg-green-500/10 text-green-400 light:text-green-700',
     blue: 'bg-sky-500/10 text-sky-400 light:text-sky-700',
-    gold: 'bg-gold/10 text-gold',
+    gold: 'bg-gold/10 text-gold-light light:text-gold-dark',
     amber: 'bg-amber-500/10 text-amber-400 light:text-amber-700',
   };
   return (

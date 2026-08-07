@@ -270,9 +270,9 @@ export function CostWidget() {
             {/* Distance Status - only show when delivery is enabled */}
             {delivery && distanceStatus !== 'idle' && (
               <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
-                distanceStatus === 'checking' ? 'bg-blue-500/10 text-blue-400' :
-                distanceStatus === 'ok' ? 'bg-green-500/10 text-green-400' :
-                'bg-red-500/10 text-red-400'
+                distanceStatus === 'checking' ? 'bg-blue-500/10 text-blue-400 light:text-blue-700' :
+                distanceStatus === 'ok' ? 'bg-green-500/10 text-green-400 light:text-green-700' :
+                'bg-red-500/10 text-red-400 light:text-red-700'
               }`}>
                 {distanceStatus === 'checking' && <Loader2 className="w-3 h-3 animate-spin" />}
                 {distanceStatus === 'ok' && <CheckCircle className="w-3 h-3" />}
@@ -290,15 +290,15 @@ export function CostWidget() {
               checked={delivery}
               onChange={(e) => setDelivery(e.target.checked)}
             />
-            <Truck className={`w-5 h-5 ${delivery && distanceStatus === 'too_far' ? 'text-red-400' : 'text-text-muted'}`} />
+            <Truck className={`w-5 h-5 ${delivery && distanceStatus === 'too_far' ? 'text-red-400 light:text-red-700' : 'text-text-muted'}`} />
           </div>
 
           {/* Availability Status */}
           {availabilityStatus !== 'idle' && (
             <div className={`flex items-center gap-2 p-3 rounded-lg ${
-              availabilityStatus === 'checking' ? 'bg-blue-500/10 text-blue-400' :
-              availabilityStatus === 'available' ? 'bg-green-500/10 text-green-400' :
-              'bg-red-500/10 text-red-400'
+              availabilityStatus === 'checking' ? 'bg-blue-500/10 text-blue-400 light:text-blue-700' :
+              availabilityStatus === 'available' ? 'bg-green-500/10 text-green-400 light:text-green-700' :
+              'bg-red-500/10 text-red-400 light:text-red-700'
             }`}>
               {availabilityStatus === 'checking' && <Loader2 className="w-4 h-4 animate-spin" />}
               {availabilityStatus === 'available' && <CheckCircle className="w-4 h-4" />}
@@ -323,7 +323,7 @@ export function CostWidget() {
           {/* Warning if delivery too far */}
           {delivery && distanceStatus === 'too_far' && (
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-              <p className="text-sm text-red-400 flex items-center gap-2">
+              <p className="text-sm text-red-400 light:text-red-700 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 Dostawa możliwa tylko do 30 km od Rzeszowa. Wybierz odbiór osobisty lub zmień miasto.
               </p>

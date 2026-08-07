@@ -290,6 +290,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
       days,
       basePrice,
       deliveryFee,
+      weekendFee: weekendPickupFee,
       totalPrice,
       discountCode: discount.source === 'coupon' && staffPricing?.discountAmount === undefined
         ? discount.code
@@ -348,6 +349,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
       days,
       basePrice,
       deliveryFee,
+      weekendFee: weekendPickupFee,
+      discountAmount,
+      discountLabel,
+      discountCode: discount.source === 'coupon' ? discount.code : null,
       totalPrice,
       productName: pricing.items.map((item) => item.productName).join(', '),
       startTime: data.startTime,
@@ -394,6 +399,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
         days,
         basePrice,
         deliveryFee,
+        weekendFee: weekendPickupFee,
+        discountAmount,
         totalPrice,
       },
     });

@@ -189,9 +189,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[--radius-sm] border border-white/10 bg-[#101010]">
-      <div className="px-5 py-4 border-b border-white/10 flex items-center gap-3">
-        <span className="w-8 h-8 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center text-gold">
+    <section className="rounded-[--radius-sm] border border-border bg-bg-card">
+      <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+        <span className="w-8 h-8 rounded-lg bg-surface-soft border border-border flex items-center justify-center text-gold">
           {icon}
         </span>
         <div>
@@ -212,7 +212,7 @@ function Toggle({
   label: string;
 }) {
   return (
-    <label className="flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
+    <label className="flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
       <input spellCheck={false}
         type="checkbox"
         checked={checked}

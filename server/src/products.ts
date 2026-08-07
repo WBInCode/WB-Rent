@@ -205,3 +205,14 @@ export const calculateRentalItemsPrice = (
 // 20 zł each way, matching the public calculator (+40 zł total)
 export const DELIVERY_FEE = 40;
 export const WEEKEND_PICKUP_FEE = 30;
+
+/** Wszystkie urzadzenia rezerwacji - pozycje zestawu albo pojedynczy produkt. */
+export const reservationProductIds = (reservation: any): string[] => {
+  if (Array.isArray(reservation?.items) && reservation.items.length > 0) {
+    return reservation.items.map((item: any) => String(item.product_id));
+  }
+  return reservation?.product_id ? [String(reservation.product_id)] : [];
+};
+
+export const reservationProductNames = (reservation: any): string =>
+  reservationProductIds(reservation).map(getProductName).join(', ');

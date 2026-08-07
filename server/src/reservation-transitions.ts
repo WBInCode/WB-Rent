@@ -41,6 +41,12 @@ export interface ActionAvailability {
   available: boolean;
   /** Wypełniony tylko gdy akcja jest zablokowana — panel pokazuje to jako powód. */
   reason?: string;
+  /**
+   * Akcja możliwa, ale nie do pokazania jako przycisk: system wykona ją sam albo
+   * czeka na zdarzenie zewnętrzne. Panel nie ma prosić o klik tam, gdzie nie ma
+   * czego decydować.
+   */
+  automatic?: boolean;
 }
 
 export interface TransitionContext {
@@ -52,6 +58,23 @@ export interface TransitionContext {
   handoverProtocolSigned?: boolean;
   /** Czy protokół zwrotu został podpisany przez obie Strony. */
   returnProtocolSigned?: boolean;
+  /** Czy należność za najem została zaksięgowana. */
+  paid?: boolean;
+}
+
+/**
+ * Czy najem domknie się sam po zwrocie. Warunek: sprzęt wrócił z podpisanym
+ * protokołem i udokumentowanym stanem, a należność jest zapłacona. Dopóki
+ * pieniądze nie wpłynęły, najem zostaje otwarty — zamknięcie oznaczałoby, że
+ * nie ma już nic do rozliczenia.
+ */
+export function czyMoznaZamknacAutomatycznie(
+  reservation: { payment_status?: string | null },
+  context: TransitionContext
+): boolean {
+  return Boolean(context.returnProtocolSigned)
+    && context.returnPhotos > 0
+    && (context.paid ?? reservation.payment_status === 'paid');
 }
 
 /** Czy można teraz przystąpić do zwrotu: przygotować i podpisać protokół zwrotu. */
@@ -98,8 +121,13 @@ export function availableActions(
   const { stage } = describeRentalStage(reservation, now);
   const kandydaci: ActionAvailability[] = [];
 
-  const add = (action: RentalAction, available: boolean, reason?: string) =>
-    kandydaci.push(available ? { action, available } : { action, available, reason });
+  const add = (action: RentalAction, available: boolean, reason?: string, automatic?: boolean) =>
+    kandydaci.push({
+      action,
+      available,
+      ...(available ? {} : { reason }),
+      ...(automatic ? { automatic: true } : {}),
+    });
 
   if (stage === 'inquiry') {
     add('confirm', true);
@@ -138,12 +166,18 @@ export function availableActions(
   }
 
   if (stage === 'return_in_progress') {
-    add('complete', true);
+    // Zamknięcie najmu nie jest decyzją — to wniosek z faktów. Jeśli sprzęt
+    // wrócił, protokół jest podpisany i płatność zaksięgowana, nie ma na co
+    // czekać: najem domyka się sam (patrz autoCompleteAfterReturn).
+    add('complete', true, undefined, czyMoznaZamknacAutomatycznie(reservation, context));
   }
 
   if (CANCELLABLE.includes(stage)) {
     add('cancel', true);
-    add('reject', true);
+    // „Odrzuć" i „Anuluj" kończą tak samo — rezerwacja nie dochodzi do skutku.
+    // Odrzucenie zostaje w API dla rekordów historycznych, ale panel pokazuje
+    // jedno polecenie zamiast dwóch nazw tej samej czynności.
+    add('reject', true, undefined, true);
   }
 
   // Ostatnie sito: kolejność statusów. Bez tego panel mógłby narysować przycisk,

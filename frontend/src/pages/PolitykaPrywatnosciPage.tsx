@@ -54,7 +54,7 @@ export function PolitykaPrywatnosciPage() {
           >
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-[--radius-sm] bg-gold/10 border border-gold/30 flex items-center justify-center">
-                <Shield className="w-7 h-7 text-gold" />
+                <Shield className="w-7 h-7 text-gold-light light:text-gold-dark" />
               </div>
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold text-text-primary">
@@ -196,7 +196,7 @@ export function PolitykaPrywatnosciPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">1</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">1</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Dostęp do danych</p>
@@ -205,7 +205,7 @@ export function PolitykaPrywatnosciPage() {
                     </div>
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">2</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">2</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Sprostowanie danych</p>
@@ -214,7 +214,7 @@ export function PolitykaPrywatnosciPage() {
                     </div>
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">3</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">3</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Usunięcie danych</p>
@@ -223,7 +223,7 @@ export function PolitykaPrywatnosciPage() {
                     </div>
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">4</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">4</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Ograniczenie przetwarzania</p>
@@ -232,7 +232,7 @@ export function PolitykaPrywatnosciPage() {
                     </div>
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">5</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">5</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Przenoszenie danych</p>
@@ -241,7 +241,7 @@ export function PolitykaPrywatnosciPage() {
                     </div>
                     <div className="flex items-start gap-2 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <span className="text-gold text-xs font-bold">6</span>
+                        <span className="text-gold-light light:text-gold-dark text-xs font-bold">6</span>
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">Sprzeciw</p>
@@ -341,7 +341,7 @@ export function PolitykaPrywatnosciPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Phone className="w-5 h-5 text-gold" />
+                      <Phone className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Telefon</p>
@@ -353,7 +353,7 @@ export function PolitykaPrywatnosciPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Mail className="w-5 h-5 text-gold" />
+                      <Mail className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Email</p>

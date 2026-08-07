@@ -136,7 +136,7 @@ export function MyReservationsPage() {
           <Card variant="glass" className="p-8 mt-6">
             {requestState === 'sent' ? (
               <div className="text-center py-6">
-                <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto mb-4" />
+                <CheckCircle2 className="w-14 h-14 text-green-500 light:text-green-700 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-text-primary mb-2">Sprawdź skrzynkę</h2>
                 <p className="text-text-secondary">{requestMessage}</p>
               </div>
@@ -167,7 +167,7 @@ export function MyReservationsPage() {
                   </Button>
                 </form>
                 {requestState === 'error' && (
-                  <p className="text-red-400 text-sm mt-3">{requestMessage}</p>
+                  <p className="text-red-400 light:text-red-700 text-sm mt-3">{requestMessage}</p>
                 )}
               </>
             )}
@@ -183,7 +183,7 @@ export function MyReservationsPage() {
 
         {token && listState === 'unauthorized' && (
           <Card variant="glass" className="p-8 mt-6 text-center">
-            <XCircle className="w-14 h-14 text-red-500 mx-auto mb-4" />
+            <XCircle className="w-14 h-14 text-red-500 light:text-red-700 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-text-primary mb-2">Link wygasł</h2>
             <p className="text-text-secondary mb-6">
               Link dostępu jest nieprawidłowy lub stracił ważność (24h).
@@ -276,7 +276,7 @@ export function MyReservationsPage() {
                           size="sm"
                           disabled={busyId === r.id}
                           onClick={() => handleCancel(r.id)}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          className="text-red-400 light:text-red-700 hover:text-red-300 light:text-red-700 hover:bg-red-500/10"
                         >
                           <Ban className="w-4 h-4 mr-1.5" />
                           Anuluj

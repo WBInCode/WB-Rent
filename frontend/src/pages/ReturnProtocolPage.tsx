@@ -481,7 +481,7 @@ export function ReturnProtocolPage() {
                   size="sm"
                   aria-label={`Usuń pozycję ${index + 1}`}
                   onClick={() => setPozycje((l) => l.filter((_, i) => i !== index))}
-                  className="text-red-400 light:text-red-700 hover:text-red-300 shrink-0"
+                  className="text-red-400 light:text-red-700 hover:text-red-300 light:text-red-700 shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

@@ -4,7 +4,7 @@ import { z, ZodError } from 'zod';
 import { queries } from './db.js';
 import { config } from './config.js';
 import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
-import { sendContactReply, sendReservationStatusEmail, sendPickedUpEmail, sendReturnedEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail } from './email.js';
+import { sendContactReply, sendReservationStatusEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail } from './email.js';
 import { calculateRentalItemsPrice, getProductName, products } from './products.js';
 import {
   newsletterPostSchema,
@@ -20,7 +20,9 @@ import { getOrCreateReturnDraft, saveReturnDraft, signReturnProtocol, readReturn
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
 import { resolvePaymentLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
-import { availableActions, canPrepareHandover, canPrepareReturn, canTransition } from './reservation-transitions.js';
+import { rozpiszKoszty } from './costs.js';
+import { opiszTermin, opiszMiejsca } from './rental-details.js';
+import { availableActions, canPrepareHandover, canPrepareReturn, canTransition, czyMoznaZamknacAutomatycznie } from './reservation-transitions.js';
 import { deleteDocumentFile, documentUpload, photoUpload, readDocumentFile, saveDocumentFile, savePhotoFile } from './documents.js';
 import { formatCouponValue, generateCouponCode, generateCouponPdf } from './coupons.js';
 
@@ -79,6 +81,34 @@ const reservationProductIds = (reservation: any): string[] => {
 
 const reservationProductNames = (reservation: any): string =>
   reservationProductIds(reservation).map(getProductName).join(', ');
+
+/**
+ * Domyka najem, gdy nie ma już czego rozstrzygać: sprzęt wrócił z podpisanym
+ * protokołem i udokumentowanym stanem, a należność jest zapłacona. Zwraca
+ * zaktualizowaną rezerwację albo null, jeśli warunki nie są spełnione.
+ */
+async function zamknijNajemJesliRozliczony(reservationId: number, changedBy?: string) {
+  const rezerwacja = await queries.getReservationById(reservationId);
+  if (!rezerwacja || rezerwacja.status !== 'returned') return null;
+
+  const kontekst = {
+    returnPhotos: await queries.countReservationPhotos(reservationId, 'after'),
+    handoverPhotos: await queries.countReservationPhotos(reservationId, 'before'),
+    handoverProtocolSigned: await queries.hasSignedProtocol(reservationId, 'handover'),
+    returnProtocolSigned: await queries.hasSignedProtocol(reservationId, 'return'),
+  };
+  if (!czyMoznaZamknacAutomatycznie(rezerwacja, kontekst)) return null;
+  if (!canTransition(rezerwacja, 'completed', kontekst).ok) return null;
+
+  const wynik = await queries.updateReservationStatus({
+    id: reservationId,
+    status: 'completed',
+    note: 'Najem rozliczony automatycznie: sprzęt zwrócony, protokół podpisany, płatność zaksięgowana',
+    changedBy: changedBy || 'System',
+    notifyCustomer: false,
+  });
+  return wynik.changed ? wynik.reservation : null;
+}
 
 // Admin authentication middleware - verifies signed, expiring token
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -474,6 +504,14 @@ router.get('/reservations', adminAuth, async (_req: Request, res: Response) => {
         handoverSigned: zProtokolem.has(reservation.id),
         returnSigned: zProtokolemZwrotu.has(reservation.id),
         handoverPhotos: context.handoverPhotos,
+        // Rozpis i terminy liczy serwer, żeby panel, mail i umowa pokazywały
+        // dokładnie te same pozycje i tę samą sumę.
+        koszty: rozpiszKoszty(reservation),
+        terminy: {
+          odbior: opiszTermin(reservation.start_date, reservation.start_time),
+          zwrot: opiszTermin(reservation.end_date, reservation.end_time),
+          miejsca: opiszMiejsca(reservation),
+        },
       };
     });
 
@@ -802,7 +840,14 @@ router.post('/reservations/:id/mark-paid', adminAuth, async (req: Request, res: 
     });
 
     const nazwa = { cash: 'gotówką', transfer: 'przelewem', terminal: 'terminalem' }[input.method];
-    res.json({ success: true, message: `Zapisano wpłatę ${nazwa}. Link online przestał działać.` });
+    // Wplata mogla byc ostatnia rzecza, na ktora czekal zwrocony najem.
+    const zamkniete = await zamknijNajemJesliRozliczony(reservation.id, input.confirmedBy);
+    res.json({
+      success: true,
+      message: zamkniete
+        ? `Zapisano wpłatę ${nazwa}. Najem został rozliczony i zakończony.`
+        : `Zapisano wpłatę ${nazwa}. Link online przestał działać.`,
+    });
   } catch (error) {
     if (error instanceof ZodError) {
       res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane wpłaty' });
@@ -1085,41 +1130,10 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
       }
     }
     
-    // Send email when equipment is picked up
-    if (notifyCustomer && status === 'picked_up') {
-      try {
-        await sendPickedUpEmail({
-          email: reservation.email,
-          name: reservation.name,
-          productName: reservationProductNames(reservation),
-          startDate: reservation.start_date,
-          endDate: reservation.end_date || 'bezterminowo',
-          totalPrice: reservation.total_price,
-        });
-        console.log(`📧 Picked up email sent to ${reservation.email}`);
-      } catch (emailError) {
-        console.error('Email send error:', emailError);
-      }
-    }
-    
-    // Send email when equipment is returned
+    // Wydanie i zwrot maja wlasne, pelne maile wysylane razem z protokolem.
+    // Osobne powiadomienie bylo drugim mailem o tym samym - a kazda zbedna
+    // wiadomosc zbliza nadawce do folderu spam.
     if (status === 'returned') {
-      if (notifyCustomer) {
-        try {
-          await sendReturnedEmail({
-            email: reservation.email,
-            name: reservation.name,
-            productName: reservationProductNames(reservation),
-            startDate: reservation.start_date,
-            endDate: reservation.end_date || 'bezterminowo',
-            totalPrice: reservation.total_price,
-          });
-          console.log(`📧 Returned email sent to ${reservation.email}`);
-        } catch (emailError) {
-          console.error('Email send error:', emailError);
-        }
-      }
-
       // Auto-send availability notifications
       try {
         for (const productId of reservationProductIds(reservation)) {
@@ -1161,11 +1175,19 @@ router.patch('/reservations/:id', adminAuth, async (req: Request, res: Response)
         console.error('Auto-notify error:', notifyError);
       }
     }
-    
+
+    // Sprzet wrocil, protokol podpisany, pieniadze zaksiegowane - nie ma juz na co
+    // czekac ani czego decydowac. Osobny klik "zakoncz" tylko udawalby wybor.
+    let finalna = updateResult.reservation;
+    if (status === 'returned') {
+      const zamkniete = await zamknijNajemJesliRozliczony(reservation.id, input.changedBy);
+      if (zamkniete) finalna = zamkniete;
+    }
+
     res.json({ 
       success: true, 
       message: `Status zmieniony na: ${status}`,
-      data: updateResult.reservation
+      data: finalna
     });
   } catch (error) {
     if (error instanceof ZodError) {

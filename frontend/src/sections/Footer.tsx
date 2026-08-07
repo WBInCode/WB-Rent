@@ -237,13 +237,13 @@ export function Footer() {
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-text-muted">
           <p>© {currentYear} WB-Rent. Wszelkie prawa zastrzeżone.</p>
           <p className="inline-flex items-center gap-1.5">
-            <Code2 className="w-4 h-4 text-green-500" aria-hidden="true" />
+            <Code2 className="w-4 h-4 text-green-500 light:text-green-700" aria-hidden="true" />
             Projekt i wdrożenie:{' '}
             <a 
               href="https://wb-incode.pl" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-green-500 hover:text-green-400 transition-colors"
+              className="text-green-500 light:text-green-800 hover:text-green-400 light:hover:text-green-900 transition-colors"
             >
               WBInCode
             </a>

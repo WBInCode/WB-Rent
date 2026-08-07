@@ -102,7 +102,7 @@ export function EquipmentCarousel({ products, availability }: EquipmentCarouselP
                   <span
                     className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur-sm ${
                       isAvailable
-                        ? 'bg-emerald-500/90 text-white'
+                          ? 'bg-emerald-500/90 text-black'
                         : 'bg-neutral-900/80 text-neutral-200'
                     }`}
                   >

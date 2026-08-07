@@ -6,6 +6,8 @@ import { queries } from '../db.js';
 import { getProductName } from '../products.js';
 import { sendSignedContractEmail } from '../email.js';
 import { collectRentalAttachments } from '../rental-attachments.js';
+import { rozpiszKoszty, rozpisJakoLinie } from '../costs.js';
+import { opiszTermin } from '../rental-details.js';
 import { encryptContractData, decryptContractData, randomSigningToken, sha256, signingTokenHash } from './crypto.js';
 import { CONTRACT_TEMPLATE_VERSION, buildContractClauses, letter, type ContractSnapshot, type ClauseDevice } from './template.js';
 import { getProductTerms } from './product-terms.js';
@@ -133,9 +135,14 @@ export async function createContractSession(input: CreateContractInput) {
   };
   const startTime = reservation.start_time || '09:00';
   const endTime = reservation.end_time || '09:00';
+  const odbior = opiszTermin(reservation.start_date, startTime);
+  const zwrot = opiszTermin(reservation.end_date, endTime);
+  // Sam dzien miesiaca nie mowi, na kiedy sie umowic - stad nazwa dnia tygodnia.
   const rentalPeriod = reservation.is_indefinite || !reservation.end_date
-    ? `od dnia ${polishDate(String(reservation.start_date))} r., godz. ${startTime} (wydanie) – najem bezterminowy, do odwołania`
-    : `od dnia ${polishDate(String(reservation.start_date))} r., godz. ${startTime} (wydanie) do dnia ${polishDate(String(reservation.end_date))} r., godz. ${endTime} (zwrot)`;
+    ? `od dnia ${polishDate(String(reservation.start_date))} r. (${odbior?.dzienTygodnia ?? ''}), godz. ${startTime} (wydanie) – najem bezterminowy, do odwołania`
+    : `od dnia ${polishDate(String(reservation.start_date))} r. (${odbior?.dzienTygodnia ?? ''}), godz. ${startTime} (wydanie) do dnia ${polishDate(String(reservation.end_date))} r. (${zwrot?.dzienTygodnia ?? ''}), godz. ${endTime} (zwrot)`;
+
+  const rozpis = rozpiszKoszty({ ...reservation, deposit: data.deposit });
 
   // Rate actually charged, so the price list in §12 never contradicts the deal.
   const dailyRate = perDay(Number(reservation.base_price));
@@ -188,6 +195,7 @@ export async function createContractSession(input: CreateContractInput) {
       totalPrice: Number(reservation.total_price),
       deposit: data.deposit,
       dailyRate,
+      costLines: rozpisJakoLinie(rozpis),
       accessories: data.accessories,
       conditionNotes: data.conditionNotes,
       delivery: Boolean(reservation.delivery),

@@ -108,7 +108,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
           onChange={(event) => setPotwierdzone(event.target.checked)}
           className="mt-0.5 w-4 h-4 accent-gold shrink-0"
         />
-        <span className="text-xs text-amber-200/90 leading-snug">
+        <span className="text-xs text-amber-200/90 light:text-amber-800/90 leading-snug">
           <AlertTriangle className="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
           Potwierdzam, że otrzymałem {money(Number(kwota.replace(',', '.')) || 0)}. Zapisu nie da się cofnąć,
           a link do płatności online przestanie działać.

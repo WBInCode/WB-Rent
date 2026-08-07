@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 process.env.NODE_ENV = 'test';
 
-const { availableActions, canTransition, canPrepareHandover, canPrepareReturn, ACTION_TARGET_STATUS } =
+const { availableActions, canTransition, canPrepareHandover, canPrepareReturn, ACTION_TARGET_STATUS, czyMoznaZamknacAutomatycznie } =
   await import('../src/reservation-transitions.js');
 
 const bezZdjec = { returnPhotos: 0 };
@@ -125,6 +125,47 @@ describe('akcje dostepne w danym momencie', () => {
     for (const status of ['completed', 'rejected', 'cancelled']) {
       expect(akcje(wynajem({ status }), zeZdjeciami)).toEqual([]);
     }
+  });
+});
+
+describe('zamkniecie najmu bez pytania pracownika', () => {
+  const zwrocony = (nadpisz: Record<string, unknown> = {}) =>
+    wynajem({ status: 'returned', contract_status: 'signed', payment_status: 'paid', ...nadpisz });
+  const rozliczony = { returnPhotos: 2, returnProtocolSigned: true };
+
+  it('komplet warunkow zamyka najem samoczynnie', () => {
+    expect(czyMoznaZamknacAutomatycznie(zwrocony(), rozliczony)).toBe(true);
+  });
+
+  it('panel nie rysuje przycisku, skoro system zamknie najem sam', () => {
+    const zamkniecie = availableActions(zwrocony(), rozliczony).find((a) => a.action === 'complete');
+    expect(zamkniecie?.available).toBe(true);
+    expect(zamkniecie?.automatic).toBe(true);
+  });
+
+  it('nieoplacony najem zostaje otwarty i wymaga decyzji pracownika', () => {
+    const r = zwrocony({ payment_status: 'unpaid' });
+    expect(czyMoznaZamknacAutomatycznie(r, rozliczony)).toBe(false);
+    const zamkniecie = availableActions(r, rozliczony).find((a) => a.action === 'complete');
+    expect(zamkniecie?.automatic).toBeUndefined();
+  });
+
+  it('brak podpisanego protokolu zwrotu wstrzymuje zamkniecie', () => {
+    expect(czyMoznaZamknacAutomatycznie(zwrocony(), { returnPhotos: 2, returnProtocolSigned: false })).toBe(false);
+  });
+
+  it('brak zdjec po zwrocie wstrzymuje zamkniecie', () => {
+    expect(czyMoznaZamknacAutomatycznie(zwrocony(), { returnPhotos: 0, returnProtocolSigned: true })).toBe(false);
+  });
+
+  it('odrzucenie znika z panelu, bo powiela anulowanie', () => {
+    const akcje = availableActions(wynajem(), bezZdjec);
+    expect(akcje.find((a) => a.action === 'cancel')?.automatic).toBeUndefined();
+    expect(akcje.find((a) => a.action === 'reject')?.automatic).toBe(true);
+  });
+
+  it('odrzucenie nadal dziala przez API mimo ukrycia w panelu', () => {
+    expect(canTransition(wynajem(), 'rejected', bezZdjec).ok).toBe(true);
   });
 });
 

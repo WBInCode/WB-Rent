@@ -15,6 +15,8 @@ export interface ActionAvailability {
   action: RentalAction;
   available: boolean;
   reason?: string;
+  /** Wykonywane przez system — panel nie rysuje przycisku. */
+  automatic?: boolean;
 }
 
 /** Status, na który przechodzi rezerwacja po wykonaniu akcji. */

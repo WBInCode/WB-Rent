@@ -688,7 +688,7 @@ export function Reservation() {
                       <p className="text-sm text-text-secondary mb-2">{selectedProduct.description}</p>
                       <div className="flex flex-wrap gap-2">
                         {selectedProduct.features.map((f) => (
-                          <span key={f} className="text-xs px-2 py-1 rounded bg-gold/10 text-gold">
+                          <span key={f} className="text-xs px-2 py-1 rounded bg-gold/10 text-gold-light light:text-gold-dark">
                             {f}
                           </span>
                         ))}
@@ -757,8 +757,8 @@ export function Reservation() {
                   
                   {/* Info o obliczaniu doby */}
                   <div className="p-3 rounded-[--radius-sm] bg-gold/10 border border-gold/20 mb-3 flex items-start gap-2.5">
-                    <Info className="w-4 h-4 text-gold shrink-0 mt-0.5" aria-hidden="true" />
-                    <p className="text-xs text-gold leading-relaxed">
+                    <Info className="w-4 h-4 text-gold-light light:text-gold-dark shrink-0 mt-0.5" aria-hidden="true" />
+                    <p className="text-xs text-gold-light light:text-gold-dark leading-relaxed">
                       Doba trwa 24h od godziny odbioru. Przykład: odbiór 21.01 o 09:00 = zwrot do 22.01 do 09:00 (1 doba). Zwrot po tej godzinie = dodatkowa doba.
                     </p>
                   </div>
@@ -773,8 +773,8 @@ export function Reservation() {
                   {/* Availability status indicator */}
                   {availabilityStatus === 'checking' && (
                     <div className="mt-3 p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 text-gold animate-spin" />
-                      <p className="text-sm text-gold">Sprawdzanie dostępności...</p>
+                      <Loader2 className="w-4 h-4 text-gold-light light:text-gold-dark animate-spin" />
+                      <p className="text-sm text-gold-light light:text-gold-dark">Sprawdzanie dostępności...</p>
                     </div>
                   )}
                   
@@ -810,7 +810,7 @@ export function Reservation() {
                     <div className="p-4 rounded-lg bg-bg-primary/50 border border-border">
                       <div className="flex items-start gap-3">
                         <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center shrink-0">
-                          <Home className="w-5 h-5 text-gold" />
+                          <Home className="w-5 h-5 text-gold-light light:text-gold-dark" />
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -839,7 +839,7 @@ export function Reservation() {
                     <div className={`p-4 rounded-lg border transition-colors ${formData.delivery ? 'bg-gold/5 border-gold/30' : 'bg-bg-primary/50 border-border'}`}>
                       <div className="flex items-start gap-3">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${formData.delivery ? 'bg-gold/20' : 'bg-bg-secondary'}`}>
-                          <Truck className={`w-5 h-5 ${formData.delivery ? 'text-gold' : 'text-text-muted'}`} />
+                          <Truck className={`w-5 h-5 ${formData.delivery ? 'text-gold-light light:text-gold-dark' : 'text-text-muted'}`} />
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -885,8 +885,8 @@ export function Reservation() {
                           {/* Status sprawdzania odległości */}
                           {deliveryDistanceStatus === 'checking' && (
                             <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 text-gold animate-spin" />
-                              <p className="text-sm text-gold">Sprawdzanie odległości...</p>
+                              <Loader2 className="w-4 h-4 text-gold-light light:text-gold-dark animate-spin" />
+                              <p className="text-sm text-gold-light light:text-gold-dark">Sprawdzanie odległości...</p>
                             </div>
                           )}
                           
@@ -922,8 +922,8 @@ export function Reservation() {
 
                     {isWeekendPickup && (
                       <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-gold" />
-                        <p className="text-sm text-gold">
+                        <AlertCircle className="w-4 h-4 text-gold-light light:text-gold-dark" />
+                        <p className="text-sm text-gold-light light:text-gold-dark">
                           Odbiór w weekend - doliczono opłatę +30 zł
                         </p>
                       </div>
@@ -1119,8 +1119,8 @@ export function Reservation() {
                         )}
                         {appliedCoupon && appliedCoupon.discountAmount > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-emerald-400">Kupon {appliedCoupon.code}:</span>
-                            <span className="text-emerald-400">-{formatPrice(appliedCoupon.discountAmount)}</span>
+                            <span className="text-emerald-400 light:text-emerald-700">Kupon {appliedCoupon.code}:</span>
+                            <span className="text-emerald-400 light:text-emerald-700">-{formatPrice(appliedCoupon.discountAmount)}</span>
                           </div>
                         )}
                         <div className="border-t border-border pt-2 mt-2">
@@ -1136,7 +1136,7 @@ export function Reservation() {
                         <div className="pt-3 mt-1 border-t border-border">
                           {appliedCoupon ? (
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs text-emerald-400">
+                              <span className="text-xs text-emerald-400 light:text-emerald-700">
                                 Kupon {appliedCoupon.code} został naliczony
                               </span>
                               <button
@@ -1171,7 +1171,7 @@ export function Reservation() {
                                   type="button"
                                   onClick={() => void applyCoupon()}
                                   disabled={couponStatus === 'checking' || !formData.couponCode.trim()}
-                                  className="h-10 px-4 rounded-lg border border-gold/40 text-sm font-medium text-gold hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                  className="h-10 px-4 rounded-lg border border-gold/40 text-sm font-medium text-gold-light light:text-gold-dark hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                 >
                                   {couponStatus === 'checking' ? 'Sprawdzam…' : 'Zastosuj'}
                                 </button>
@@ -1181,7 +1181,7 @@ export function Reservation() {
                           {couponMessage && (
                             <p
                               role="status"
-                              className={`mt-2 text-xs ${couponStatus === 'invalid' ? 'text-red-400' : 'text-emerald-400'}`}
+                              className={`mt-2 text-xs ${couponStatus === 'invalid' ? 'text-red-400 light:text-red-700' : 'text-emerald-400 light:text-emerald-700'}`}
                             >
                               {couponMessage}
                             </p>

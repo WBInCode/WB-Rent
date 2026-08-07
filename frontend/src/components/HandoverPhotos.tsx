@@ -122,9 +122,9 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 text-text-primary">
         <p className="text-sm font-semibold">{title}</p>
-        <button type="button" onClick={onClose} aria-label="Zamknij aparat" className="rounded-lg p-2 hover:bg-white/10">
+        <button type="button" onClick={onClose} aria-label="Zamknij aparat" className="rounded-lg p-2 hover:bg-surface-strong">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -143,7 +143,7 @@ function CameraDialog({ title, onCapture, onClose }: CameraDialogProps) {
           type="button"
           onClick={() => setFacing((current) => (current === 'environment' ? 'user' : 'environment'))}
           aria-label="Przełącz aparat"
-          className="rounded-full border border-white/25 p-3 text-white hover:bg-white/10"
+          className="rounded-full border border-border-hover p-3 text-text-primary hover:bg-surface-strong"
         >
           <SwitchCamera className="h-5 w-5" />
         </button>
@@ -281,7 +281,7 @@ export function HandoverPhotos({ reservationId, takenBy, onNotify, phases, onCou
               type="button"
               onClick={() => setCameraPhase(phase)}
               disabled={uploading !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/35 px-3 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-40"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/35 px-3 text-sm font-medium text-gold-light light:text-gold-dark transition-colors hover:bg-gold/10 disabled:opacity-40"
             >
               {uploading === phase ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

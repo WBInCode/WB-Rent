@@ -88,12 +88,13 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
             
             {/* Status */}
             {available ? (
-              <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[11px] font-bold px-3 py-1.5 flex items-center gap-1">
+              // Zielen jest jasna, wiec czytelny jest na niej ciemny tekst, a nie bialy.
+              <div className="absolute top-0 right-0 bg-emerald-500 text-black text-[11px] font-bold px-3 py-1.5 flex items-center gap-1">
                 <Check className="w-3 h-3" />
                 DOSTĘPNY
               </div>
             ) : (
-              <div className="absolute top-0 right-0 bg-red-500 text-white text-[11px] font-bold px-3 py-1.5 flex items-center gap-1">
+              <div className="absolute top-0 right-0 bg-red-600 text-white text-[11px] font-bold px-3 py-1.5 flex items-center gap-1">
                 <X className="w-3 h-3" />
                 WYPOŻYCZONY
               </div>
@@ -101,6 +102,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
 
             {/* Hover overlay */}
             <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+              {/* Nakładka jest ciemna w obu motywach, więc tekst zostaje biały. */}
               <span className="flex items-center gap-2 text-white text-sm font-medium">
                 <Eye className="w-4 h-4" />
                 Zobacz szczegóły
@@ -126,7 +128,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
             {product.features.slice(0, 3).map((feature) => (
               <span 
                 key={feature}
-                className="text-xs px-2.5 py-1 border border-gold/30 text-gold/80"
+                className="text-xs px-2.5 py-1 border border-gold/30 text-gold"
               >
                 {feature}
               </span>
@@ -144,7 +146,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
             {available ? (
               <Link
                 to={`/produkt/${product.id}`}
-                className="inline-flex items-center justify-center bg-gold hover:bg-gold-light text-black text-sm font-semibold px-5 py-2.5 transition-colors"
+                className="inline-flex items-center justify-center bg-gold hover:bg-gold-light text-gold-contrast text-sm font-semibold px-5 py-2.5 transition-colors"
               >
                 Rezerwuj
               </Link>
@@ -176,7 +178,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
             {notifyStatus === 'success' ? (
               <div className="text-center py-6">
                 <div className="w-14 h-14 bg-green-500/20 flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-7 h-7 text-green-500" />
+                  <Check className="w-7 h-7 text-green-500 light:text-green-700" />
                 </div>
                 <h3 className="text-lg font-bold text-text-primary mb-2">Zapisano!</h3>
                 <p className="text-text-muted text-sm">{notifyMessage}</p>
@@ -185,7 +187,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
               <>
                 <div className="text-center mb-5">
                   <div className="w-14 h-14 bg-gold/20 flex items-center justify-center mx-auto mb-4">
-                    <Bell className="w-7 h-7 text-gold" />
+                    <Bell className="w-7 h-7 text-gold-light light:text-gold-dark" />
                   </div>
                   <h3 className="text-lg font-bold text-text-primary mb-1">Powiadom mnie</h3>
                   <p className="text-sm text-text-muted">
@@ -204,7 +206,7 @@ export function ProductCard({ product, isAvailable }: ProductCardProps) {
                   />
                   
                   {notifyStatus === 'error' && (
-                    <p className="text-red-500 text-sm text-center">{notifyMessage}</p>
+                    <p className="text-red-500 light:text-red-700 text-sm text-center">{notifyMessage}</p>
                   )}
 
                   <div className="flex gap-3">

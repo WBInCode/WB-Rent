@@ -164,15 +164,15 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden divide-x divide-y xl:divide-y-0 divide-white/10">
+      <div className="grid grid-cols-2 xl:grid-cols-4 rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden divide-x divide-y xl:divide-y-0 divide-border">
         <Metric icon={<FileText size={16} />} label="Dokumentów" value={String(stats.total)} />
         <Metric icon={<Upload size={16} />} label="Wgranych ręcznie" value={String(stats.manual)} />
         <Metric icon={<Archive size={16} />} label="Widok" value={showArchived ? 'Archiwum' : 'Aktywne'} />
         <Metric icon={<Download size={16} />} label="Rozmiar" value={formatSize(stats.size)} />
       </div>
 
-      <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010]">
-        <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col xl:flex-row xl:items-center gap-3">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
+        <div className="p-4 sm:p-5 border-b border-border flex flex-col xl:flex-row xl:items-center gap-3">
           <div className="flex-1 flex flex-col sm:flex-row gap-3">
             <div className="flex-1 min-w-[200px]">
               <Input
@@ -224,7 +224,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
         )}
 
         {!loading && documents.length > 0 && (
-          <ul className="divide-y divide-white/10">
+          <ul className="divide-y divide-border">
             {documents.map((doc) => (
               <li key={doc.id} className="p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center gap-3">
                 <div className="flex-1 min-w-0">
@@ -234,7 +234,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
                       {CATEGORY_LABEL[doc.category]}
                     </span>
                     {doc.source === 'manual' && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-white/[0.06] text-text-muted border border-white/10">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-soft text-text-muted border border-border">
                         wgrany ręcznie
                       </span>
                     )}
@@ -276,8 +276,8 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card padding="none" className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-[#101010] border-white/10">
-            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-white/10 bg-[#141414] flex items-start justify-between gap-4">
+          <Card padding="none" className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-bg-card border-border">
+            <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-text-primary">
                   {editing ? 'Edytuj dokument' : 'Dodaj dokument'}
@@ -291,7 +291,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5"
+                className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft"
                 aria-label="Zamknij"
               >
                 <X size={16} />
@@ -367,7 +367,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
               />
             </div>
 
-            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-white/10 bg-[#141414] flex justify-end gap-2">
+            <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setModalOpen(false)}>Anuluj</Button>
               <Button variant="primary" onClick={() => void submit()} disabled={saving}>
                 {saving ? 'Zapisywanie…' : editing ? 'Zapisz zmiany' : 'Dodaj do archiwum'}
@@ -383,7 +383,7 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 p-4">
-      <span className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center text-text-muted">
+      <span className="w-9 h-9 rounded-lg bg-surface-soft border border-border flex items-center justify-center text-text-muted">
         {icon}
       </span>
       <div>
@@ -411,7 +411,7 @@ function IconButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 rounded-md text-text-muted hover:bg-white/5 ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
+      className={`p-2 rounded-md text-text-muted hover:bg-surface-soft ${danger ? 'hover:text-red-400 light:text-red-700' : 'hover:text-gold'}`}
     >
       {children}
     </button>

@@ -225,8 +225,8 @@ export function ProductInventoryPanel({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010] overflow-hidden">
-        <div className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y xl:divide-y-0 divide-white/10">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card overflow-hidden">
+        <div className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y xl:divide-y-0 divide-border">
           <InventoryMetric icon={<Boxes className="w-5 h-5" />} label="Wszystkie sztuki" value={totals.units} />
           <InventoryMetric icon={<Package className="w-5 h-5" />} label="Dostępne dzisiaj" value={totals.available} tone="text-emerald-300 light:text-emerald-700" />
           <InventoryMetric icon={<Eye className="w-5 h-5" />} label="Wynajęte dzisiaj" value={totals.rented} tone="text-gold" />
@@ -234,8 +234,8 @@ export function ProductInventoryPanel({
         </div>
       </div>
 
-      <div className="rounded-[--radius-sm] border border-white/10 bg-[#101010]">
-        <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col xl:flex-row xl:items-center gap-3">
+      <div className="rounded-[--radius-sm] border border-border bg-bg-card">
+        <div className="p-4 sm:p-5 border-b border-border flex flex-col xl:flex-row xl:items-center gap-3">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold">Flota i stany magazynowe</h2>
             <p className="text-xs text-text-muted mt-1">Dostępność uwzględnia aktywne rezerwacje i sztuki oddane do serwisu.</p>
@@ -266,7 +266,7 @@ export function ProductInventoryPanel({
           </div>
         </div>
 
-        <div className="px-4 sm:px-5 py-3 border-b border-white/10 flex items-center justify-between gap-4 text-xs text-text-muted">
+        <div className="px-4 sm:px-5 py-3 border-b border-border flex items-center justify-between gap-4 text-xs text-text-muted">
           <span>{filteredProducts.length} z {products.length} modeli</span>
           <label className="inline-flex items-center gap-2 cursor-pointer text-text-secondary">
             <input spellCheck={false}
@@ -279,7 +279,7 @@ export function ProductInventoryPanel({
           </label>
         </div>
 
-        <div className="hidden xl:grid grid-cols-[minmax(300px,1.8fr)_130px_210px_180px_150px] gap-4 px-5 py-3 border-b border-white/10 text-[11px] uppercase text-text-muted font-semibold">
+        <div className="hidden xl:grid grid-cols-[minmax(300px,1.8fr)_130px_210px_180px_150px] gap-4 px-5 py-3 border-b border-border text-[11px] uppercase text-text-muted font-semibold">
           <span>Produkt</span>
           <span>Stan</span>
           <span>Bilans sztuk</span>
@@ -287,7 +287,7 @@ export function ProductInventoryPanel({
           <span className="text-right">Akcje</span>
         </div>
 
-        <div className="divide-y divide-white/10">
+        <div className="divide-y divide-border">
           {filteredProducts.map((product) => {
             const total = Number(product.total_quantity);
             const available = Number(product.available_today);
@@ -320,7 +320,7 @@ export function ProductInventoryPanel({
                     <strong className="text-emerald-300 light:text-emerald-700">{available} dostępne</strong>
                     <span className="text-text-muted">{rented} wynajęte · {service} serwis</span>
                   </div>
-                  <div className="mt-2 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                  <div className="mt-2 h-1.5 rounded-full bg-surface-soft overflow-hidden">
                     <div className="h-full bg-gold" style={{ width: `${usedPercent}%` }} />
                   </div>
                   <p className="text-[10px] text-text-muted mt-1">Stan całkowity: {total}</p>
@@ -358,7 +358,7 @@ export function ProductInventoryPanel({
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <Card variant="glass" padding="none" className="w-full max-w-4xl max-h-[94vh] overflow-y-auto">
             <form onSubmit={submit}>
-              <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-white/10 bg-[#141414] flex items-start justify-between gap-4">
+              <div className="sticky top-0 z-10 px-5 sm:px-6 py-4 border-b border-border bg-bg-card flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase text-gold font-semibold">{editingId ? 'Edycja floty' : 'Nowa pozycja'}</p>
                   <h2 className="text-xl font-bold mt-1">{editingId ? 'Zmień produkt i stan' : 'Dodaj produkt do oferty'}</h2>
@@ -391,7 +391,7 @@ export function ProductInventoryPanel({
                   </div>
                   <Textarea className="mt-4" label="Opis w ofercie" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
 
-                  <div className="mt-5 pt-5 border-t border-white/10">
+                  <div className="mt-5 pt-5 border-t border-border">
                     <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                       <div>
                         <h4 className="text-sm font-semibold flex items-center gap-2"><Images className="w-4 h-4 text-gold" /> Galeria produktu</h4>
@@ -403,7 +403,7 @@ export function ProductInventoryPanel({
                     {form.images.length > 0 ? (
                       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {form.images.map((url, index) => (
-                          <div key={url} className={`rounded-lg border overflow-hidden ${index === 0 ? 'border-gold/60 bg-gold/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
+                          <div key={url} className={`rounded-lg border overflow-hidden ${index === 0 ? 'border-gold/60 bg-gold/[0.05]' : 'border-border bg-surface-soft'}`}>
                             <div className="relative aspect-[4/3] bg-white">
                               <img src={url} alt={`Zdjęcie ${index + 1}`} className="absolute inset-0 w-full h-full object-contain p-2" />
                               {index === 0 && (
@@ -416,14 +416,14 @@ export function ProductInventoryPanel({
                               <p className="text-[10px] text-text-muted truncate" title={url}>{url}</p>
                               <div className="flex items-center gap-1 mt-2">
                                 {index !== 0 && (
-                                  <button type="button" onClick={() => moveImage(index, 0)} className="p-2 rounded-md text-text-muted hover:text-gold hover:bg-white/5" title="Ustaw jako główne" aria-label={`Ustaw zdjęcie ${index + 1} jako główne`}>
+                                  <button type="button" onClick={() => moveImage(index, 0)} className="p-2 rounded-md text-text-muted hover:text-gold hover:bg-surface-soft" title="Ustaw jako główne" aria-label={`Ustaw zdjęcie ${index + 1} jako główne`}>
                                     <Star className="w-4 h-4" />
                                   </button>
                                 )}
-                                <button type="button" disabled={index === 0} onClick={() => moveImage(index, index - 1)} className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5 disabled:opacity-25" title="Przesuń wcześniej" aria-label={`Przesuń zdjęcie ${index + 1} wcześniej`}>
+                                <button type="button" disabled={index === 0} onClick={() => moveImage(index, index - 1)} className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft disabled:opacity-25" title="Przesuń wcześniej" aria-label={`Przesuń zdjęcie ${index + 1} wcześniej`}>
                                   <ArrowUp className="w-4 h-4" />
                                 </button>
-                                <button type="button" disabled={index === form.images.length - 1} onClick={() => moveImage(index, index + 1)} className="p-2 rounded-md text-text-muted hover:text-white hover:bg-white/5 disabled:opacity-25" title="Przesuń później" aria-label={`Przesuń zdjęcie ${index + 1} później`}>
+                                <button type="button" disabled={index === form.images.length - 1} onClick={() => moveImage(index, index + 1)} className="p-2 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-soft disabled:opacity-25" title="Przesuń później" aria-label={`Przesuń zdjęcie ${index + 1} później`}>
                                   <ArrowDown className="w-4 h-4" />
                                 </button>
                                 <button type="button" disabled={form.images.length <= 1} onClick={() => void removeImage(index)} className="ml-auto p-2 rounded-md text-red-300 light:text-red-700 hover:bg-red-500/10 disabled:opacity-25" title={form.images.length <= 1 ? 'Produkt musi zachować co najmniej jedno zdjęcie' : 'Usuń z galerii'} aria-label={`Usuń zdjęcie ${index + 1}`}>
@@ -437,7 +437,7 @@ export function ProductInventoryPanel({
                     ) : (
                       <div className="p-6 rounded-lg border border-dashed border-amber-500/30 bg-amber-500/[0.05] text-center">
                         <Images className="w-7 h-7 mx-auto text-amber-300 light:text-amber-700" />
-                        <p className="text-sm text-amber-200 mt-2">Dodaj co najmniej jedno zdjęcie produktu</p>
+                        <p className="text-sm text-amber-200 light:text-amber-800 mt-2">Dodaj co najmniej jedno zdjęcie produktu</p>
                       </div>
                     )}
 
@@ -459,7 +459,7 @@ export function ProductInventoryPanel({
                       </Button>
                     </div>
 
-                    <label className={`mt-3 min-h-11 px-4 py-2.5 rounded-lg border border-gold/30 text-gold text-sm font-medium inline-flex items-center gap-2 cursor-pointer hover:bg-gold/10 ${uploadingImages || form.images.length >= 12 ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <label className={`mt-3 min-h-11 px-4 py-2.5 rounded-lg border border-gold/30 text-gold-light light:text-gold-dark text-sm font-medium inline-flex items-center gap-2 cursor-pointer hover:bg-gold/10 ${uploadingImages || form.images.length >= 12 ? 'opacity-50 pointer-events-none' : ''}`}>
                       <Upload className="w-4 h-4" />
                       {uploadingImages ? 'Wysyłanie zdjęć...' : 'Wybierz zdjęcia z urządzenia'}
                       <input spellCheck={false}
@@ -477,7 +477,7 @@ export function ProductInventoryPanel({
                   </div>
                 </section>
 
-                <section className="pt-5 border-t border-white/10">
+                <section className="pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold mb-3">Cennik</h3>
                   <div className="grid sm:grid-cols-3 gap-4">
                     <NumberInput label="Pierwsza doba (zł)" value={form.pricePerDay} onChange={(value) => setForm({ ...form, pricePerDay: value })} />
@@ -486,7 +486,7 @@ export function ProductInventoryPanel({
                   </div>
                 </section>
 
-                <section className="pt-5 border-t border-white/10">
+                <section className="pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold mb-1">Opis oferty</h3>
                   <p className="text-xs text-text-muted mb-3">
                     Widoczne na stronie produktu. Każdą pozycję wpisz w nowej linii.
@@ -520,7 +520,7 @@ export function ProductInventoryPanel({
                   </div>
                 </section>
 
-                <section className="pt-5 border-t border-white/10">
+                <section className="pt-5 border-t border-border">
                   <h3 className="text-sm font-semibold mb-3">Magazyn i stan techniczny</h3>
                   <div className="grid sm:grid-cols-3 gap-4">
                     <NumberInput label="Ilość całkowita" integer value={form.totalQuantity} onChange={(value) => setForm({ ...form, totalQuantity: value })} />
@@ -538,7 +538,7 @@ export function ProductInventoryPanel({
                     </div>
                   )}
                   <Textarea className="mt-4" label="Notatka magazynowa" value={form.inventoryNotes} onChange={(event) => setForm({ ...form, inventoryNotes: event.target.value })} />
-                  <label className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-white/10 bg-white/[0.025] cursor-pointer">
+                  <label className="mt-4 flex items-start gap-3 p-4 rounded-lg border border-border bg-surface-soft cursor-pointer">
                     <input spellCheck={false} type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} className="mt-1 accent-[#d4a853]" />
                     <span>
                       <span className="block text-sm font-medium">Widoczny i dostępny do nowych rezerwacji</span>
@@ -548,7 +548,7 @@ export function ProductInventoryPanel({
                 </section>
               </div>
 
-              <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-white/10 bg-[#141414] flex justify-end gap-2">
+              <div className="sticky bottom-0 px-5 sm:px-6 py-4 border-t border-border bg-bg-card flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => void closeForm()}>Anuluj</Button>
                 <Button type="submit" disabled={saving || uploadingImages || form.images.length === 0 || form.serviceQuantity > form.totalQuantity} isLoading={saving}>
                   Zapisz produkt
@@ -562,10 +562,10 @@ export function ProductInventoryPanel({
   );
 }
 
-function InventoryMetric({ icon, label, value, tone = 'text-white' }: { icon: React.ReactNode; label: string; value: number; tone?: string }) {
+function InventoryMetric({ icon, label, value, tone = 'text-text-primary' }: { icon: React.ReactNode; label: string; value: number; tone?: string }) {
   return (
     <div className="p-4 sm:p-5 flex items-center gap-3">
-      <span className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center text-text-muted">{icon}</span>
+      <span className="w-9 h-9 rounded-lg bg-surface-soft border border-border flex items-center justify-center text-text-muted">{icon}</span>
       <span>
         <span className="block text-[11px] text-text-muted">{label}</span>
         <strong className={`block text-xl mt-0.5 ${tone}`}>{value}</strong>

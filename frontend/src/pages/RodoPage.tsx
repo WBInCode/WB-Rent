@@ -52,7 +52,7 @@ export function RodoPage() {
           >
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-[--radius-sm] bg-gold/10 border border-gold/30 flex items-center justify-center">
-                <Shield className="w-7 h-7 text-gold" />
+                <Shield className="w-7 h-7 text-gold-light light:text-gold-dark" />
               </div>
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold text-text-primary">
@@ -112,25 +112,25 @@ export function RodoPage() {
                 <ul className="space-y-3 text-text-secondary">
                   <li className="flex items-start gap-3">
                     <span className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-gold text-xs font-bold">1</span>
+                      <span className="text-gold-light light:text-gold-dark text-xs font-bold">1</span>
                     </span>
                     <span>Realizacji usługi wypożyczenia sprzętu (art. 6 ust. 1 lit. b RODO)</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-gold text-xs font-bold">2</span>
+                      <span className="text-gold-light light:text-gold-dark text-xs font-bold">2</span>
                     </span>
                     <span>Obsługi zapytań kontaktowych (art. 6 ust. 1 lit. f RODO)</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-gold text-xs font-bold">3</span>
+                      <span className="text-gold-light light:text-gold-dark text-xs font-bold">3</span>
                     </span>
                     <span>Wypełnienia obowiązków podatkowych i księgowych (art. 6 ust. 1 lit. c RODO)</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-gold text-xs font-bold">4</span>
+                      <span className="text-gold-light light:text-gold-dark text-xs font-bold">4</span>
                     </span>
                     <span>Dochodzenia lub obrony przed roszczeniami (art. 6 ust. 1 lit. f RODO)</span>
                   </li>
@@ -159,7 +159,7 @@ export function RodoPage() {
                   ].map((item, index) => (
                     <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-bg-primary/50">
                       <div className="w-6 h-6 rounded-full bg-gold/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <Check className="w-3.5 h-3.5 text-gold" strokeWidth={2.5} aria-hidden="true" />
+                        <Check className="w-3.5 h-3.5 text-gold-light light:text-gold-dark" strokeWidth={2.5} aria-hidden="true" />
                       </div>
                       <div>
                         <p className="font-medium text-text-primary">{item.title}</p>
@@ -222,7 +222,7 @@ export function RodoPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Phone className="w-5 h-5 text-gold" />
+                      <Phone className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Telefon</p>
@@ -234,7 +234,7 @@ export function RodoPage() {
                     className="flex items-center gap-3 p-4 rounded-[--radius-sm] bg-bg-primary/50 hover:bg-bg-primary/70 transition-colors group"
                   >
                     <div className="w-10 h-10 rounded-full bg-gold/20 flex items-center justify-center group-hover:bg-gold/30 transition-colors">
-                      <Mail className="w-5 h-5 text-gold" />
+                      <Mail className="w-5 h-5 text-gold-light light:text-gold-dark" />
                     </div>
                     <div>
                       <p className="text-sm text-text-muted">Email</p>

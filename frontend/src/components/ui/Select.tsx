@@ -220,7 +220,7 @@ const Select = ({
                   'transition-colors duration-150',
                   option.disabled && 'opacity-50 cursor-not-allowed',
                   !option.disabled && 'hover:bg-gold/20 cursor-pointer',
-                  option.value === value && 'bg-gold/10 text-gold',
+                  option.value === value && 'bg-gold/10 text-gold-light light:text-gold-dark',
                   option.value !== value && 'text-text-primary'
                 )}
               >
@@ -235,7 +235,7 @@ const Select = ({
         )}
       </div>
       {error && (
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="text-sm text-red-500 light:text-red-700">{error}</p>
       )}
       {hint && !error && (
         <p className="text-sm text-text-muted">{hint}</p>

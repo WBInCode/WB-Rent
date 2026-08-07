@@ -6,7 +6,7 @@ import { UtilityPageShell } from '@/components/UtilityPageShell';
 export function NotFoundPage() {
   return (
     <UtilityPageShell maxWidth="lg">
-      <section className="text-center border-y border-white/10 py-10 sm:py-14">
+      <section className="text-center border-y border-border py-10 sm:py-14">
         <p className="text-6xl sm:text-7xl font-bold text-gradient-gold mb-2" style={{ fontFamily: 'var(--font-family-display)' }}>
           404
         </p>

@@ -3,8 +3,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { queries } from '../db.js';
-import { getProductName } from '../products.js';
+import { getProductName, reservationProductNames } from '../products.js';
 import { sendHandoverProtocolEmail } from '../email.js';
+import { resolvePaymentLink } from '../payments/routes.js';
+import { issueCustomerToken } from '../auth.js';
+import { opiszMiejsca } from '../rental-details.js';
 import { encryptContractData, decryptContractData, sha256 } from './crypto.js';
 import { getProductTerms } from './product-terms.js';
 import { buildDefaultHandoverItems } from './service.js';
@@ -254,8 +257,27 @@ export async function signHandoverProtocol(data: {
     notes: 'Protokół wydania podpisany elektronicznie przy wydaniu sprzętu.',
   }).catch((error) => console.error('Register handover document error:', error));
 
+  const rezerwacja = await queries.getReservationById(data.reservationId);
+  // Klient, ktory wlasnie podpisal protokol, podjal wspolprace - dostaje wszystko
+  // w jednym mailu: podziekowanie, protokol, platnosc i mozliwosc przedluzenia.
+  const platnosc = rezerwacja?.payment_status === 'paid'
+    ? null
+    : await resolvePaymentLink(data.reservationId, '127.0.0.1').catch(() => null);
+  const { token } = issueCustomerToken(finalny.renter.email || '');
+  const linkStrefy = finalny.renter.email
+    ? `${config.siteUrl}/moje-rezerwacje?token=${encodeURIComponent(token)}`
+    : null;
+
   const emailResult = finalny.renter.email
-    ? await sendHandoverProtocolEmail(finalny.renter.email, finalny.renter.name, finalny.protocolNumber, pdf)
+    ? await sendHandoverProtocolEmail(finalny.renter.email, finalny.renter.name, finalny.protocolNumber, pdf, {
+        productName: reservationProductNames(rezerwacja),
+        zwrot: { data: rezerwacja?.end_date ?? null, godzina: rezerwacja?.end_time ?? null },
+        miejsceZwrotu: opiszMiejsca(rezerwacja ?? {}).zwrot,
+        doZaplaty: platnosc?.status === 'ready' ? platnosc.amount : 0,
+        linkPlatnosci: platnosc?.status === 'ready' ? platnosc.url : null,
+        linkPrzedluzenia: linkStrefy,
+        bezterminowo: Boolean(rezerwacja?.is_indefinite),
+      })
     : { delivered: false, transport: 'none' as const };
 
   return {

@@ -500,6 +500,16 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         DROP COLUMN IF EXISTS handover_lessor_signature_hash;
     `,
   },
+  {
+    version: 16,
+    name: 'weekend-fee-column',
+    sql: `
+      -- Doplata za obsluge w weekend byla doliczana do sumy, ale nigdzie nie
+      -- zapisana. Skutek: w mailu, panelu i umowie kwota nie zgadzala sie z
+      -- suma pozycji i klient nie wiedzial, za co placi.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS weekend_fee REAL NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -806,54 +816,6 @@ export const queries = {
   },
 
   // Reservations
-  insertReservation: async (data: {
-    categoryId: string;
-    productId: string;
-    startDate: string;
-    endDate: string | null;
-    isIndefinite: boolean;
-    startTime: string;
-    endTime: string;
-    city?: string;
-    delivery: number;
-    address?: string;
-    name: string;
-    email: string;
-    phone: string;
-    company?: string;
-    notes?: string;
-    wantsInvoice: number;
-    invoiceNip?: string;
-    invoiceCompany?: string;
-    invoiceAddress?: string;
-    days: number;
-    basePrice: number;
-    deliveryFee: number;
-    totalPrice: number;
-    ipAddress?: string;
-  }) => {
-    const result = await pool.query(
-      `INSERT INTO reservations (
-        category_id, product_id, start_date, end_date, is_indefinite, start_time, end_time,
-        city, delivery, address,
-        name, email, phone, company, notes,
-        wants_invoice, invoice_nip, invoice_company, invoice_address,
-        days, base_price, delivery_fee, total_price,
-        ip_address
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
-      ) RETURNING id`,
-      [
-        data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
-        data.city, data.delivery, data.address,
-        data.name, data.email, data.phone, data.company, data.notes,
-        data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,
-        data.days, data.basePrice, data.deliveryFee, data.totalPrice,
-        data.ipAddress
-      ]
-    );
-    return { lastInsertRowid: result.rows[0].id };
-  },
 
   /**
    * Atomically check availability and insert the reservation.
@@ -885,6 +847,7 @@ export const queries = {
     days: number;
     basePrice: number;
     deliveryFee: number;
+    weekendFee: number;
     totalPrice: number;
     discountCode?: string | null;
     discountLabel?: string;
@@ -937,19 +900,19 @@ export const queries = {
           city, delivery, address,
           name, email, phone, company, notes,
           wants_invoice, invoice_nip, invoice_company, invoice_address,
-          days, base_price, delivery_fee, total_price,
+          days, base_price, delivery_fee, weekend_fee, total_price,
           discount_code, discount_label, discount_amount,
           price_override_note, price_set_by,
           ip_address
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
         ) RETURNING id`,
         [
           data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
           data.city, data.delivery, data.address,
           data.name, data.email, data.phone, data.company, data.notes,
           data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,
-          data.days, data.basePrice, data.deliveryFee, data.totalPrice,
+          data.days, data.basePrice, data.deliveryFee, data.weekendFee, data.totalPrice,
           data.discountCode || null, data.discountLabel || '', data.discountAmount || 0,
           data.priceOverrideNote || '', data.priceSetBy || '',
           data.ipAddress
