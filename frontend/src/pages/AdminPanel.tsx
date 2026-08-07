@@ -1496,14 +1496,15 @@ export function AdminPanel() {
                     {/* Stałe szerokości kolumn — liczba ikon bywa różna, a kwota
                         i polecenie muszą stać w tym samym miejscu w każdym wierszu. */}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shrink-0 xl:pl-4 xl:border-l xl:border-border">
-                      <div className="sm:text-right sm:w-[120px] shrink-0">
+                      <div className="sm:text-right sm:w-[130px] shrink-0">
                         <p className="text-xl sm:text-2xl font-bold text-gold whitespace-nowrap">{reservation.total_price} zł</p>
                         <p className="text-xs text-text-muted">
                           {reservation.is_indefinite ? 'kwota bieżąca' : opiszDojazd(reservation)}
                         </p>
                       </div>
 
-                      <div className="flex items-center justify-end gap-1 sm:w-[168px] shrink-0">
+                      {/* Do pięciu ikon — bez stałej szerokości wylewały się na kwotę. */}
+                      <div className="flex flex-nowrap items-center justify-end gap-1 sm:w-[252px] shrink-0">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
                             variant="ghost"
