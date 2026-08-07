@@ -369,22 +369,22 @@ const ACTION_STYLE: Record<RentalAction, {
   drugorzedna?: boolean;
 }> = {
   confirm: {
-    etykieta: 'Potwierdź rezerwację',
+    etykieta: 'Potwierdź',
     Ikona: CheckCircle,
     klasa: 'bg-gold text-gold-contrast hover:bg-gold-light',
   },
   hand_over: {
-    etykieta: 'Wydaj sprzęt',
+    etykieta: 'Wydaj',
     Ikona: PackageCheck,
     klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
   },
   register_return: {
-    etykieta: 'Przyjmij zwrot',
+    etykieta: 'Zwrot',
     Ikona: Undo2,
     klasa: 'bg-sky-500 text-black hover:bg-sky-400',
   },
   complete: {
-    etykieta: 'Zamknij i rozlicz',
+    etykieta: 'Zakończ',
     Ikona: CheckCircle,
     klasa: 'bg-emerald-500 text-black hover:bg-emerald-400',
   },
@@ -1500,24 +1500,9 @@ export function AdminPanel() {
                         </p>
                       </div>
 
-                      {/* Wszystkie polecenia w jednym pasku po prawej. */}
+                      {/* Kolejność od lewej: koszt, dokumenty i podgląd, a skrajnie po
+                          prawej polecenie prowadzące najem dalej. */}
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <StageActions
-                          actions={reservation.actions}
-                          onAction={(action) => {
-                            // Wydanie i zwrot potwierdzają podpisane protokoły,
-                            // więc akcje prowadzą do dokumentów, nie do zmiany statusu.
-                            if (action === 'hand_over') {
-                              window.location.assign(`/admin/wydanie/${reservation.id}`);
-                              return;
-                            }
-                            if (action === 'register_return') {
-                              window.location.assign(`/admin/zwrot/${reservation.id}`);
-                              return;
-                            }
-                            void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);
-                          }}
-                        />
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
                             variant="outline"
@@ -1574,6 +1559,23 @@ export function AdminPanel() {
                         >
                           <History className="w-4 h-4" />
                         </Button>
+
+                        <StageActions
+                          actions={reservation.actions}
+                          onAction={(action) => {
+                            // Wydanie i zwrot potwierdzają podpisane protokoły,
+                            // więc akcje prowadzą do dokumentów, nie do zmiany statusu.
+                            if (action === 'hand_over') {
+                              window.location.assign(`/admin/wydanie/${reservation.id}`);
+                              return;
+                            }
+                            if (action === 'register_return') {
+                              window.location.assign(`/admin/zwrot/${reservation.id}`);
+                              return;
+                            }
+                            void openStatusModal(reservation, ACTION_TARGET_STATUS[action]);
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
