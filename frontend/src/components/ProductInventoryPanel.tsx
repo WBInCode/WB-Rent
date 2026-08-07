@@ -639,7 +639,7 @@ function AddonEditor({
           <div key={index} className="flex gap-2">
             <input
               value={pozycja.nazwa}
-              placeholder="środek czyszczący RM 780"
+              placeholder="Środek czyszczący RM 780"
               onChange={(event) => zmien(index, { nazwa: event.target.value })}
               className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-bg-primary border border-border text-sm text-text-primary focus:border-gold focus:outline-none"
             />

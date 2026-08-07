@@ -53,6 +53,16 @@ const SZABLONY: { kind: RodzajNaleznosci; label: string; amount: number | null; 
   { kind: 'other', label: 'Inna należność', amount: null, podpowiedz: 'opisz i wyceń' },
 ];
 
+/** Każda należność pyta o co innego — jedna podpowiedź dla wszystkich myliła. */
+const PRZYKLAD_SZCZEGOLOW: Record<RodzajNaleznosci, string> = {
+  cleaning: 'Szczegóły, np. „sprzęt oddany zabrudzony”',
+  deep_cleaning: 'Szczegóły, np. „zaschnięta zaprawa w zbiorniku”',
+  damage: 'Szczegóły, np. „pęknięta obudowa zbiornika”',
+  missing: 'Szczegóły, np. „brak dyszy punktowej”',
+  penalty: 'Szczegóły, np. „zwrot 2 doby po terminie”',
+  other: 'Szczegóły — czego dotyczy należność',
+};
+
 /**
  * Protokół zwrotu — ten sam układ co przy wydaniu: dane, gotowy dokument, podpisy,
  * a rejestracja zwrotu to osobny krok po zdjęciach.
@@ -470,30 +480,20 @@ export function ReturnProtocolPage() {
             <Package className="w-4 h-4 text-gold" />
             <h2 className="font-semibold text-text-primary">Zwracany sprzęt</h2>
           </div>
-          <p className="text-xs text-text-muted">Lista z protokołu wydania. Popraw, jeśli klient zwraca co innego.</p>
-          <div className="space-y-2">
+          {/* Lista jest kopią protokołu wydania i musi się zgadzać — gdyby dawała się
+              tu poprawić, brakujący element zniknąłby bez śladu zamiast trafić do rozliczeń. */}
+          <p className="text-xs text-text-muted">
+            Dokładnie to, co klient dostał przy wydaniu. Czegoś brakuje albo jest uszkodzone?
+            Nie zmieniaj listy — dopisz to niżej jako należność.
+          </p>
+          <ul className="space-y-1.5">
             {pozycje.map((pozycja, index) => (
-              <div key={index} className="flex gap-2">
-                <Input
-                  value={pozycja}
-                  aria-label={`Pozycja ${index + 1}`}
-                  onChange={(e) => setPozycje((l) => l.map((w, i) => (i === index ? e.target.value : w)))}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Usuń pozycję ${index + 1}`}
-                  onClick={() => setPozycje((l) => l.filter((_, i) => i !== index))}
-                  className="text-red-400 light:text-red-700 hover:text-red-300 light:text-red-700 shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
+              <li key={index} className="flex items-start gap-2 text-sm text-text-secondary">
+                <Check className="w-4 h-4 text-gold shrink-0 mt-0.5" aria-hidden="true" />
+                {pozycja}
+              </li>
             ))}
-            <Button variant="ghost" size="sm" onClick={() => setPozycje((l) => [...l, ''])}>
-              <Plus className="w-4 h-4 mr-1.5" /> Dodaj pozycję
-            </Button>
-          </div>
+          </ul>
         </Card>
 
         <Card variant="glass" className="p-5 space-y-3">
@@ -573,7 +573,7 @@ export function ReturnProtocolPage() {
                   </div>
                   <Input
                     value={pozycja.note ?? ''}
-                    placeholder="Szczegóły, np. „pęknięta obudowa zbiornika”"
+                    placeholder={PRZYKLAD_SZCZEGOLOW[pozycja.kind] ?? PRZYKLAD_SZCZEGOLOW.other}
                     aria-label={`Szczegóły należności ${index + 1}`}
                     onChange={(e) => setNaleznosci((l) => l.map((p, i) => (i === index ? { ...p, note: e.target.value } : p)))}
                   />

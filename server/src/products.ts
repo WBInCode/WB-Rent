@@ -33,7 +33,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Profesjonalny odkurzacz piorący do tapicerki, dywanów i wykładzin',
     features: ['Pranie tapicerki', 'Dywany i wykładziny', 'Zbiornik 10L'],
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: ['Środek czyszczący Kärcher RM 780'],
     accessoryPrice: 10,
   },
   'puzzi-8-1': {
@@ -42,7 +42,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Kompaktowy odkurzacz piorący idealny do mniejszych powierzchni',
     features: ['Pranie tapicerki', 'Kompaktowy', 'Zbiornik 8L'],
     includedAccessories: ['2x 100g środek czyszczący Kärcher RM 760'],
-    optionalAccessories: ['środek czyszczący Kärcher RM 780'],
+    optionalAccessories: ['Środek czyszczący Kärcher RM 780'],
     accessoryPrice: 10,
   },
   'nt-22-1': {
@@ -98,7 +98,7 @@ export const products: Record<string, ServerProduct> = {
     pricePerDay: 25, priceNextDay: 25, priceWeekend: 60, categoryId: 'pozostale',
     description: 'Przenośny system do dezynfekcji powierzchni',
     features: ['Akumulatorowy', 'Plecakowy', 'Do 7L'],
-    includedAccessories: ['2x 20ml Środek do dezynfekcji RM 735'],
+    includedAccessories: ['2x 20ml środek do dezynfekcji RM 735'],
     optionalAccessories: ['Środek do dezynfekcji RM 735'],
     accessoryPrice: 3,
   },
@@ -108,7 +108,7 @@ export const products: Record<string, ServerProduct> = {
     description: 'Profesjonalna myjka do okien z funkcją spryskiwania',
     features: ['Akumulatorowa', 'Spryskiwacz', 'Bez smug'],
     includedAccessories: ['2x 20ml środek do szyb Kärcher RM 503'],
-    optionalAccessories: ['środek do szyb Kärcher RM 503 (20ml)'],
+    optionalAccessories: ['Środek do szyb Kärcher RM 503 (20ml)'],
   },
 };
 

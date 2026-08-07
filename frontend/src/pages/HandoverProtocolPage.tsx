@@ -553,9 +553,6 @@ export function HandoverProtocolPage() {
                 {zapisywanie ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
                 Wydaj sprzęt
               </Button>
-              <p className="text-xs text-text-muted text-center">
-                Dopiero to przekazuje sprzęt klientowi w systemie i rozpoczyna najem.
-              </p>
             </Card>
           )}
 

@@ -615,6 +615,37 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
       ALTER TABLE reservations ADD COLUMN IF NOT EXISTS addons_fee REAL NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 22,
+    name: 'addon-names-capitalized',
+    sql: `
+      -- Nazwa zaczynajaca pozycje listy idzie wielka litera. Identyfikator dodatku
+      -- liczy sie z nazwy zapisanej malymi literami, wiec juz zlozone zamowienia
+      -- odnajduja swoja pozycje mimo zmiany.
+      UPDATE products
+      SET optional_accessories = COALESCE((
+        SELECT jsonb_agg(
+          CASE WHEN jsonb_typeof(el) = 'object' AND (el->>'nazwa') <> ''
+            THEN jsonb_set(el, '{nazwa}', to_jsonb(
+              upper(left(el->>'nazwa', 1)) || substr(el->>'nazwa', 2)
+            ))
+            ELSE el END
+        )
+        FROM jsonb_array_elements(optional_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE jsonb_typeof(optional_accessories) = 'array';
+
+      -- W pozycjach zaczynajacych sie od ilosci nazwa zostaje mala litera.
+      UPDATE products
+      SET included_accessories = COALESCE((
+        SELECT jsonb_agg(to_jsonb(
+          replace(el #>> '{}', 'ml Środek do dezynfekcji', 'ml środek do dezynfekcji')
+        ))
+        FROM jsonb_array_elements(included_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE included_accessories::text LIKE '%ml Środek do dezynfekcji%';
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
