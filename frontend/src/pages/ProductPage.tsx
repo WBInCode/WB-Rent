@@ -339,13 +339,16 @@ export function ProductPage() {
                   {product.optionalAccessories.length > 0 && (
                     <div>
                       <p className="text-sm font-medium text-text-muted mb-2">
-                        Dodatkowo płatne ({product.accessoryPrice ? `+${product.accessoryPrice} zł/szt.` : 'cena ustalana indywidualnie'}):
+                        Dodatkowo płatne — możesz je dokupić przy rezerwacji:
                       </p>
                       <ul className="space-y-2">
-                        {product.optionalAccessories.map((acc, index) => (
-                          <li key={index} className="flex items-center gap-2 text-text-secondary">
+                        {product.optionalAccessories.map((acc) => (
+                          <li key={acc.id} className="flex items-center gap-2 text-text-secondary">
                             <Plus className="w-4 h-4 text-gold shrink-0" />
-                            <span>{acc}</span>
+                            <span>{acc.nazwa}</span>
+                            <span className="text-sm text-text-muted whitespace-nowrap ml-auto">
+                              {acc.cena > 0 ? `${acc.cena} zł/szt.` : 'cena ustalana indywidualnie'}
+                            </span>
                           </li>
                         ))}
                       </ul>

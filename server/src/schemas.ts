@@ -66,6 +66,13 @@ export const reservationSchema = z.object({
   address: z.string().max(500, 'Adres może mieć maksymalnie 500 znaków').optional(),
   weekendPickup: z.boolean().default(false),
 
+  // Płatne dodatki (worek, środek czyszczący). Przeglądarka przysyła sam wybór —
+  // cenę ustala serwer z katalogu, więc nie da się jej podmienić w żądaniu.
+  addons: z.array(z.object({
+    id: z.string().trim().min(1).max(60),
+    quantity: z.number().int().min(1).max(50),
+  })).max(20, 'Możesz zamówić maksymalnie 20 dodatków').default([]),
+
   // Customer
   firstName: z
     .string()
@@ -199,7 +206,15 @@ export const productInventorySchema = z.object({
   includedAccessories: z.array(z.string().trim().min(1).max(160))
     .max(12, 'Możesz dodać maksymalnie 12 pozycji')
     .default([]),
-  optionalAccessories: z.array(z.string().trim().min(1).max(160))
+  // Każdy dodatek ma własną cenę — worek i środek czyszczący nie kosztują tyle
+  // samo. Zapis tekstowy przyjmujemy dla starszych zapisów w bazie.
+  optionalAccessories: z.array(z.union([
+    z.string().trim().min(1).max(160),
+    z.object({
+      nazwa: z.string().trim().min(1).max(160),
+      cena: z.number().min(0, 'Cena nie może być ujemna').max(100000).default(0),
+    }),
+  ]))
     .max(12, 'Możesz dodać maksymalnie 12 pozycji')
     .default([]),
   accessoryPrice: z.number().min(0, 'Cena nie może być ujemna').max(100000).default(0),

@@ -40,7 +40,7 @@ import {
   type CreateContractPayload,
 } from '@/services/adminApi';
 import { products } from '@/data/products';
-import { Button, Card, Badge, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, Badge, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import { AdminAvailabilityCalendar } from '@/components/AdminAvailabilityCalendar';
 import { ProductInventoryPanel } from '@/components/ProductInventoryPanel';
 import DocumentsPanel from '@/components/DocumentsPanel';
@@ -241,6 +241,12 @@ const nextDay = (value?: string | null) => {
   date.setDate(date.getDate() + 1);
   return formatLocalDate(date);
 };
+
+/** Godziny wydania i zwrotu — te same, które widzi klient przy rezerwacji. */
+const GODZINY = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+];
 
 interface Contact {
   id: number;
@@ -2874,19 +2880,18 @@ export function AdminPanel() {
 
               {!termForm.isIndefinite && (
                 <div className="grid sm:grid-cols-2 gap-4 mb-5">
-                  <Input
+                  <DatePicker
                     label={termFor.is_indefinite ? 'Ustalona data zwrotu' : 'Nowa data zwrotu'}
-                    type="date"
-                    min={termFor.is_indefinite ? termFor.start_date : nextDay(termFor.end_date)}
+                    minDate={termFor.is_indefinite ? termFor.start_date : nextDay(termFor.end_date)}
                     value={termForm.endDate}
-                    onChange={(event) => setTermForm((current) => ({ ...current, endDate: event.target.value }))}
+                    onChange={(value) => setTermForm((current) => ({ ...current, endDate: value }))}
                     required
                   />
-                  <Input
+                  <Select
                     label="Godzina zwrotu"
-                    type="time"
                     value={termForm.endTime}
                     onChange={(event) => setTermForm((current) => ({ ...current, endTime: event.target.value }))}
+                    options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
                     required
                   />
                 </div>

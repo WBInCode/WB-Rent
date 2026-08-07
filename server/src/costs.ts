@@ -15,7 +15,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export type PozycjaKosztu = {
   /** Klucz techniczny, po nim mozna rozpoznac pozycje bez parsowania etykiety. */
-  klucz: 'najem' | 'dostawa' | 'weekend' | 'rabat';
+  klucz: 'najem' | 'dostawa' | 'weekend' | 'rabat' | `dodatek-${string}`;
   etykieta: string;
   /** Skad ta kwota - zeby klient nie musial zgadywac. */
   opis?: string;
@@ -44,6 +44,8 @@ export type ZrodloKosztow = {
   delivery?: number | boolean | null;
   delivery_out?: number | boolean | null;
   delivery_back?: number | boolean | null;
+  addons?: unknown;
+  addons_fee?: number | string | null;
   start_date?: string | null;
   end_date?: string | null;
   deposit?: number | string | null;
@@ -120,6 +122,22 @@ export function rozpiszKoszty(rezerwacja: ZrodloKosztow): RozpisKosztow {
         ? `${zdarzenia.join(' i ')} w sobotę, niedzielę lub święto`
         : 'wydanie lub zwrot w sobotę, niedzielę lub święto',
       kwota: weekend,
+    });
+  }
+
+  // Każdy dodatek osobno — klient ma widzieć, za co zapłacił, a nie zbiorczą
+  // kwotę „dodatki", której nie da się sprawdzić.
+  const dodatki = Array.isArray(rezerwacja.addons) ? rezerwacja.addons : [];
+  for (const dodatek of dodatki as Array<Record<string, unknown>>) {
+    const kwota = round2(liczba(dodatek?.suma));
+    if (!(kwota > 0)) continue;
+    const ilosc = Math.max(1, Math.round(liczba(dodatek?.ilosc)) || 1);
+    const cena = round2(liczba(dodatek?.cena));
+    pozycje.push({
+      klucz: `dodatek-${String(dodatek?.id ?? '')}`,
+      etykieta: String(dodatek?.nazwa ?? 'Dodatek'),
+      opis: `${ilosc} × ${cena.toFixed(2)} zł`,
+      kwota,
     });
   }
 

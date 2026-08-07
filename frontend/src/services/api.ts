@@ -27,7 +27,8 @@ export interface PublicCatalogProduct {
   priceWeekend: number;
   features?: string[];
   includedAccessories?: string[];
-  optionalAccessories?: string[];
+  /** Starsze zapisy w bazie to same nazwy; nowsze mają cenę przy pozycji. */
+  optionalAccessories?: Array<string | { nazwa: string; cena: number }>;
   accessoryPrice?: number;
   totalQuantity: number;
   availableToday: number;
@@ -100,6 +101,8 @@ export interface ReservationPayload {
   postalCode?: string;
   address?: string;
   weekendPickup: boolean;
+  /** Zamówione dodatki — cenę ustala serwer z katalogu. */
+  addons?: Array<{ id: string; quantity: number }>;
   firstName: string;
   lastName: string;
   email: string;

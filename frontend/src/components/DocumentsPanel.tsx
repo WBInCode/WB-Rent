@@ -12,7 +12,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import {
   deleteDocument,
   downloadDocument,
@@ -331,11 +331,10 @@ export default function DocumentsPanel({ onNotify }: DocumentsPanelProps) {
                   onChange={(event) => setForm({ ...form, category: event.target.value as DocumentCategory })}
                   options={CATEGORY_OPTIONS}
                 />
-                <Input
+                <DatePicker
                   label="Data dokumentu"
-                  type="date"
                   value={form.documentDate || ''}
-                  onChange={(event) => setForm({ ...form, documentDate: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, documentDate: value || null })}
                 />
               </div>
 

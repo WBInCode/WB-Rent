@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { addonId, normalizeAddons, type ProductAddon } from '@/data/products';
 import { deleteUploadedProductImage, uploadProductImage } from '@/services/adminApi';
 import type {
   AdminProduct,
@@ -94,7 +95,7 @@ const toPayload = (product: AdminProduct): ProductInventoryPayload => {
     inventoryNotes: product.inventory_notes || '',
     features: Array.isArray(product.features) ? product.features : [],
     includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
-    optionalAccessories: Array.isArray(product.optional_accessories) ? product.optional_accessories : [],
+    optionalAccessories: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
     accessoryPrice: Number(product.accessory_price || 0),
     isActive: Boolean(product.is_active),
   };
@@ -504,18 +505,9 @@ export function ProductInventoryPanel({
                       values={form.includedAccessories}
                       onChange={(values) => setForm({ ...form, includedAccessories: values })}
                     />
-                    <ListEditor
-                      label="Akcesoria dodatkowo płatne"
-                      placeholder={'środek czyszczący RM 780'}
+                    <AddonEditor
                       values={form.optionalAccessories}
                       onChange={(values) => setForm({ ...form, optionalAccessories: values })}
-                    />
-                  </div>
-                  <div className="grid sm:grid-cols-3 gap-4 mt-4">
-                    <NumberInput
-                      label="Cena akcesorium (zł)"
-                      value={form.accessoryPrice}
-                      onChange={(value) => setForm({ ...form, accessoryPrice: value })}
                     />
                   </div>
                 </section>
@@ -616,5 +608,68 @@ function ListEditor({
         )
       }
     />
+  );
+}
+
+/**
+ * Worek i środek czyszczący nie kosztują tyle samo, więc cena stoi przy
+ * pozycji. Bez ceny dodatek jest tylko informacją — klient go nie zamówi.
+ */
+function AddonEditor({
+  values,
+  onChange,
+}: {
+  values: ProductAddon[];
+  onChange: (values: ProductAddon[]) => void;
+}) {
+  const zmien = (index: number, zmiana: Partial<ProductAddon>) => {
+    // Bez normalizacji przy każdym znaku — pusta jeszcze nazwa skasowałaby wiersz.
+    onChange(values.map((pozycja, i) => {
+      if (i !== index) return pozycja;
+      const zmieniona = { ...pozycja, ...zmiana };
+      return { ...zmieniona, id: addonId(zmieniona.nazwa) };
+    }));
+  };
+
+  return (
+    <div>
+      <p className="block text-sm font-medium text-text-secondary mb-1.5">Akcesoria dodatkowo płatne</p>
+      <div className="space-y-2">
+        {values.map((pozycja, index) => (
+          <div key={index} className="flex gap-2">
+            <input
+              value={pozycja.nazwa}
+              placeholder="środek czyszczący RM 780"
+              onChange={(event) => zmien(index, { nazwa: event.target.value })}
+              className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-bg-primary border border-border text-sm text-text-primary focus:border-gold focus:outline-none"
+            />
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={pozycja.cena}
+              onChange={(event) => zmien(index, { cena: Number(event.target.value) })}
+              className="w-24 shrink-0 h-10 px-3 rounded-lg bg-bg-primary border border-border text-sm text-text-primary focus:border-gold focus:outline-none"
+            />
+            <button
+              type="button"
+              aria-label={`Usuń: ${pozycja.nazwa || 'pozycja'}`}
+              onClick={() => onChange(values.filter((_, i) => i !== index))}
+              className="w-10 h-10 shrink-0 rounded-lg border border-border text-text-muted hover:text-error hover:border-error/40 transition-colors"
+            >
+              <Trash2 className="w-4 h-4 mx-auto" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange([...values, { id: '', nazwa: '', cena: 0 }])}
+        className="mt-2 inline-flex items-center gap-1.5 text-sm text-gold hover:underline"
+      >
+        <Plus className="w-4 h-4" /> Dodaj pozycję
+      </button>
+      <p className="text-xs text-text-muted mt-1.5">Cena w zł za sztukę. Pozycja bez ceny nie da się zamówić.</p>
+    </div>
   );
 }

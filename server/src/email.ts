@@ -319,11 +319,13 @@ export const sendContactNotification = async (data: ContactInput) => {
 };
 
 export const sendReservationConfirmation = async (
-  data: ReservationInput & { 
+  data: Omit<ReservationInput, 'addons'> & { 
     days: number; 
     basePrice: number; 
     deliveryFee: number; 
     weekendFee?: number;
+    addons?: unknown;
+    addonsFee?: number;
     discountAmount?: number;
     discountLabel?: string;
     discountCode?: string | null;
@@ -337,6 +339,8 @@ export const sendReservationConfirmation = async (
     base_price: data.basePrice,
     delivery_fee: data.deliveryFee,
     weekend_fee: data.weekendFee ?? 0,
+    addons: data.addons,
+    addons_fee: data.addonsFee ?? 0,
     total_price: data.totalPrice,
     discount_amount: data.discountAmount ?? 0,
     discount_label: data.discountLabel ?? null,
@@ -388,10 +392,12 @@ export const sendReservationConfirmation = async (
 };
 
 export const sendReservationNotification = async (
-  data: ReservationInput & { 
+  data: Omit<ReservationInput, 'addons'> & { 
     days: number; 
     basePrice: number; 
     deliveryFee: number; 
+    addons?: unknown;
+    addonsFee?: number;
     totalPrice: number;
     productName: string;
   }

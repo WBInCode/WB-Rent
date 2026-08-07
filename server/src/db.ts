@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { Pool } from 'pg';
-import { products, syncProductCatalog } from './products.js';
+import { products, syncProductCatalog, normalizeAddons } from './products.js';
 
 // Return Postgres DATE columns as plain 'YYYY-MM-DD' strings
 // (default pg behavior converts to JS Date in local TZ, which shifts dates in emails/JSON)
@@ -587,6 +587,34 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         ON rental_extensions (status, expires_at);
     `,
   },
+  {
+    version: 21,
+    name: 'paid-addons',
+    sql: `
+      -- Worek i srodek czyszczacy nie kosztuja tyle samo, a dotad cala lista
+      -- dodatkow dzielila jedna cene (accessory_price). Kazda pozycja dostaje
+      -- wlasna kwote; stare wpisy przejmuja dotychczasowa cene sprzetu.
+      UPDATE products p
+      SET optional_accessories = COALESCE((
+        SELECT jsonb_agg(
+          CASE WHEN jsonb_typeof(el) = 'string'
+            THEN jsonb_build_object('nazwa', el #>> '{}', 'cena', p.accessory_price)
+            ELSE el END
+        )
+        FROM jsonb_array_elements(p.optional_accessories) AS el
+      ), '[]'::jsonb)
+      WHERE jsonb_typeof(p.optional_accessories) = 'array'
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(p.optional_accessories) AS e
+          WHERE jsonb_typeof(e) = 'string'
+        );
+
+      -- Zamowione dodatki zapisujemy z cena z chwili zamowienia, zeby pozniejsza
+      -- zmiana cennika nie przepisywala historii najmu.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS addons JSONB NOT NULL DEFAULT '[]'::jsonb;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS addons_fee REAL NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -652,7 +680,7 @@ async function seedProductCatalog(client: import('pg').PoolClient) {
         product.description ?? '',
         JSON.stringify(product.features ?? []),
         JSON.stringify(product.includedAccessories ?? []),
-        JSON.stringify(product.optionalAccessories ?? []),
+        JSON.stringify(normalizeAddons(product.optionalAccessories, product.accessoryPrice)),
         product.accessoryPrice ?? 0,
       ]
     );
@@ -746,7 +774,7 @@ export const queries = {
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
-    optionalAccessories: string[];
+    optionalAccessories: Array<string | { nazwa: string; cena: number }>;
     accessoryPrice: number;
     isActive: boolean;
   }) => {
@@ -764,7 +792,7 @@ export const queries = {
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
         data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
-        JSON.stringify(data.optionalAccessories), data.accessoryPrice,
+        JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
     );
     syncProductCatalog(result.rows);
@@ -786,7 +814,7 @@ export const queries = {
     inventoryNotes: string;
     features: string[];
     includedAccessories: string[];
-    optionalAccessories: string[];
+    optionalAccessories: Array<string | { nazwa: string; cena: number }>;
     accessoryPrice: number;
     isActive: boolean;
   }) => {
@@ -805,7 +833,7 @@ export const queries = {
         data.pricePerDay, data.priceNextDay, data.priceWeekend,
         data.totalQuantity, data.serviceQuantity, data.conditionStatus, data.inventoryNotes, data.isActive,
         JSON.stringify(data.features), JSON.stringify(data.includedAccessories),
-        JSON.stringify(data.optionalAccessories), data.accessoryPrice,
+        JSON.stringify(normalizeAddons(data.optionalAccessories, data.accessoryPrice)), data.accessoryPrice,
       ]
     );
     syncProductCatalog(result.rows);
@@ -942,6 +970,8 @@ export const queries = {
     basePrice: number;
     deliveryFee: number;
     weekendFee: number;
+    addons?: Array<{ id: string; nazwa: string; cena: number; ilosc: number; suma: number }>;
+    addonsFee?: number;
     totalPrice: number;
     discountCode?: string | null;
     discountLabel?: string;
@@ -997,9 +1027,9 @@ export const queries = {
           days, base_price, delivery_fee, weekend_fee, total_price,
           discount_code, discount_label, discount_amount,
           price_override_note, price_set_by,
-          ip_address, staff_assisted
+          ip_address, staff_assisted, addons, addons_fee
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35::jsonb, $36
         ) RETURNING id`,
         [
           data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
@@ -1010,7 +1040,8 @@ export const queries = {
           data.days, data.basePrice, data.deliveryFee, data.weekendFee, data.totalPrice,
           data.discountCode || null, data.discountLabel || '', data.discountAmount || 0,
           data.priceOverrideNote || '', data.priceSetBy || '',
-          data.ipAddress, data.staffAssisted ? 1 : 0
+          data.ipAddress, data.staffAssisted ? 1 : 0,
+          JSON.stringify(data.addons ?? []), data.addonsFee || 0
         ]
       );
 

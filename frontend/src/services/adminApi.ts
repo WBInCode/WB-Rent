@@ -1,3 +1,5 @@
+import type { ProductAddon } from '@/data/products';
+
 const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/admin`;
 
 const TOKEN_KEY = 'wb-rent-admin-token';
@@ -103,7 +105,8 @@ export interface AdminProduct {
   inventory_notes: string;
   features: string[];
   included_accessories: string[];
-  optional_accessories: string[];
+  /** Starsze zapisy w bazie to same nazwy; nowsze mają cenę przy pozycji. */
+  optional_accessories: Array<string | ProductAddon>;
   accessory_price: number;
   is_active: boolean;
   created_at: string;
@@ -126,7 +129,7 @@ export interface ProductInventoryPayload {
   inventoryNotes: string;
   features: string[];
   includedAccessories: string[];
-  optionalAccessories: string[];
+  optionalAccessories: ProductAddon[];
   accessoryPrice: number;
   isActive: boolean;
 }

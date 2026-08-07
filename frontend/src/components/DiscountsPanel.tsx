@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BadgePercent, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
 import { createDiscount, deleteDiscount, getDiscounts, updateDiscount } from '@/services/adminApi';
 import type { AdminDiscount, DiscountPayload, DiscountType } from '@/services/adminApi';
 
@@ -276,17 +276,15 @@ export default function DiscountsPanel({ onNotify }: DiscountsPanelProps) {
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                <Input
+                <DatePicker
                   label="Obowiązuje od"
-                  type="date"
                   value={form.startsOn || ''}
-                  onChange={(event) => setForm({ ...form, startsOn: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, startsOn: value || null })}
                 />
-                <Input
+                <DatePicker
                   label="Obowiązuje do"
-                  type="date"
                   value={form.endsOn || ''}
-                  onChange={(event) => setForm({ ...form, endsOn: event.target.value || null })}
+                  onChange={(value) => setForm({ ...form, endsOn: value || null })}
                 />
               </div>
 

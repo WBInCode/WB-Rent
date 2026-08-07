@@ -150,8 +150,13 @@ export const totalWithDiscount = (input: {
   basePrice: number;
   deliveryFee: number;
   weekendPickupFee: number;
+  /** Worki i środki czyszczące: sprzedaż towaru, więc rabat na najem ich nie obejmuje. */
+  addonsFee?: number;
   discountAmount: number;
 }): number =>
   round2(
-    Math.max(input.basePrice - input.discountAmount, 0) + input.deliveryFee + input.weekendPickupFee
+    Math.max(input.basePrice - input.discountAmount, 0)
+      + input.deliveryFee
+      + input.weekendPickupFee
+      + (input.addonsFee ?? 0)
   );

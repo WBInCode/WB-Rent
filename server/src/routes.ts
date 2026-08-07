@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema, couponValidateSchema } from './schemas.js';
 import { queries } from './db.js';
-import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, WEEKEND_SERVICE_FEE } from './products.js';
+import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, normalizeAddons, priceAddons, WEEKEND_SERVICE_FEE } from './products.js';
 import { ocenAdresDostawy, znormalizujKod } from './delivery-area.js';
 import { extensionRequestSchema, rozpocznijPrzedluzenie, wycenPrzedluzenie, MINUT_NA_PLATNOSC } from './rental-extensions.js';
 import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
@@ -84,7 +84,7 @@ router.get('/products', async (_req: Request, res: Response) => {
         priceWeekend: Number(product.price_weekend),
         features: Array.isArray(product.features) ? product.features : [],
         includedAccessories: Array.isArray(product.included_accessories) ? product.included_accessories : [],
-        optionalAccessories: Array.isArray(product.optional_accessories) ? product.optional_accessories : [],
+        optionalAccessories: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
         accessoryPrice: Number(product.accessory_price || 0),
         totalQuantity: Number(product.total_quantity),
         availableToday: Number(product.available_today),
@@ -255,6 +255,27 @@ router.post('/reservations', async (req: Request, res: Response) => {
       + (returnDay !== null && weekendowy(returnDay) ? 1 : 0);
     const weekendPickupFee = zdarzeniaWeekendowe * WEEKEND_SERVICE_FEE;
 
+    // Dodatki wycenia katalog, nigdy przeglądarka — inaczej klient kupiłby
+    // worek za grosz, podstawiając własną cenę w żądaniu.
+    const katalogDodatkow = data.addons.length > 0
+      ? (await queries.getProducts(false))
+        .filter((product: any) => productIds.includes(String(product.id)))
+        .map((product: any) => ({
+          productId: String(product.id),
+          dodatki: normalizeAddons(product.optional_accessories, Number(product.accessory_price || 0)),
+        }))
+      : [];
+    const wycenaDodatkow = priceAddons(katalogDodatkow, data.addons);
+    if ('error' in wycenaDodatkow) {
+      res.status(400).json({
+        success: false,
+        message: wycenaDodatkow.error,
+        errors: [{ field: 'addons', message: wycenaDodatkow.error }],
+      });
+      return;
+    }
+    const addonsFee = wycenaDodatkow.fee;
+
     // Discounts are resolved server-side only - a client-supplied amount is never trusted.
     const discountContext: DiscountContext = {
       basePrice,
@@ -298,6 +319,7 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       weekendPickupFee,
+      addonsFee,
       discountAmount,
     });
     const totalPrice = staffPricing?.priceOverride !== undefined
@@ -338,6 +360,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       weekendFee: weekendPickupFee,
+      addons: wycenaDodatkow.items,
+      addonsFee,
       totalPrice,
       discountCode: discount.source === 'coupon' && staffPricing?.discountAmount === undefined
         ? discount.code
@@ -397,6 +421,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
       basePrice,
       deliveryFee,
       weekendFee: weekendPickupFee,
+      addons: wycenaDodatkow.items,
+      addonsFee,
       discountAmount,
       discountLabel,
       discountCode: discount.source === 'coupon' ? discount.code : null,
@@ -447,6 +473,8 @@ router.post('/reservations', async (req: Request, res: Response) => {
         basePrice,
         deliveryFee,
         weekendFee: weekendPickupFee,
+        addons: wycenaDodatkow.items,
+        addonsFee,
         discountAmount,
         totalPrice,
       },

@@ -23,6 +23,8 @@ import {
   getProductsByCategory, 
   calculateRentalCost, 
   getProductById,
+  availableAddons,
+  priceAddons,
   type Product 
 } from '@/data/products';
 import { formatPrice, calculateDays } from '@/lib/utils';
@@ -58,6 +60,8 @@ interface FormData {
   postalCode: string;
   address: string;
   weekendPickup: boolean;
+  /** Zamówione dodatki na sprzedaż: identyfikator pozycji → ilość. */
+  addons: Record<string, number>;
   // Contact
   firstName: string;
   lastName: string;
@@ -90,6 +94,7 @@ const initialFormData: FormData = {
   postalCode: '',
   address: '',
   weekendPickup: false,
+  addons: {},
   firstName: '',
   lastName: '',
   email: '',
@@ -244,17 +249,30 @@ export function Reservation() {
 
   const isWeekendPickup = zdarzeniaWeekendowe > 0;
 
+  /** Dodatki na sprzedaż do wybranego sprzętu — worki, środki czyszczące. */
+  const dostepneDodatki = useMemo(
+    () => (selectedProduct ? availableAddons([selectedProduct]).flatMap((wpis) => wpis.dodatki) : []),
+    [selectedProduct]
+  );
+  const wybraneDodatki = useMemo(
+    () => priceAddons(selectedProduct ? [selectedProduct] : [], formData.addons),
+    [selectedProduct, formData.addons]
+  );
+
   // Calculate cost
   const costSummary = useMemo(() => {
     if (!formData.productId || rentalDays === 0) return null;
-    return calculateRentalCost(
+    const koszt = calculateRentalCost(
       formData.productId,
       rentalDays,
       { dowoz: formData.deliveryOut, odbior: formData.deliveryBack },
       isWeekendRental,
       zdarzeniaWeekendowe
     );
-  }, [formData.productId, rentalDays, formData.deliveryOut, formData.deliveryBack, isWeekendRental, zdarzeniaWeekendowe]);
+    if (!koszt) return null;
+    // Dodatki to sprzedaż towaru: doliczane raz, niezależnie od liczby dób.
+    return { ...koszt, addonsFee: wybraneDodatki.fee, total: koszt.total + wybraneDodatki.fee };
+  }, [formData.productId, rentalDays, formData.deliveryOut, formData.deliveryBack, isWeekendRental, zdarzeniaWeekendowe, wybraneDodatki.fee]);
 
   // Fetch blocked (reserved) date ranges when product changes
   useEffect(() => {
@@ -496,6 +514,7 @@ export function Reservation() {
       postalCode: zamowionyDojazd ? formData.postalCode : undefined,
       address: zamowionyDojazd ? formData.address : undefined,
       weekendPickup: isWeekendPickup,
+      addons: wybraneDodatki.items.map((dodatek) => ({ id: dodatek.id, quantity: dodatek.ilosc })),
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
@@ -622,6 +641,52 @@ export function Reservation() {
                           W cenie: {selectedProduct.includedAccessories.join(', ')}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Materiały zużywalne klient kupuje na własność — stąd osobna sekcja. */}
+                  {dostepneDodatki.length > 0 && (
+                    <div className="mt-4 p-4 rounded-lg bg-bg-primary/50 border border-border">
+                      <p className="text-sm font-medium text-text-primary">Chcesz coś dokupić?</p>
+                      <p className="text-xs text-text-muted mt-0.5 mb-3">
+                        Worki i środki czyszczące zostają u Ciebie — nie zwracasz ich razem ze sprzętem.
+                      </p>
+                      <div className="space-y-2">
+                        {dostepneDodatki.map((dodatek) => {
+                          const ilosc = formData.addons[dodatek.id] || 0;
+                          return (
+                            <div
+                              key={dodatek.id}
+                              className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${ilosc > 0 ? 'border-gold/50 bg-gold/10' : 'border-border'}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-sm text-text-primary">{dodatek.nazwa}</span>
+                                <span className="block text-xs text-text-muted">{formatPrice(dodatek.cena)}/szt.</span>
+                              </span>
+                              <span className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  aria-label={`Mniej: ${dodatek.nazwa}`}
+                                  disabled={ilosc === 0}
+                                  onClick={() => updateField('addons', { ...formData.addons, [dodatek.id]: Math.max(0, ilosc - 1) })}
+                                  className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  −
+                                </button>
+                                <span className="w-8 text-center text-sm font-semibold text-text-primary">{ilosc}</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Więcej: ${dodatek.nazwa}`}
+                                  onClick={() => updateField('addons', { ...formData.addons, [dodatek.id]: Math.min(50, ilosc + 1) })}
+                                  className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold transition-colors"
+                                >
+                                  +
+                                </button>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </Card>
@@ -1038,6 +1103,14 @@ export function Reservation() {
                             <span className="text-text-primary">{formatPrice(costSummary.weekendPickupFee)}</span>
                           </div>
                         )}
+                        {wybraneDodatki.items.map((dodatek) => (
+                          <div key={dodatek.id} className="flex justify-between gap-3">
+                            <span className="text-text-secondary min-w-0">
+                              {dodatek.nazwa} × {dodatek.ilosc}:
+                            </span>
+                            <span className="text-text-primary whitespace-nowrap">{formatPrice(dodatek.suma)}</span>
+                          </div>
+                        ))}
                         {appliedCoupon && appliedCoupon.discountAmount > 0 && (
                           <div className="flex justify-between">
                             <span className="text-emerald-400 light:text-emerald-700">Kupon {appliedCoupon.code}:</span>

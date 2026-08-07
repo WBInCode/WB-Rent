@@ -21,8 +21,8 @@ import {
   Truck,
   User,
 } from 'lucide-react';
-import { Button, Card, Input, Select, Textarea } from '@/components/ui';
-import { products, getProductById, calculateRentalCost, isCatalogLoaded, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
+import { Button, Card, DatePicker, Input, Select, Textarea } from '@/components/ui';
+import { products, getProductById, calculateRentalCost, isCatalogLoaded, availableAddons, priceAddons, DELIVERY_FEE, WEEKEND_PICKUP_FEE } from '@/data/products';
 import { type ReservationPayload } from '@/services/api';
 import {
   createContractSession,
@@ -41,6 +41,20 @@ const todayLocal = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+/** Dowozimy wyłącznie po Rzeszowie, więc miasto nie jest pytaniem — to stała. */
+const MIASTO_DOSTAWY = 'Rzeszów';
+
+const GODZINY = [
+  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
+  '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+];
+
+/** Zapis kodu jako „35-001" niezależnie od tego, jak pracownik go wpisał. */
+const formatujKod = (wartosc: string): string => {
+  const cyfry = wartosc.replace(/\D/g, '').slice(0, 5);
+  return cyfry.length <= 2 ? cyfry : `${cyfry.slice(0, 2)}-${cyfry.slice(2)}`;
+};
+
 interface RentalForm {
   productId: string;
   productIds: string[];
@@ -49,9 +63,13 @@ interface RentalForm {
   isIndefinite: boolean;
   startTime: string;
   endTime: string;
-  delivery: boolean;
-  city: string;
+  /** Dowóz i odbiór to dwa niezależne kursy — klient może chcieć tylko jednego. */
+  deliveryOut: boolean;
+  deliveryBack: boolean;
+  postalCode: string;
   deliveryAddress: string;
+  /** Zamówione dodatki: identyfikator pozycji → ilość. */
+  addons: Record<string, number>;
   firstName: string;
   lastName: string;
   email: string;
@@ -85,9 +103,11 @@ const initialForm: RentalForm = {
   isIndefinite: false,
   startTime: '09:00',
   endTime: '09:00',
-  delivery: false,
-  city: 'Rzeszów',
+  deliveryOut: false,
+  deliveryBack: false,
+  postalCode: '',
   deliveryAddress: '',
+  addons: {},
   firstName: '',
   lastName: '',
   email: '',
@@ -177,6 +197,10 @@ export function StaffRentalPage() {
     .filter((product): product is NonNullable<typeof product> => Boolean(product)), [form.productIds]);
   const selectedProduct = selectedProducts[0];
 
+  /** Dodatki na sprzedaż do wybranego sprzętu — worki, środki czyszczące. */
+  const dostepneDodatki = useMemo(() => availableAddons(selectedProducts), [selectedProducts]);
+  const wybraneDodatki = useMemo(() => priceAddons(selectedProducts, form.addons), [selectedProducts, form.addons]);
+
   const price = useMemo(() => {
     if (selectedProducts.length === 0 || !form.startDate || (!form.isIndefinite && !form.endDate)) return null;
     const diff = form.isIndefinite
@@ -193,7 +217,9 @@ export function StaffRentalPage() {
     }).filter((item): item is NonNullable<typeof item> => Boolean(item));
     if (lineItems.length !== selectedProducts.length) return null;
     const base = lineItems.reduce((sum, item) => sum + item.price, 0);
-    const deliveryFee = form.delivery ? DELIVERY_FEE : 0;
+    // Każdy kurs płatny osobno: dowóz i odbiór to dwa niezależne przejazdy.
+    const kursy = (form.deliveryOut ? 1 : 0) + (form.deliveryBack ? 1 : 0);
+    const deliveryFee = kursy * DELIVERY_FEE;
     // §12 umowy: opłata weekendowa „każdorazowo" — także za zwrot.
     const weekendowy = (dzien: number) => dzien === 0 || dzien === 6;
     const returnDay = form.isIndefinite || !form.endDate
@@ -207,9 +233,10 @@ export function StaffRentalPage() {
       base,
       deliveryFee,
       weekendFee,
-      total: base + deliveryFee + weekendFee,
+      addonsFee: wybraneDodatki.fee,
+      total: base + deliveryFee + weekendFee + wybraneDodatki.fee,
     };
-  }, [selectedProducts, form.startDate, form.endDate, form.isIndefinite, form.startTime, form.endTime, form.delivery]);
+  }, [selectedProducts, form.startDate, form.endDate, form.isIndefinite, form.startTime, form.endTime, form.deliveryOut, form.deliveryBack, wybraneDodatki.fee]);
 
   // What the customer actually pays: system total, minus a manual discount,
   // or entirely replaced by a price the employee typed in.
@@ -253,7 +280,12 @@ export function StaffRentalPage() {
       rejectWith('Data zwrotu nie może być wcześniejsza niż data odbioru.', 'data-zwrotu');
       return;
     }
-    if (form.delivery && form.deliveryAddress.trim().length < 5) {
+    const zamowionyDojazd = form.deliveryOut || form.deliveryBack;
+    if (zamowionyDojazd && !/^\d{2}-\d{3}$/.test(form.postalCode)) {
+      rejectWith('Podaj kod pocztowy adresu dostawy w formacie 00-000.', 'kod-pocztowy');
+      return;
+    }
+    if (zamowionyDojazd && form.deliveryAddress.trim().length < 5) {
       rejectWith('Podaj pełny adres dostawy.', 'adres-dostawy');
       return;
     }
@@ -343,9 +375,13 @@ export function StaffRentalPage() {
       startTime: form.startTime,
       endTime: form.endTime,
       days: price.days,
-      delivery: form.delivery,
-      city: form.city,
-      address: form.delivery ? form.deliveryAddress : undefined,
+      delivery: form.deliveryOut && form.deliveryBack,
+      deliveryOut: form.deliveryOut,
+      deliveryBack: form.deliveryBack,
+      city: zamowionyDojazd ? MIASTO_DOSTAWY : undefined,
+      postalCode: zamowionyDojazd ? form.postalCode : undefined,
+      address: zamowionyDojazd ? form.deliveryAddress : undefined,
+      addons: wybraneDodatki.items.map((dodatek) => ({ id: dodatek.id, quantity: dodatek.ilosc })),
       weekendPickup: [0, 6].includes(new Date(`${form.startDate}T12:00:00`).getDay()),
       firstName: form.firstName,
       lastName: form.lastName,
@@ -548,12 +584,24 @@ export function StaffRentalPage() {
                   />
                 </label>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Input label="Data odbioru" type="date" min={todayLocal()} value={form.startDate} onChange={(event) => update('startDate', event.target.value)} required />
-                  <Input label="Godzina odbioru" type="time" value={form.startTime} onChange={(event) => update('startTime', event.target.value)} required />
+                  <DatePicker label="Data odbioru" minDate={todayLocal()} value={form.startDate} onChange={(value) => update('startDate', value)} required />
+                  <Select
+                    label="Godzina odbioru"
+                    value={form.startTime}
+                    onChange={(event) => update('startTime', event.target.value)}
+                    options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
+                    required
+                  />
                   {!form.isIndefinite && (
                     <>
-                      <Input label="Data zwrotu" type="date" min={form.startDate} value={form.endDate} onChange={(event) => update('endDate', event.target.value)} required />
-                      <Input label="Godzina zwrotu" type="time" value={form.endTime} onChange={(event) => update('endTime', event.target.value)} required />
+                      <DatePicker label="Data zwrotu" minDate={form.startDate || todayLocal()} value={form.endDate} onChange={(value) => update('endDate', value)} required />
+                      <Select
+                        label="Godzina zwrotu"
+                        value={form.endTime}
+                        onChange={(event) => update('endTime', event.target.value)}
+                        options={GODZINY.map((godzina) => ({ value: godzina, label: godzina }))}
+                        required
+                      />
                     </>
                   )}
                 </div>
@@ -563,26 +611,64 @@ export function StaffRentalPage() {
                   </div>
                 )}
 
-                <div className="grid sm:grid-cols-2 gap-3 mt-5" role="radiogroup" aria-label="Sposób odbioru">
-                  <PickupOption
-                    selected={!form.delivery}
-                    icon={<Package className="w-5 h-5" />}
-                    title="Odbiór osobisty"
-                    description="Klient odbiera i zwraca sprzęt w punkcie"
-                    onClick={() => update('delivery', false)}
+                {/* Dowóz i odbiór to dwa niezależne kursy, każdy płatny osobno. */}
+                <div className="mt-5 p-4 rounded-lg border border-border bg-bg-primary/40 space-y-3">
+                  <p className="text-sm text-text-secondary">
+                    Domyślnie klient odbiera i zwraca sprzęt w punkcie. Zaznacz kursy, które zamawia.
+                  </p>
+                  <DeliveryLeg
+                    checked={form.deliveryOut}
+                    onChange={(value) => update('deliveryOut', value)}
+                    icon={<Truck className="w-4 h-4" />}
+                    title="Przywozimy sprzęt"
+                    description="Dojazd pod adres klienta w dniu rozpoczęcia najmu"
                   />
-                  <PickupOption
-                    selected={form.delivery}
-                    icon={<Truck className="w-5 h-5" />}
-                    title="Dostawa i odbiór"
-                    description="Transport pod wskazany adres • +40 zł"
-                    onClick={() => update('delivery', true)}
+                  <DeliveryLeg
+                    checked={form.deliveryBack}
+                    onChange={(value) => update('deliveryBack', value)}
+                    icon={<Package className="w-4 h-4" />}
+                    title="Odbieramy sprzęt"
+                    description="Przyjazd po sprzęt w dniu zakończenia najmu"
                   />
+                  {(form.deliveryOut || form.deliveryBack) && (
+                    <div className="grid sm:grid-cols-[150px_1fr] gap-4 pt-3 border-t border-border">
+                      <Input
+                        label="Kod pocztowy"
+                        placeholder="35-000"
+                        inputMode="numeric"
+                        value={form.postalCode}
+                        onChange={(event) => update('postalCode', formatujKod(event.target.value))}
+                        hint={MIASTO_DOSTAWY}
+                        required
+                      />
+                      <Input
+                        label="Adres dostawy"
+                        placeholder="Ulica, nr domu/mieszkania"
+                        value={form.deliveryAddress}
+                        onChange={(event) => update('deliveryAddress', event.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
-                {form.delivery && (
-                  <div className="grid sm:grid-cols-2 gap-4 mt-4 p-4 rounded-lg bg-gold/5 border border-gold/20">
-                    <Input label="Miasto" value={form.city} onChange={(event) => update('city', event.target.value)} required />
-                    <Input label="Adres dostawy" value={form.deliveryAddress} onChange={(event) => update('deliveryAddress', event.target.value)} required />
+
+                {dostepneDodatki.length > 0 && (
+                  <div className="mt-5 p-4 rounded-lg border border-border bg-bg-primary/40">
+                    <p className="text-sm font-semibold text-text-primary">Dodatki na sprzedaż</p>
+                    <p className="text-xs text-text-muted mt-0.5 mb-3">
+                      Worki, środki czyszczące. Klient kupuje je na własność — nie podlegają zwrotowi.
+                    </p>
+                    <div className="space-y-2">
+                      {dostepneDodatki.flatMap(({ dodatki }) => dodatki).map((dodatek) => (
+                        <AddonRow
+                          key={dodatek.id}
+                          nazwa={dodatek.nazwa}
+                          cena={dodatek.cena}
+                          ilosc={form.addons[dodatek.id] || 0}
+                          onChange={(ilosc) => update('addons', { ...form.addons, [dodatek.id]: ilosc })}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </FormCard>
@@ -741,8 +827,22 @@ export function StaffRentalPage() {
                             label={form.isIndefinite ? 'Opłata startowa • 1 doba' : `Najem • ${price.days} ${price.days === 1 ? 'doba' : 'doby'}`}
                             value={`${price.base} zł`}
                           />
-                          {price.deliveryFee > 0 && <SummaryRow label="Dostawa i odbiór" value={`${price.deliveryFee} zł`} />}
+                          {price.deliveryFee > 0 && (
+                            <SummaryRow
+                              label={form.deliveryOut && form.deliveryBack
+                                ? 'Dowóz i odbiór'
+                                : form.deliveryOut ? 'Dowóz sprzętu' : 'Odbiór sprzętu'}
+                              value={`${price.deliveryFee} zł`}
+                            />
+                          )}
                           {price.weekendFee > 0 && <SummaryRow label="Odbiór weekendowy" value={`${price.weekendFee} zł`} />}
+                          {wybraneDodatki.items.map((dodatek) => (
+                            <SummaryRow
+                              key={dodatek.id}
+                              label={`${dodatek.nazwa} × ${dodatek.ilosc}`}
+                              value={`${dodatek.suma} zł`}
+                            />
+                          ))}
                           {finalPricing && finalPricing.discount > 0 && (
                             <SummaryRow label="Rabat pracownika" value={`-${finalPricing.discount} zł`} />
                           )}
@@ -976,20 +1076,66 @@ function ProductCatalog({ selectedIds, onToggle }: { selectedIds: string[]; onTo
   );
 }
 
-function PickupOption({ selected, icon, title, description, onClick }: { selected: boolean; icon: React.ReactNode; title: string; description: string; onClick: () => void }) {
+function DeliveryLeg({ checked, onChange, icon, title, description }: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onClick}
-      className={`relative text-left p-4 rounded-lg border transition-colors ${selected ? 'border-gold bg-gold/10' : 'border-border bg-bg-primary/40 hover:border-border-hover'}`}
-    >
-      <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${selected ? 'bg-gold text-gold-contrast' : 'bg-surface-soft text-text-muted'}`}>{icon}</span>
-      <span className="block text-sm font-semibold mt-3">{title}</span>
-      <span className="block text-xs text-text-muted mt-1 leading-relaxed">{description}</span>
-      {selected && <Check className="absolute top-3 right-3 w-4 h-4 text-gold" />}
-    </button>
+    <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${checked ? 'border-gold/50 bg-gold/10' : 'border-border hover:border-border-hover'}`}>
+      <input
+        type="checkbox"
+        className="mt-1 w-4 h-4 accent-gold shrink-0"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="flex-1">
+        <span className="flex items-center gap-2 flex-wrap text-text-primary">
+          {icon}
+          <span className="text-sm font-semibold">{title}</span>
+          <span className="text-xs font-medium text-gold">+{DELIVERY_FEE} zł</span>
+        </span>
+        <span className="block text-xs text-text-muted mt-1">{description}</span>
+      </span>
+    </label>
+  );
+}
+
+function AddonRow({ nazwa, cena, ilosc, onChange }: {
+  nazwa: string;
+  cena: number;
+  ilosc: number;
+  onChange: (ilosc: number) => void;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${ilosc > 0 ? 'border-gold/50 bg-gold/10' : 'border-border'}`}>
+      <span className="min-w-0">
+        <span className="block text-sm text-text-primary truncate">{nazwa}</span>
+        <span className="block text-xs text-text-muted">{cena} zł/szt.</span>
+      </span>
+      <span className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          aria-label={`Mniej: ${nazwa}`}
+          onClick={() => onChange(Math.max(0, ilosc - 1))}
+          disabled={ilosc === 0}
+          className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          −
+        </button>
+        <span className="w-8 text-center text-sm font-semibold text-text-primary">{ilosc}</span>
+        <button
+          type="button"
+          aria-label={`Więcej: ${nazwa}`}
+          onClick={() => onChange(Math.min(50, ilosc + 1))}
+          className="w-8 h-8 rounded-lg border border-border text-text-secondary hover:border-gold/40 hover:text-gold transition-colors"
+        >
+          +
+        </button>
+      </span>
+    </div>
   );
 }
 

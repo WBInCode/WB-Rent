@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CalendarPlus, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { quoteExtension, startExtension, type ExtensionQuote } from '@/services/api';
 
 interface PrzedluzenieNajmuProps {
@@ -68,17 +69,14 @@ export function PrzedluzenieNajmu({ reservationId, token, obecnyKoniec, onClose 
           </Button>
         </div>
 
-        <label className="block mb-4">
-          <span className="block text-sm text-text-secondary mb-1.5">Do kiedy potrzebujesz sprzętu?</span>
-          <input
-            type="date"
-            min={minimalnaData}
+        <div className="mb-4">
+          <DatePicker
+            label="Do kiedy potrzebujesz sprzętu?"
+            minDate={minimalnaData}
             value={nowaData}
-            onChange={(e) => void wycen(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg bg-surface-soft border border-border text-text-primary
-                       focus:outline-none focus:border-gold transition-colors"
+            onChange={(value) => void wycen(value)}
           />
-        </label>
+        </div>
 
         {pracuje && !wycena && (
           <p className="text-sm text-text-muted flex items-center gap-2">
