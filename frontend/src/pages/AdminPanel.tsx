@@ -413,25 +413,8 @@ function StageActions({
 
   return (
     <>
-      {glowne.map((item) => {
-        const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
-        return (
-          <button
-            key={item.action}
-            type="button"
-            title={item.reason ? `${item.reason} — kliknij, żeby mimo to kontynuować` : etykieta}
-            onClick={() => onAction(item.action)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
-              item.available
-                ? klasa
-                : 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
-            }`}
-          >
-            <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
-            {!item.available && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
-          </button>
-        );
-      })}
+      {/* Anulowanie idzie przed poleceniem głównym — inaczej ostatni przycisk
+          w wierszu raz byłby akcją, raz krzyżykiem, i kolumna by pływała. */}
       {drugorzedne.map((item) => {
         const { etykieta, Ikona } = ACTION_STYLE[item.action];
         return (
@@ -443,6 +426,25 @@ function StageActions({
             className="inline-flex items-center gap-1 px-2 py-2 rounded-[--radius-sm] text-xs text-text-muted hover:text-error hover:bg-error/10 transition-colors"
           >
             <Ikona className="w-4 h-4" aria-hidden="true" />
+          </button>
+        );
+      })}
+      {glowne.map((item) => {
+        const { etykieta, Ikona, klasa } = ACTION_STYLE[item.action];
+        return (
+          <button
+            key={item.action}
+            type="button"
+            title={item.reason ? `${item.reason} — kliknij, żeby mimo to kontynuować` : etykieta}
+            onClick={() => onAction(item.action)}
+            className={`inline-flex items-center justify-center gap-1.5 min-w-[104px] px-3 py-2 rounded-[--radius-sm] text-sm font-medium transition-colors ${
+              item.available
+                ? klasa
+                : 'border border-amber-500/40 text-amber-400 light:text-amber-800 hover:bg-amber-500/10'
+            }`}
+          >
+            <Ikona className="w-4 h-4" aria-hidden="true" /> {etykieta}
+            {!item.available && <AlertCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />}
           </button>
         );
       })}
@@ -1491,26 +1493,25 @@ export function AdminPanel() {
                       </div>
                     </div>
 
-                    {/* Price & actions */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 xl:pl-4 xl:border-l xl:border-border">
-                      <div className="sm:text-right min-w-[110px]">
-                        <p className="text-xl sm:text-2xl font-bold text-gold">{reservation.total_price} zł</p>
+                    {/* Stałe szerokości kolumn — liczba ikon bywa różna, a kwota
+                        i polecenie muszą stać w tym samym miejscu w każdym wierszu. */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 shrink-0 xl:pl-4 xl:border-l xl:border-border">
+                      <div className="sm:text-right sm:w-[120px] shrink-0">
+                        <p className="text-xl sm:text-2xl font-bold text-gold whitespace-nowrap">{reservation.total_price} zł</p>
                         <p className="text-xs text-text-muted">
                           {reservation.is_indefinite ? 'kwota bieżąca' : opiszDojazd(reservation)}
                         </p>
                       </div>
 
-                      {/* Kolejność od lewej: koszt, dokumenty i podgląd, a skrajnie po
-                          prawej polecenie prowadzące najem dalej. */}
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex items-center justify-end gap-1 sm:w-[168px] shrink-0">
                         {['pending', 'confirmed'].includes(reservation.status) && reservation.contract_status !== 'signed' && (
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={() => openContractModal(reservation)}
                             title="Przygotuj umowę i uruchom ekran podpisu"
                           >
-                            <FileSignature className="w-4 h-4 mr-1.5" /> Umowa
+                            <FileSignature className="w-4 h-4 text-gold-light light:text-gold-dark" />
                           </Button>
                         )}
                         {reservation.contract_status === 'signed' && (
@@ -1559,7 +1560,9 @@ export function AdminPanel() {
                         >
                           <History className="w-4 h-4" />
                         </Button>
+                      </div>
 
+                      <div className="flex items-center justify-end gap-1.5 sm:w-[150px] shrink-0">
                         <StageActions
                           actions={reservation.actions}
                           onAction={(action) => {
