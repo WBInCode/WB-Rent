@@ -20,6 +20,7 @@ import { Button, Card, Input, Textarea } from '@/components/ui';
 import { SignatureField, type SignatureFieldHandle } from '@/components/SignatureField';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { HandoverDocument } from '@/components/HandoverDocument';
+import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
 import ThemeToggle from '@/components/ThemeToggle';
 import {
   downloadHandoverPdf,
@@ -187,6 +188,10 @@ export function HandoverProtocolPage() {
   const { snapshot } = view;
   const podpisany = view.status === 'signed';
   const wydany = view.released;
+  // Brak zapłaty to jedyna blokada, którą da się zdjąć na miejscu — klient płaci
+  // gotówką, terminalem albo z telefonu, i sprzęt może od razu wyjechać.
+  const czekaNaPlatnosc = !wydany && !view.canRelease
+    && /opłacon|płatnoś|zapłat/i.test(view.releaseBlockedReason ?? '');
   const braki = brakiDanych();
 
   const naglowek = (
@@ -275,6 +280,21 @@ export function HandoverProtocolPage() {
                   {view.releaseBlockedReason}
                 </p>
               )}
+
+              {/* Klient stoi przy ladzie, więc płatność da się przyjąć od razu:
+                  gotówką, terminalem albo linkiem, który otworzy na telefonie. */}
+              {czekaNaPlatnosc && (
+                <div className="pt-1 space-y-3">
+                  <PaymentLinkPanel
+                    reservationId={reservationId}
+                    onNotify={(tekst, ton) => {
+                      powiadom(tekst, ton);
+                      void wczytaj();
+                    }}
+                  />
+                </div>
+              )}
+
               <Button
                 variant="primary"
                 className="w-full"
