@@ -510,6 +510,36 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
       ALTER TABLE reservations ADD COLUMN IF NOT EXISTS weekend_fee REAL NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 17,
+    name: 'payment-kind',
+    sql: `
+      -- Platnosc za najem i doplata z protokolu zwrotu to dwie rozne naleznosci
+      -- o roznych kwotach. Bez rozroznienia doplata nadpisywalaby payment_status
+      -- rezerwacji, a link "zaplac saldo" prowadzil do kwoty calego najmu.
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'rental';
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS label TEXT;
+      UPDATE payments SET kind = 'rental' WHERE kind IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_payments_reservation_kind
+        ON payments (reservation_id, kind, status);
+    `,
+  },
+  {
+    version: 18,
+    name: 'delivery-legs-and-postal-code',
+    sql: `
+      -- Dowoz i odbior to dwa niezalezne kursy: czasem klient chce tylko
+      -- przywiezienia, czasem tylko odebrania. Jedna flaga delivery nie
+      -- potrafila tego wyrazic ani rozliczyc.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_out INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS delivery_back INTEGER NOT NULL DEFAULT 0;
+      -- Obszar dowozu rozstrzyga kod pocztowy, nie nazwa miasta wpisana z reki.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS postal_code TEXT;
+
+      -- Dotychczasowe rezerwacje z dostawa mialy oplacone oba kursy.
+      UPDATE reservations SET delivery_out = 1, delivery_back = 1 WHERE delivery = 1;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -834,6 +864,9 @@ export const queries = {
     endTime: string;
     city?: string;
     delivery: number;
+    deliveryOut?: number;
+    deliveryBack?: number;
+    postalCode?: string;
     address?: string;
     name: string;
     email: string;
@@ -897,7 +930,7 @@ export const queries = {
       const result = await client.query(
         `INSERT INTO reservations (
           category_id, product_id, start_date, end_date, is_indefinite, start_time, end_time,
-          city, delivery, address,
+          city, delivery, delivery_out, delivery_back, postal_code, address,
           name, email, phone, company, notes,
           wants_invoice, invoice_nip, invoice_company, invoice_address,
           days, base_price, delivery_fee, weekend_fee, total_price,
@@ -905,11 +938,12 @@ export const queries = {
           price_override_note, price_set_by,
           ip_address
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
         ) RETURNING id`,
         [
           data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
-          data.city, data.delivery, data.address,
+          data.city, data.delivery, data.deliveryOut ?? data.delivery, data.deliveryBack ?? data.delivery,
+          data.postalCode || null, data.address,
           data.name, data.email, data.phone, data.company, data.notes,
           data.wantsInvoice, data.invoiceNip, data.invoiceCompany, data.invoiceAddress,
           data.days, data.basePrice, data.deliveryFee, data.weekendFee, data.totalPrice,
@@ -1922,11 +1956,14 @@ export const queries = {
     externalId?: string;
     amount: number;
     redirectUrl?: string;
+    kind?: 'rental' | 'settlement';
+    label?: string;
   }) => {
     const result = await pool.query(
-      `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, redirect_url)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [data.reservationId, data.provider, data.sessionId, data.externalId, data.amount, data.redirectUrl]
+      `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, redirect_url, kind, label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [data.reservationId, data.provider, data.sessionId, data.externalId, data.amount, data.redirectUrl,
+       data.kind || 'rental', data.label || null]
     );
     return { lastInsertRowid: result.rows[0].id };
   },
@@ -1936,21 +1973,32 @@ export const queries = {
     return result.rows[0];
   },
 
-  getLatestPaymentForReservation: async (reservationId: number) => {
+  getLatestPaymentForReservation: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental') => {
     const result = await pool.query(
-      `SELECT * FROM payments WHERE reservation_id = $1 ORDER BY created_at DESC LIMIT 1`,
-      [reservationId]
+      `SELECT * FROM payments WHERE reservation_id = $1 AND kind = $2 ORDER BY created_at DESC LIMIT 1`,
+      [reservationId, kind]
     );
     return result.rows[0];
   },
 
+  /** Dopłaty rozliczeniowe rezerwacji — panel pokazuje je obok czynszu najmu. */
+  getSettlementPayments: async (reservationId: number) => {
+    const result = await pool.query(
+      `SELECT id, session_id, amount, status, label, redirect_url, paid_at, created_at
+       FROM payments WHERE reservation_id = $1 AND kind = 'settlement'
+       ORDER BY created_at DESC`,
+      [reservationId]
+    );
+    return result.rows;
+  },
+
   /** Retires older sessions so only one payment link per reservation stays open. */
-  cancelPendingPayments: async (reservationId: number) => {
+  cancelPendingPayments: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental') => {
     const result = await pool.query(
       `UPDATE payments SET status = 'cancelled'
-       WHERE reservation_id = $1 AND status = 'pending'
+       WHERE reservation_id = $1 AND status = 'pending' AND kind = $2
        RETURNING session_id`,
-      [reservationId]
+      [reservationId, kind]
     );
     return result.rows;
   },
@@ -1970,12 +2018,14 @@ export const queries = {
              external_id = COALESCE($2, external_id),
              paid_at = CASE WHEN $1 = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
          WHERE session_id = $3
-         RETURNING reservation_id, provider`,
+         RETURNING reservation_id, provider, kind`,
         [data.status, data.externalId, data.sessionId]
       );
 
       const row = payment.rows[0];
-      if (row) {
+      // Doplata rozliczeniowa ma wlasna kwote i wlasny los - nie moze zmieniac
+      // stanu oplacenia najmu ani przesuwac rezerwacji do 'confirmed'.
+      if (row && row.kind !== 'settlement') {
         await client.query(
           `UPDATE reservations SET payment_status = $1, payment_provider = $2 WHERE id = $3`,
           [data.status === 'paid' ? 'paid' : data.status, row.provider, row.reservation_id]

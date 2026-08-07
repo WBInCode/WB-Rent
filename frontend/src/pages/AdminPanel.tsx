@@ -49,6 +49,7 @@ import CouponsPanel from '@/components/CouponsPanel';
 import BusinessSettingsPanel from '@/components/BusinessSettingsPanel';
 import { HandoverPhotos } from '@/components/HandoverPhotos';
 import { PaymentLinkPanel } from '@/components/PaymentLinkPanel';
+import { DoplatyPanel } from '@/components/DoplatyPanel';
 import ThemeToggle from '@/components/ThemeToggle';
 import { opiszEtap, pasujeDoFiltru, FILTRY, type KluczFiltru, type RentalStageInfo, type StageTone } from '@/utils/rentalStage';
 import { ACTION_TARGET_STATUS, type ActionAvailability, type RentalAction } from '@/utils/rentalActions';
@@ -1541,6 +1542,12 @@ export function AdminPanel() {
                       <div className="md:col-span-2">
                         <PaymentLinkPanel reservationId={reservation.id} onNotify={notifyPanel} />
                       </div>
+                      {/* Doplaty maja sens po zwrocie — wtedy znamy koszt naprawy. */}
+                      {['returned', 'completed'].includes(reservation.status) && (
+                        <div className="md:col-span-2">
+                          <DoplatyPanel reservationId={reservation.id} onNotify={notifyPanel} />
+                        </div>
+                      )}
                       {/* Zdjęcia mają sens dopiero, gdy sprzęt fizycznie krąży —
                           przed wydaniem nie ma czego sfotografować. */}
                       {['picked_up', 'returned', 'completed'].includes(reservation.status) && (

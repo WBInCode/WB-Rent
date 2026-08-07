@@ -93,7 +93,11 @@ export interface ReservationPayload {
   endTime: string;
   days: number;
   delivery: boolean;
+  /** Dowóz i odbiór to dwa niezależne kursy. */
+  deliveryOut?: boolean;
+  deliveryBack?: boolean;
   city?: string;
+  postalCode?: string;
   address?: string;
   weekendPickup: boolean;
   firstName: string;
@@ -241,6 +245,16 @@ export interface ProductsAvailabilityResponse {
 
 export async function getProductsAvailability(): Promise<ApiResponse<ProductsAvailabilityResponse>> {
   return apiFetch<ProductsAvailabilityResponse>('/products/availability');
+}
+
+/** Czy pod ten kod pocztowy dowozimy sprzęt — rozstrzyga serwer. */
+export async function checkDeliveryArea(
+  kod: string
+): Promise<{ wObszarze: boolean; powod: string | null; oplataZaKurs: number }> {
+  const odpowiedz = await apiFetch<{ wObszarze: boolean; powod: string | null; oplataZaKurs: number }>(
+    `/delivery/check?kod=${encodeURIComponent(kod)}`
+  );
+  return odpowiedz.data ?? { wObszarze: false, powod: 'Nie udało się sprawdzić adresu', oplataZaKurs: 20 };
 }
 
 // Notify me when product is available

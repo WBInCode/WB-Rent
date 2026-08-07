@@ -3,7 +3,8 @@ import rateLimit from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNotificationSchema, couponValidateSchema } from './schemas.js';
 import { queries } from './db.js';
-import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_FEE, getProductName, WEEKEND_PICKUP_FEE } from './products.js';
+import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, WEEKEND_SERVICE_FEE } from './products.js';
+import { ocenAdresDostawy, znormalizujKod } from './delivery-area.js';
 import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
 import {
   couponRejectionReason,
@@ -46,6 +47,21 @@ const formatZodErrors = (error: ZodError) => {
     message: err.message,
   }));
 };
+
+// === GET /api/delivery/check ===
+// Obszar dowozu rozstrzyga kod pocztowy — bez pytania cudzego serwisu o mapę.
+router.get('/delivery/check', (req: Request, res: Response) => {
+  const ocena = ocenAdresDostawy(String(req.query.kod || ''));
+  res.json({
+    success: true,
+    data: {
+      wObszarze: ocena.wObszarze,
+      kod: znormalizujKod(String(req.query.kod || '')),
+      powod: ocena.wObszarze ? null : ocena.powod,
+      oplataZaKurs: DELIVERY_LEG_FEE,
+    },
+  });
+});
 
 // === GET /api/products ===
 router.get('/products', async (_req: Request, res: Response) => {
@@ -211,8 +227,32 @@ router.post('/reservations', async (req: Request, res: Response) => {
     const pricing = calculateRentalItemsPrice(productIds, days, isWeekendPackage);
     if (!pricing) throw new Error('Nie udało się wyliczyć sprzętu');
     const basePrice = pricing.basePrice;
-    const deliveryFee = data.delivery ? DELIVERY_FEE : 0;
-    const weekendPickupFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
+
+    // Dowóz i odbiór to dwa niezależne kursy — klient może chcieć tylko jednego.
+    const dowoz = data.deliveryOut ?? data.delivery;
+    const odbior = data.deliveryBack ?? data.delivery;
+    const kursy = (dowoz ? 1 : 0) + (odbior ? 1 : 0);
+    const deliveryFee = kursy * DELIVERY_LEG_FEE;
+
+    if (kursy > 0) {
+      const ocena = ocenAdresDostawy(data.postalCode);
+      if (!ocena.wObszarze) {
+        res.status(400).json({
+          success: false,
+          message: ocena.powod,
+          errors: [{ field: 'postalCode', message: ocena.powod }],
+        });
+        return;
+      }
+    }
+
+    // §12 umowy: opłata weekendowa należy się „każdorazowo", więc także za zwrot
+    // przypadający w sobotę, niedzielę lub święto.
+    const weekendowy = (dzien: number) => dzien === 0 || dzien === 6;
+    const returnDay = endDate ? new Date(`${endDate}T12:00:00`).getDay() : null;
+    const zdarzeniaWeekendowe = (weekendowy(pickupDay) ? 1 : 0)
+      + (returnDay !== null && weekendowy(returnDay) ? 1 : 0);
+    const weekendPickupFee = zdarzeniaWeekendowe * WEEKEND_SERVICE_FEE;
 
     // Discounts are resolved server-side only - a client-supplied amount is never trusted.
     const discountContext: DiscountContext = {
@@ -276,7 +316,10 @@ router.post('/reservations', async (req: Request, res: Response) => {
       startTime: data.startTime,
       endTime: data.endTime,
       city: data.city || 'Nie podano',
-      delivery: data.delivery ? 1 : 0,
+      delivery: kursy > 0 ? 1 : 0,
+      deliveryOut: dowoz ? 1 : 0,
+      deliveryBack: odbior ? 1 : 0,
+      postalCode: znormalizujKod(data.postalCode) || undefined,
       address: data.address || undefined,
       name: fullName,
       email: data.email,

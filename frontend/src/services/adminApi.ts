@@ -400,6 +400,7 @@ export interface ReturnSnapshot {
   hasPendingValuation: boolean;
   deposit: number;
   balance: number;
+  rozliczonoNaMiejscu?: boolean;
   overdueDays: number;
   statements: string[];
   employeeName: string;
@@ -425,7 +426,34 @@ export interface ReturnDraftPayload {
   conditionNotes: string;
   charges: ReturnCharge[];
   deposit: number;
+  rozliczonoNaMiejscu: boolean;
   employeeName: string;
+}
+
+/** Dopłata ustalona po zwrocie — osobna należność od czynszu najmu. */
+export interface Settlement {
+  id: number;
+  session_id: string;
+  amount: number;
+  status: string;
+  label: string | null;
+  redirect_url: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export async function getSettlements(reservationId: number) {
+  return adminFetch(`/reservations/${reservationId}/settlements`);
+}
+
+export async function createSettlement(
+  reservationId: number,
+  payload: { amount: number; label: string; wyslijMailem: boolean }
+) {
+  return adminFetch(`/reservations/${reservationId}/settlements`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getReturnProtocol(reservationId: number) {

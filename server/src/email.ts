@@ -996,6 +996,62 @@ export const sendSignedContractEmail = async (
 
 // === PROTOKÓŁ WYDANIA (Załącznik nr 1) ===
 /**
+ * Zadanie doplaty ustalonej po zwrocie - najczesciej koszt naprawy, ktory znamy
+ * dopiero z faktury serwisu. Umowa (par. 2) daje na to 7 dni od doreczenia
+ * dokumentu sprzedazy, wiec mail musi podac kwote, powod i termin.
+ */
+export const sendSettlementRequestEmail = async (
+  email: string,
+  customerName: string,
+  dane: { kwota: number; opis: string; link: string; numerRezerwacji: number }
+) => {
+  const subject = `Dopłata do rozliczenia najmu #${dane.numerRezerwacji} | WB-Rent`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
+      <div style="border-bottom: 2px solid #b8972a; padding-bottom: 20px; margin-bottom: 20px;">
+        <h2 style="color: #b8972a; margin: 0;">WB-Rent</h2>
+        <p style="color: #a1a1aa; margin: 5px 0 0;">Wypożyczalnia sprzętu czyszczącego</p>
+      </div>
+
+      <p>Cześć <strong style="color: #b8972a;">${esc(customerName)}</strong>,</p>
+
+      <p style="color: #e5e5e5; line-height: 1.6;">
+        Zakończyliśmy rozliczenie najmu <strong>#${dane.numerRezerwacji}</strong>.
+        Poniżej znajdziesz kwotę do dopłaty wraz z jej uzasadnieniem.
+      </p>
+
+      <div style="background: #422006; padding: 22px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+        <h3 style="color: #fbbf24; margin: 0 0 6px 0; font-size: 20px;">${esc(zloty(dane.kwota))}</h3>
+        <p style="margin: 0 0 14px; color: #fef3c7; line-height: 1.6;">
+          ${esc(dane.opis)}
+        </p>
+        <p style="margin: 0 0 16px; color: #fef3c7; line-height: 1.6;">
+          Termin zapłaty: <strong>7 dni</strong> od otrzymania dokumentu sprzedaży.
+        </p>
+        <a href="${esc(dane.link)}" style="display: inline-block; padding: 14px 30px;
+           background: #b8972a; color: #0a0a0a; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 15px;">
+          Zapłać ${esc(zloty(dane.kwota))} online
+        </a>
+      </div>
+
+      <p style="color: #a1a1aa; font-size: 14px;">
+        Wolisz przelew albo płatność przy ladzie? Zadzwoń: <strong style="color: #ffffff;">570 038 828</strong>
+      </p>
+
+      <div style="border-top: 1px solid #333; padding-top: 20px; margin-top: 20px;">
+        <p style="color: #71717a; font-size: 12px; margin: 0;">
+          Pozdrawiamy,<br>
+          Zespół WB-Rent<br>
+          <span style="color: #a1a1aa; font-size: 11px;">WB Partners Sp. z o.o. | NIP: 5170455185 | ul. Słowackiego 24/11, 35-060 Rzeszów</span>
+        </p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail(email, subject, html);
+};
+
+/**
  * Jedyny mail wysylany przy wydaniu sprzetu.
  *
  * Wczesniej szly dwie osobne wiadomosci - "sprzet wydany" i "protokol w

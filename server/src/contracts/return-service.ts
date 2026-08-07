@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { queries } from '../db.js';
 import { sendReturnProtocolEmail } from '../email.js';
-import { resolvePaymentLink } from '../payments/routes.js';
+import { resolveSettlementLink } from '../payments/routes.js';
 import { describeRentalStage } from '../reservation-stage.js';
 import { encryptContractData, decryptContractData, sha256 } from './crypto.js';
 import {
@@ -37,6 +37,8 @@ export const returnDraftSchema = z.object({
   conditionNotes: z.string().trim().max(2000, 'Uwagi mogą mieć maksymalnie 2000 znaków').default(''),
   charges: z.array(chargeSchema).max(20, 'Maksymalnie 20 pozycji rozliczenia').default([]),
   deposit: z.number().min(0, 'Kaucja nie może być ujemna').max(100000),
+  /** Saldo uregulowane gotówką przy ladzie — bez tego mail żądałby zapłaty drugi raz. */
+  rozliczonoNaMiejscu: z.boolean().default(false),
   employeeName: z.string().trim().min(3, 'Podaj imię i nazwisko przyjmującego zwrot').max(120),
 });
 
@@ -118,6 +120,7 @@ async function buildReturnSnapshot(reservation: any, protocolNumber: string): Pr
     conditionNotes: '',
     charges: [],
     deposit: Number(contractSnapshot?.rental.deposit ?? 0),
+    rozliczonoNaMiejscu: false,
     overdueDays: etap.overdueDays,
     employeeName: wydanieSnapshot?.employeeName ?? contractSnapshot?.lessor.representative ?? '',
     edited: false,
@@ -170,6 +173,7 @@ export async function saveReturnDraft(reservationId: number, input: ReturnDraftI
     conditionNotes: dane.conditionNotes,
     charges: dane.charges as ReturnCharge[],
     deposit: dane.deposit,
+    rozliczonoNaMiejscu: dane.rozliczonoNaMiejscu,
     employeeName: dane.employeeName,
     lessor: { ...snapshot.lessor, representative: dane.employeeName },
     edited: true,
@@ -252,12 +256,16 @@ export async function signReturnProtocol(data: {
   }).catch((error) => console.error('Register return document error:', error));
 
   // Sam wykaz kwot niczego nie zalatwia - klient musi wiedziec, czy ma jeszcze
-  // zaplacic i gdzie kliknac. Gdy uregulowal gotowka przy ladzie, mowimy to wprost.
-  const rezerwacja = await queries.getReservationById(data.reservationId);
-  const zaplacono = rezerwacja?.payment_status === 'paid';
-  const platnosc = zaplacono || finalny.balance <= 0
-    ? null
-    : await resolvePaymentLink(data.reservationId, '127.0.0.1').catch(() => null);
+  // zaplacic i gdzie kliknac. Doplata idzie osobna platnoscia na kwote salda:
+  // link na `total_price` zadalby calego czynszu najmu zamiast roznicy.
+  const platnosc = finalny.balance > 0 && !finalny.rozliczonoNaMiejscu
+    ? await resolveSettlementLink(
+        data.reservationId,
+        finalny.balance,
+        `Rozliczenie najmu — protokół ${finalny.protocolNumber}`,
+        '127.0.0.1'
+      ).catch(() => null)
+    : null;
 
   const emailResult = finalny.renter.email
     ? await sendReturnProtocolEmail(finalny.renter.email, finalny.renter.name, finalny.protocolNumber, pdf, {
@@ -270,7 +278,7 @@ export async function signReturnProtocol(data: {
           amount: pozycja.amount,
         })),
         linkPlatnosci: platnosc?.status === 'ready' ? platnosc.url : null,
-        zaplaconoNaMiejscu: zaplacono,
+        zaplaconoNaMiejscu: Boolean(finalny.rozliczonoNaMiejscu),
       })
     : { delivered: false, transport: 'none' as const };
 

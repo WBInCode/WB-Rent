@@ -125,6 +125,8 @@ export interface ReturnSnapshot {
   deposit: number;
   /** Ile Najemca dopłaca (dodatnie) albo ile kaucji wraca (ujemne). */
   balance: number;
+  /** Saldo uregulowane gotówką przy zwrocie — wtedy mail nie żąda zapłaty. */
+  rozliczonoNaMiejscu?: boolean;
   overdueDays: number;
   statements: string[];
   employeeName: string;

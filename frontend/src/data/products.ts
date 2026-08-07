@@ -318,9 +318,10 @@ export function getCategoryById(categoryId: string): Category | undefined {
 export function calculateRentalCost(
   productId: string,
   days: number,
-  withDelivery: boolean,
+  withDelivery: boolean | { dowoz: boolean; odbior: boolean },
   isWeekend: boolean = false,
-  weekendPickup: boolean = false
+  /** Ile zdarzeń wypada w weekend — wydanie i zwrot liczą się osobno (§12 umowy). */
+  weekendPickup: boolean | number = false
 ): { 
   basePrice: number; 
   deliveryFee: number; 
@@ -342,8 +343,13 @@ export function calculateRentalCost(
     basePrice = product.pricePerDay + (product.priceNextDay * (days - 1));
   }
 
-  const deliveryFee = withDelivery ? DELIVERY_FEE * 2 : 0; // Both ways
-  const pickupFee = weekendPickup ? WEEKEND_PICKUP_FEE : 0;
+  // Dowóz i odbiór to dwa niezależne kursy, każdy płatny osobno.
+  const kursy = typeof withDelivery === 'boolean'
+    ? (withDelivery ? 2 : 0)
+    : (withDelivery.dowoz ? 1 : 0) + (withDelivery.odbior ? 1 : 0);
+  const deliveryFee = kursy * DELIVERY_FEE;
+  const zdarzeniaWeekendowe = typeof weekendPickup === 'boolean' ? (weekendPickup ? 1 : 0) : weekendPickup;
+  const pickupFee = zdarzeniaWeekendowe * WEEKEND_PICKUP_FEE;
   const total = basePrice + deliveryFee + pickupFee;
 
   return { basePrice, deliveryFee, weekendPickupFee: pickupFee, total };

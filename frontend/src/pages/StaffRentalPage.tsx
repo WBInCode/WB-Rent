@@ -193,8 +193,14 @@ export function StaffRentalPage() {
     }).filter((item): item is NonNullable<typeof item> => Boolean(item));
     if (lineItems.length !== selectedProducts.length) return null;
     const base = lineItems.reduce((sum, item) => sum + item.price, 0);
-    const deliveryFee = form.delivery ? DELIVERY_FEE * 2 : 0;
-    const weekendFee = pickupDay === 0 || pickupDay === 6 ? WEEKEND_PICKUP_FEE : 0;
+    const deliveryFee = form.delivery ? DELIVERY_FEE : 0;
+    // §12 umowy: opłata weekendowa „każdorazowo" — także za zwrot.
+    const weekendowy = (dzien: number) => dzien === 0 || dzien === 6;
+    const returnDay = form.isIndefinite || !form.endDate
+      ? null
+      : new Date(`${form.endDate}T12:00:00`).getDay();
+    const weekendFee = ((weekendowy(pickupDay) ? 1 : 0) + (returnDay !== null && weekendowy(returnDay) ? 1 : 0))
+      * WEEKEND_PICKUP_FEE;
     return {
       days,
       lineItems,

@@ -42,6 +42,10 @@ export type ZrodloKosztow = {
   discount_code?: string | null;
   price_override_note?: string | null;
   delivery?: number | boolean | null;
+  delivery_out?: number | boolean | null;
+  delivery_back?: number | boolean | null;
+  start_date?: string | null;
+  end_date?: string | null;
   deposit?: number | string | null;
 };
 
@@ -88,19 +92,33 @@ export function rozpiszKoszty(rezerwacja: ZrodloKosztow): RozpisKosztow {
   }
 
   if (dostawa > 0) {
+    const dowoz = Boolean(Number(rezerwacja.delivery_out ?? rezerwacja.delivery ?? 0));
+    const odbior = Boolean(Number(rezerwacja.delivery_back ?? rezerwacja.delivery ?? 0));
+    const kursy = [dowoz ? 'dowóz do Ciebie' : null, odbior ? 'odbiór od Ciebie' : null].filter(Boolean);
     pozycje.push({
       klucz: 'dostawa',
-      etykieta: 'Dowóz i odbiór sprzętu',
-      opis: 'transport pod wskazany adres',
+      etykieta: kursy.length === 2 ? 'Dowóz i odbiór sprzętu' : dowoz ? 'Dowóz sprzętu' : 'Odbiór sprzętu',
+      opis: kursy.length > 0 ? kursy.join(', ') : 'transport pod wskazany adres',
       kwota: dostawa,
     });
   }
 
   if (weekend > 0) {
+    const weekendowy = (data: string | null | undefined) => {
+      if (!data) return false;
+      const d = new Date(`${String(data).slice(0, 10)}T12:00:00`).getDay();
+      return d === 0 || d === 6;
+    };
+    const zdarzenia = [
+      weekendowy(rezerwacja.start_date) ? 'wydanie' : null,
+      weekendowy(rezerwacja.end_date) ? 'zwrot' : null,
+    ].filter(Boolean);
     pozycje.push({
       klucz: 'weekend',
       etykieta: 'Obsługa w weekend',
-      opis: 'wydanie w sobotę, niedzielę lub święto',
+      opis: zdarzenia.length > 0
+        ? `${zdarzenia.join(' i ')} w sobotę, niedzielę lub święto`
+        : 'wydanie lub zwrot w sobotę, niedzielę lub święto',
       kwota: weekend,
     });
   }

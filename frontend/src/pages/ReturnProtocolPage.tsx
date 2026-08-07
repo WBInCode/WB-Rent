@@ -72,6 +72,7 @@ export function ReturnProtocolPage() {
   const [uwagi, setUwagi] = useState('');
   const [naleznosci, setNaleznosci] = useState<ReturnCharge[]>([]);
   const [kaucja, setKaucja] = useState(0);
+  const [rozliczonoNaMiejscu, setRozliczonoNaMiejscu] = useState(false);
   const [przyjmujacy, setPrzyjmujacy] = useState('');
 
   const [maPodpisPracownika, setMaPodpisPracownika] = useState(false);
@@ -91,6 +92,7 @@ export function ReturnProtocolPage() {
       setUwagi(dane.snapshot.conditionNotes);
       setNaleznosci(dane.snapshot.charges);
       setKaucja(dane.snapshot.deposit);
+      setRozliczonoNaMiejscu(Boolean(dane.snapshot.rozliczonoNaMiejscu));
       setPrzyjmujacy(dane.snapshot.employeeName);
       setBlad(null);
     } else {
@@ -119,6 +121,7 @@ export function ReturnProtocolPage() {
       .filter((p) => p.label.trim().length >= 2)
       .map((p) => ({ ...p, label: p.label.trim(), note: p.note?.trim() || undefined })),
     deposit: Number(kaucja) || 0,
+    rozliczonoNaMiejscu,
     employeeName: przyjmujacy.trim(),
   });
 
@@ -632,6 +635,22 @@ export function ReturnProtocolPage() {
               <p className="text-xs text-text-muted">
                 Pozycje „do wyceny” nie wchodzą jeszcze do sumy — kwotę wpiszesz po otrzymaniu faktury serwisu.
               </p>
+            )}
+            {doRozliczenia > 0 && (
+              <label className="flex items-start gap-2.5 pt-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-gold"
+                  checked={rozliczonoNaMiejscu}
+                  onChange={(e) => setRozliczonoNaMiejscu(e.target.checked)}
+                />
+                <span className="text-sm text-text-secondary">
+                  Klient dopłacił gotówką przy zwrocie
+                  <span className="block text-xs text-text-muted">
+                    Bez zaznaczenia klient dostanie mailem link do zapłaty {money(doRozliczenia)}.
+                  </span>
+                </span>
+              </label>
             )}
           </div>
         </Card>

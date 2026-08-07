@@ -61,38 +61,39 @@ export type MiejsceWydania = {
 };
 
 /**
- * Miejsce odbioru i zwrotu. Gdy klient wybral dowoz - jego adres; gdy odbiera
- * sam - adres punktu. W obu przypadkach adres jest wypisany wprost, zeby nie
- * trzeba bylo go nigdzie doszukiwac.
+ * Miejsce odbioru i zwrotu. Dowóz i odbiór to dwa niezależne kursy, więc może
+ * się zdarzyć, że sprzęt przywozimy pod adres, a klient oddaje go sam (albo
+ * odwrotnie). W obu przypadkach adres jest wypisany wprost.
  */
 export function opiszMiejsca(rezerwacja: {
   delivery?: number | boolean | null;
+  delivery_out?: number | boolean | null;
+  delivery_back?: number | boolean | null;
   address?: string | null;
   city?: string | null;
+  postal_code?: string | null;
 }): { odbior: MiejsceWydania; zwrot: MiejsceWydania } {
-  const dowoz = Boolean(Number(rezerwacja.delivery ?? 0));
+  const dowoz = Boolean(Number(rezerwacja.delivery_out ?? rezerwacja.delivery ?? 0));
+  const odbior = Boolean(Number(rezerwacja.delivery_back ?? rezerwacja.delivery ?? 0));
   const adres = rezerwacja.address?.trim() || '';
   const miasto = rezerwacja.city?.trim() || '';
+  const kod = rezerwacja.postal_code?.trim() || '';
   // Klient zwykle wpisuje miasto w adresie - dopisanie go drugi raz dawalo
   // "ul. Cicha 3, 35-001 Rzeszów, Rzeszów".
-  const adresKlienta = [adres, miasto && miasto !== 'Nie podano' && !adres.toLowerCase().includes(miasto.toLowerCase()) ? miasto : null]
-    .filter(Boolean)
-    .join(', ');
+  const ogon = [
+    kod && !adres.includes(kod) ? kod : null,
+    miasto && miasto !== 'Nie podano' && !adres.toLowerCase().includes(miasto.toLowerCase()) ? miasto : null,
+  ].filter(Boolean).join(' ');
+  const adresKlienta = [adres, ogon].filter(Boolean).join(', ');
 
-  if (dowoz && adresKlienta) {
-    return {
-      odbior: { tryb: 'Dowóz pod adres Najemcy', adres: adresKlienta, uKlienta: true },
-      zwrot: { tryb: 'Odbiór sprzętu spod adresu Najemcy', adres: adresKlienta, uKlienta: true },
-    };
-  }
+  const punkt = (tryb: string): MiejsceWydania => ({ tryb, adres: ADRES_FIRMY, uKlienta: false });
 
-  const punkt: MiejsceWydania = {
-    tryb: 'Odbiór osobisty w punkcie Wynajmującego',
-    adres: ADRES_FIRMY,
-    uKlienta: false,
-  };
   return {
-    odbior: punkt,
-    zwrot: { ...punkt, tryb: 'Zwrot w punkcie Wynajmującego' },
+    odbior: dowoz && adresKlienta
+      ? { tryb: 'Dowóz pod adres Najemcy', adres: adresKlienta, uKlienta: true }
+      : punkt('Odbiór osobisty w punkcie Wynajmującego'),
+    zwrot: odbior && adresKlienta
+      ? { tryb: 'Odbiór sprzętu spod adresu Najemcy', adres: adresKlienta, uKlienta: true }
+      : punkt('Zwrot w punkcie Wynajmującego'),
   };
 }

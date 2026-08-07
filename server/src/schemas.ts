@@ -56,8 +56,13 @@ export const reservationSchema = z.object({
   days: z.number().int().positive('Liczba dni musi być większa od 0'),
 
   // Delivery
+  // Dowóz i odbiór to dwa niezależne kursy; `delivery` zostaje dla zgodności
+  // ze starszymi klientami i oznacza „oba kursy".
   delivery: z.boolean().default(false),
+  deliveryOut: z.boolean().optional(),
+  deliveryBack: z.boolean().optional(),
   city: z.string().max(100, 'Miasto może mieć maksymalnie 100 znaków').optional(),
+  postalCode: z.string().max(10, 'Kod pocztowy może mieć maksymalnie 10 znaków').optional(),
   address: z.string().max(500, 'Adres może mieć maksymalnie 500 znaków').optional(),
   weekendPickup: z.boolean().default(false),
 

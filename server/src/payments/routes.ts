@@ -20,20 +20,28 @@ export async function createPaymentForReservation(reservation: {
   items?: Array<{ product_id: string }>;
   email: string;
   total_price: number;
-}, customerIp: string): Promise<{ redirectUrl: string; sessionId: string } | null> {
+}, customerIp: string, naleznosc?: {
+  kind: 'rental' | 'settlement';
+  amount: number;
+  label: string;
+}): Promise<{ redirectUrl: string; sessionId: string } | null> {
   const provider = getActiveProvider();
   if (!provider) return null;
 
+  const kwota = naleznosc ? naleznosc.amount : reservation.total_price;
   const sessionId = `wbrent-${reservation.id}-${crypto.randomBytes(8).toString('hex')}`;
   const productIds = reservation.items?.length
     ? reservation.items.map((item) => item.product_id)
     : [reservation.product_id];
   const productDescription = productIds.map(getProductName).join(', ');
+  const opis = naleznosc
+    ? `WB-Rent: ${naleznosc.label} (rezerwacja #${reservation.id})`
+    : `WB-Rent: ${productDescription} (rezerwacja #${reservation.id})`;
 
   const result = await provider.createPayment({
     sessionId,
-    amount: reservation.total_price,
-    description: `WB-Rent: ${productDescription} (rezerwacja #${reservation.id})`.slice(0, 255),
+    amount: kwota,
+    description: opis.slice(0, 255),
     customerEmail: reservation.email,
     customerIp,
     returnUrl: `${config.siteUrl}/platnosc?sesja=${sessionId}`,
@@ -45,8 +53,10 @@ export async function createPaymentForReservation(reservation: {
     provider: provider.name,
     sessionId,
     externalId: result.externalId,
-    amount: reservation.total_price,
+    amount: kwota,
     redirectUrl: result.redirectUrl,
+    kind: naleznosc?.kind || 'rental',
+    label: naleznosc?.label,
   });
 
   return { redirectUrl: result.redirectUrl, sessionId };
@@ -156,6 +166,85 @@ export async function resolvePaymentLink(
     url: created.redirectUrl,
     sessionId: created.sessionId,
     amount,
+    provider: provider.name,
+    reused: false,
+  };
+}
+
+/**
+ * Link do doplaty rozliczeniowej - saldo z protokolu zwrotu albo koszt naprawy
+ * wyceniony przez serwis.
+ *
+ * To osobna naleznosc od czynszu najmu: ma wlasna kwote, wlasny opis i wlasny
+ * los. Wczesniej kazdy link platnosci opiewal na `total_price`, wiec mail
+ * obiecywal doplate 150 zl, a bramka zadala calej kwoty najmu.
+ */
+export async function resolveSettlementLink(
+  reservationId: number,
+  kwota: number,
+  opis: string,
+  customerIp: string
+): Promise<PaymentLinkResult> {
+  const reservation = await queries.getReservationById(reservationId);
+  if (!reservation) {
+    return { status: 'unavailable', reason: 'Rezerwacja nie istnieje', amount: 0, canPayManually: false };
+  }
+  if (!(kwota > 0)) {
+    return { status: 'unavailable', reason: 'Kwota dopłaty musi być większa od zera', amount: 0, canPayManually: false };
+  }
+
+  const provider = getActiveProvider();
+  if (!provider) {
+    return {
+      status: 'unavailable',
+      reason: 'Płatności online są obecnie wyłączone',
+      amount: kwota,
+      canPayManually: true,
+    };
+  }
+
+  const latest = await queries.getLatestPaymentForReservation(reservationId, 'settlement');
+  if (latest?.status === 'paid' && Number(latest.amount) === kwota) {
+    return { status: 'paid' };
+  }
+  const reusable = latest
+    && latest.status === 'pending'
+    && latest.redirect_url
+    && latest.provider === provider.name
+    && Number(latest.amount) === kwota;
+
+  if (reusable) {
+    return {
+      status: 'ready',
+      url: latest.redirect_url,
+      sessionId: latest.session_id,
+      amount: kwota,
+      provider: latest.provider,
+      reused: true,
+    };
+  }
+
+  await queries.cancelPendingPayments(reservationId, 'settlement');
+
+  const created = await createPaymentForReservation(reservation, customerIp, {
+    kind: 'settlement',
+    amount: kwota,
+    label: opis,
+  });
+  if (!created) {
+    return {
+      status: 'unavailable',
+      reason: 'Nie udało się utworzyć płatności online',
+      amount: kwota,
+      canPayManually: true,
+    };
+  }
+
+  return {
+    status: 'ready',
+    url: created.redirectUrl,
+    sessionId: created.sessionId,
+    amount: kwota,
     provider: provider.name,
     reused: false,
   };

@@ -4,7 +4,7 @@ import { z, ZodError } from 'zod';
 import { queries } from './db.js';
 import { config } from './config.js';
 import { verifyPassword, verifyScryptHash, hashPassword, issueToken, verifyToken } from './auth.js';
-import { sendContactReply, sendReservationStatusEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail } from './email.js';
+import { sendContactReply, sendReservationStatusEmail, sendRentalTermChangedEmail, sendNewsletterEmail, sendProductAvailabilityNotification, sendCouponEmail, sendPaymentLinkEmail, sendSettlementRequestEmail } from './email.js';
 import { calculateRentalItemsPrice, getProductName, products } from './products.js';
 import {
   newsletterPostSchema,
@@ -18,7 +18,7 @@ import { buildDefaultHandoverItems, contractDetailsSchema, createContractSchema,
 import { getOrCreateHandoverDraft, saveHandoverDraft, signHandoverProtocol, readHandoverPdf } from './contracts/protocol-service.js';
 import { getOrCreateReturnDraft, saveReturnDraft, signReturnProtocol, readReturnPdf } from './contracts/return-service.js';
 import { deleteProductImage, productImageUpload, saveProductImage } from './product-images.js';
-import { resolvePaymentLink } from './payments/routes.js';
+import { resolvePaymentLink, resolveSettlementLink } from './payments/routes.js';
 import { describeRentalStage } from './reservation-stage.js';
 import { rozpiszKoszty } from './costs.js';
 import { opiszTermin, opiszMiejsca } from './rental-details.js';
@@ -787,6 +787,69 @@ router.get('/reservations/:id/return/pdf', adminAuth, async (req: Request, res: 
   } catch (error) {
     console.error('Return pdf error:', error);
     res.status(500).json({ success: false, message: 'Nie udało się pobrać protokołu' });
+  }
+});
+
+// === DOPŁATY ROZLICZENIOWE ===
+// Koszt naprawy znany dopiero po fakturze serwisu, dopłata z protokołu zwrotu.
+// To osobna należność od czynszu najmu — ma własną kwotę i własny link.
+const doplataSchema = z.object({
+  amount: z.number().positive('Kwota dopłaty musi być większa od zera').max(100000),
+  label: z.string().trim().min(3, 'Opisz, czego dotyczy dopłata').max(160),
+  wyslijMailem: z.boolean().default(true),
+});
+
+router.get('/reservations/:id/settlements', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const doplaty = await queries.getSettlementPayments(Number(req.params.id));
+    res.json({ success: true, data: doplaty });
+  } catch (error) {
+    console.error('Admin settlements error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się pobrać dopłat' });
+  }
+});
+
+router.post('/reservations/:id/settlements', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = doplataSchema.parse(req.body);
+    const reservation = await queries.getReservationById(Number(req.params.id));
+    if (!reservation) {
+      res.status(404).json({ success: false, message: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+
+    const link = await resolveSettlementLink(reservation.id, input.amount, input.label, '127.0.0.1');
+    if (link.status !== 'ready') {
+      const powod = link.status === 'paid' ? 'Ta dopłata została już opłacona' : link.reason;
+      res.status(409).json({ success: false, message: powod });
+      return;
+    }
+
+    let wyslano = false;
+    if (input.wyslijMailem) {
+      const wynik = await sendSettlementRequestEmail(reservation.email, reservation.name, {
+        kwota: input.amount,
+        opis: input.label,
+        link: link.url,
+        numerRezerwacji: reservation.id,
+      });
+      wyslano = wynik.delivered;
+    }
+
+    res.json({
+      success: true,
+      message: wyslano
+        ? `Dopłata ${input.amount.toFixed(2)} zł wysłana do klienta`
+        : `Dopłata ${input.amount.toFixed(2)} zł przygotowana — skopiuj link i przekaż klientowi`,
+      data: { ...link, wyslano },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Nieprawidłowe dane dopłaty' });
+      return;
+    }
+    console.error('Admin settlement create error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się przygotować dopłaty' });
   }
 });
 

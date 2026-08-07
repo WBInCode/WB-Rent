@@ -202,9 +202,17 @@ export const calculateRentalItemsPrice = (
   };
 };
 
-// 20 zł each way, matching the public calculator (+40 zł total)
-export const DELIVERY_FEE = 40;
-export const WEEKEND_PICKUP_FEE = 30;
+/**
+ * Stawki zgodne z §12 umowy: obie są liczone „każdorazowo", czyli od kursu
+ * i od zdarzenia, a nie raz na najem. Dowóz i odbiór to dwa osobne kursy,
+ * więc komplet kosztuje 2 × 20 zł — tyle samo co dotychczasowy ryczałt.
+ */
+export const DELIVERY_LEG_FEE = 20;
+export const WEEKEND_SERVICE_FEE = 30;
+
+/** Zgodne nazwy dla kodu, który jeszcze nie rozróżnia kursów. */
+export const DELIVERY_FEE = DELIVERY_LEG_FEE * 2;
+export const WEEKEND_PICKUP_FEE = WEEKEND_SERVICE_FEE;
 
 /** Wszystkie urzadzenia rezerwacji - pozycje zestawu albo pojedynczy produkt. */
 export const reservationProductIds = (reservation: any): string[] => {
