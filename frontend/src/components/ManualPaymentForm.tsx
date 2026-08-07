@@ -24,7 +24,7 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
   const [otwarte, setOtwarte] = useState(false);
   const [metoda, setMetoda] = useState<ManualPaymentMethod>('cash');
   const [kwota, setKwota] = useState(String(amount));
-  const [pracownik, setPracownik] = useState(() => localStorage.getItem('wb-rent-employee-name') || '');
+  const [pracownik, setPracownik] = useState('');
   const [potwierdzone, setPotwierdzone] = useState(false);
   const [zapisywanie, setZapisywanie] = useState(false);
 
@@ -40,7 +40,6 @@ export function ManualPaymentForm({ reservationId, amount, onDone }: ManualPayme
       response.success ? 'success' : 'error'
     );
     if (response.success) {
-      localStorage.setItem('wb-rent-employee-name', pracownik.trim());
       setOtwarte(false);
       setPotwierdzone(false);
     }

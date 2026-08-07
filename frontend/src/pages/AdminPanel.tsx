@@ -656,6 +656,7 @@ export function AdminPanel() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [statusFilter, setStatusFilter] = useState<KluczFiltru>('aktywne');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [employeeNameDraft, setEmployeeNameDraft] = useState('');
 
   const [statusFor, setStatusFor] = useState<Reservation | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -663,7 +664,7 @@ export function AdminPanel() {
   const [statusForm, setStatusForm] = useState({
     targetStatus: 'pending',
     note: '',
-    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    changedBy: employeeNameDraft,
     notifyCustomer: false,
   });
 
@@ -675,7 +676,7 @@ export function AdminPanel() {
     endTime: '09:00',
     isIndefinite: false,
     note: '',
-    changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+    changedBy: employeeNameDraft,
   });
 
   // Employee-assisted rental contract / kiosk flow
@@ -692,7 +693,7 @@ export function AdminPanel() {
     documentType: 'dowod_osobisty',
     documentNumber: '',
     pesel: '',
-    employeeName: localStorage.getItem('wb-rent-employee-name') || '',
+    employeeName: employeeNameDraft,
     deposit: 300,
     accessories: '',
     conditionNotes: 'Sprzęt sprawny, kompletny, bez widocznych uszkodzeń.',
@@ -763,7 +764,7 @@ export function AdminPanel() {
     setStatusForm({
       targetStatus,
       note: '',
-      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+      changedBy: employeeNameDraft,
       notifyCustomer: CUSTOMER_STATUS_EMAILS.includes(targetStatus),
     });
     const response = await getReservationStatusChanges(reservation.id);
@@ -802,7 +803,7 @@ export function AdminPanel() {
     }
 
     if (response.success) {
-      localStorage.setItem('wb-rent-employee-name', statusForm.changedBy.trim());
+      setEmployeeNameDraft(statusForm.changedBy.trim());
       setReservations((current) => current.map((reservation) =>
         reservation.id === statusFor.id
           ? { ...reservation, status: statusForm.targetStatus }
@@ -827,7 +828,7 @@ export function AdminPanel() {
       endTime: reservation.end_time || '09:00',
       isIndefinite: false,
       note: '',
-      changedBy: localStorage.getItem('wb-rent-employee-name') || '',
+      changedBy: employeeNameDraft,
     });
     const response = await getReservationTermChanges(reservation.id);
     if (response.success && Array.isArray(response.data)) {
@@ -847,7 +848,7 @@ export function AdminPanel() {
       changedBy: termForm.changedBy.trim(),
     });
     if (response.success) {
-      localStorage.setItem('wb-rent-employee-name', termForm.changedBy.trim());
+      setEmployeeNameDraft(termForm.changedBy.trim());
       const delta = Number(response.data?.priceDelta || 0);
       showToast(
         'success',
@@ -891,7 +892,7 @@ export function AdminPanel() {
       deposit: Number(contractForm.deposit),
     });
     if (response.success && response.data) {
-      localStorage.setItem('wb-rent-employee-name', contractForm.employeeName);
+      setEmployeeNameDraft(contractForm.employeeName.trim());
       setContractSession(response.data);
       showToast('success', 'Umowa gotowa do podpisu');
       void loadData();
