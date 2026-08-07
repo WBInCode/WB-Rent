@@ -323,6 +323,24 @@ export async function signContract(data: {
     fileHash: pdfHash,
   }).catch((error) => console.error('Register contract document error:', error));
 
+  // Przy obsłudze przy ladzie protokół wydania powstaje kilka minut później.
+  // Dwie wiadomości pod rząd o tej samej transakcji wyglądają jak spam, więc
+  // umowa czeka i pojedzie razem z protokołem (zaległości pilnuje harmonogram).
+  const rezerwacja = await queries.getReservationById(snapshot.rental.reservationId);
+  if (rezerwacja?.staff_assisted) {
+    await queries.deferContractEmail(contract.id);
+    return {
+      id: contract.id as number,
+      reservationId: snapshot.rental.reservationId,
+      contractNumber: snapshot.contractNumber,
+      pdf,
+      pdfHash,
+      snapshot,
+      emailDelivered: false,
+      emailTransport: 'deferred' as const,
+    };
+  }
+
   const emailResult = await sendSignedContractEmail(
     snapshot.renter.email,
     snapshot.renter.name,

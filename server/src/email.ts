@@ -1072,7 +1072,10 @@ export const sendHandoverProtocolEmail = async (
     linkPlatnosci?: string | null;
     linkPrzedluzenia?: string | null;
     bezterminowo?: boolean;
-  }
+    /** Ustawiony, gdy umowa jedzie w tej samej wiadomości (obsługa przy ladzie). */
+    numerUmowy?: string | null;
+  },
+  dodatkoweZalaczniki: EmailAttachment[] = []
 ) => {
   const safeName = esc(customerName);
   const safeNumber = esc(protocolNumber);
@@ -1144,8 +1147,12 @@ export const sendHandoverProtocolEmail = async (
       </div>` : ''}
 
       <p style="color: #e5e5e5; line-height: 1.6;">
-        W załączniku znajdziesz podpisany protokół wydania <strong>${safeNumber}</strong>.
-        Zachowaj go do końca najmu — przy zwrocie porównamy z nim stan sprzętu.
+        ${kontekst?.numerUmowy
+          ? `W załączniku znajdziesz podpisaną <strong>umowę najmu ${esc(kontekst.numerUmowy)}</strong>,
+             <strong>protokół wydania ${safeNumber}</strong> oraz instrukcje obsługi sprzętu.
+             Zachowaj te dokumenty do końca najmu — przy zwrocie porównamy z nimi stan sprzętu.`
+          : `W załączniku znajdziesz podpisany protokół wydania <strong>${safeNumber}</strong>.
+             Zachowaj go do końca najmu — przy zwrocie porównamy z nim stan sprzętu.`}
       </p>
 
       <p style="color: #a1a1aa; font-size: 14px; margin-top: 20px;">
@@ -1168,6 +1175,7 @@ export const sendHandoverProtocolEmail = async (
       content: pdf,
       contentType: 'application/pdf',
     },
+    ...dodatkoweZalaczniki,
   ]);
 };
 

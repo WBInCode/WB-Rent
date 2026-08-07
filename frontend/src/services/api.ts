@@ -257,6 +257,30 @@ export async function checkDeliveryArea(
   return odpowiedz.data ?? { wObszarze: false, powod: 'Nie udało się sprawdzić adresu', oplataZaKurs: 20 };
 }
 
+// === PRZEDŁUŻENIE NAJMU ===
+
+export interface ExtensionQuote {
+  nowyTermin: { dataSlownie: string; dzienTygodnia: string; godzina: string } | null;
+  dni: number;
+  dotychczasowaKwota: number;
+  nowaKwota: number;
+  doplata: number;
+}
+
+export async function quoteExtension(reservationId: number, token: string, newEndDate: string) {
+  return apiFetch<ExtensionQuote>(`/my-reservations/${reservationId}/extension/quote`, {
+    method: 'POST',
+    body: JSON.stringify({ token, newEndDate }),
+  });
+}
+
+export async function startExtension(reservationId: number, token: string, newEndDate: string) {
+  return apiFetch<{ numerAneksu: string; doplata: number; nowaKwota: number; redirectUrl: string; wygasa: string }>(
+    `/my-reservations/${reservationId}/extension`,
+    { method: 'POST', body: JSON.stringify({ token, newEndDate }) }
+  );
+}
+
 // Notify me when product is available
 export interface NotifyAvailabilityPayload {
   productId: string;

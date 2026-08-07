@@ -5,6 +5,7 @@ import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNot
 import { queries } from './db.js';
 import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, WEEKEND_SERVICE_FEE } from './products.js';
 import { ocenAdresDostawy, znormalizujKod } from './delivery-area.js';
+import { extensionRequestSchema, rozpocznijPrzedluzenie, wycenPrzedluzenie, MINUT_NA_PLATNOSC } from './rental-extensions.js';
 import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
 import {
   couponRejectionReason,
@@ -321,6 +322,9 @@ router.post('/reservations', async (req: Request, res: Response) => {
       deliveryBack: odbior ? 1 : 0,
       postalCode: znormalizujKod(data.postalCode) || undefined,
       address: data.address || undefined,
+      // Wynajem zakladany przez pracownika: umowa i protokol wydania powstaja
+      // w odstepie minut, wiec maile lacza sie w jeden.
+      staffAssisted: isStaff,
       name: fullName,
       email: data.email,
       phone: data.phone,
@@ -867,6 +871,78 @@ router.post('/my-reservations/:id/cancel', async (req: Request, res: Response) =
   } catch (error) {
     console.error('Cancel reservation error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
+  }
+});
+
+// === PRZEDŁUŻENIE NAJMU ===
+// Aneks powstaje od razu, ale wiąże Strony dopiero po zapłacie (§5 ust. 3 umowy).
+
+/** Wspólne sprawdzenie: token pasuje do rezerwacji. */
+async function rezerwacjaKlienta(req: Request) {
+  const email = verifyCustomerToken(String(req.body?.token || req.query?.token || ''));
+  if (!email) return { blad: 'Link wygasł lub jest nieprawidłowy. Poproś o nowy.', kod: 401 as const };
+  const rezerwacja = await queries.getReservationById(Number(req.params.id));
+  if (!rezerwacja || rezerwacja.email.toLowerCase() !== email.toLowerCase()) {
+    return { blad: 'Rezerwacja nie znaleziona', kod: 404 as const };
+  }
+  return { rezerwacja };
+}
+
+router.post('/my-reservations/:id/extension/quote', async (req: Request, res: Response) => {
+  try {
+    const kontekst = await rezerwacjaKlienta(req);
+    if (kontekst.blad) {
+      res.status(kontekst.kod).json({ success: false, message: kontekst.blad });
+      return;
+    }
+    const dane = extensionRequestSchema.parse(req.body);
+    const wynik = await wycenPrzedluzenie(kontekst.rezerwacja.id, dane);
+    if (!wynik.ok) {
+      res.status(400).json({ success: false, message: wynik.powod });
+      return;
+    }
+    res.json({ success: true, data: wynik.wycena });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź podany termin' });
+      return;
+    }
+    console.error('Extension quote error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się wycenić przedłużenia' });
+  }
+});
+
+router.post('/my-reservations/:id/extension', async (req: Request, res: Response) => {
+  try {
+    const kontekst = await rezerwacjaKlienta(req);
+    if (kontekst.blad) {
+      res.status(kontekst.kod).json({ success: false, message: kontekst.blad });
+      return;
+    }
+    const dane = extensionRequestSchema.parse(req.body);
+    const wynik = await rozpocznijPrzedluzenie(kontekst.rezerwacja.id, dane, getClientIp(req));
+    if (!wynik.ok) {
+      res.status(409).json({ success: false, message: wynik.powod });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Masz ${MINUT_NA_PLATNOSC} minut na opłacenie dopłaty. Sprzęt jest zarezerwowany.`,
+      data: {
+        numerAneksu: wynik.aneks.numer,
+        doplata: wynik.wycena.doplata,
+        nowaKwota: wynik.wycena.nowaKwota,
+        redirectUrl: wynik.platnosc.redirectUrl,
+        wygasa: wynik.wygasa,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: error.issues[0]?.message || 'Sprawdź podany termin' });
+      return;
+    }
+    console.error('Extension start error:', error);
+    res.status(500).json({ success: false, message: 'Nie udało się rozpocząć przedłużenia' });
   }
 });
 

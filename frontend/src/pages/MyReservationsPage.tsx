@@ -10,9 +10,11 @@ import {
   CreditCard,
   Ban,
   Check,
+  CalendarPlus,
 } from 'lucide-react';
 import { Button, Card, Badge, Input } from '@/components/ui';
 import { UtilityPageShell } from '@/components/UtilityPageShell';
+import { PrzedluzenieNajmu } from '@/components/PrzedluzenieNajmu';
 import { opiszEtapDlaKlienta, type StageTone } from '@/utils/rentalStage';
 import {
   requestMyReservationsLink,
@@ -48,6 +50,7 @@ export function MyReservationsPage() {
   const [reservations, setReservations] = useState<MyReservation[]>([]);
   const [ownerEmail, setOwnerEmail] = useState('');
   const [paymentsEnabled, setPaymentsEnabled] = useState(false);
+  const [extendFor, setExtendFor] = useState<{ id: number; koniec: string } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -122,6 +125,10 @@ export function MyReservationsPage() {
   const canCancel = (r: MyReservation) => !r.cancelBlockedReason;
 
   const canPay = (r: MyReservation) => paymentsEnabled && Boolean(r.canPayOnline);
+
+  // Przedłużyć można tylko trwający najem z ustalonym terminem zwrotu.
+  const canExtend = (r: MyReservation) =>
+    ['confirmed', 'picked_up'].includes(r.status) && !r.is_indefinite && Boolean(r.end_date);
 
   return (
     <UtilityPageShell maxWidth="3xl">
@@ -270,6 +277,16 @@ export function MyReservationsPage() {
                           Opłać
                         </Button>
                       )}
+                      {canExtend(r) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setExtendFor({ id: r.id, koniec: String(r.end_date).slice(0, 10) })}
+                        >
+                          <CalendarPlus className="w-4 h-4 mr-1.5" />
+                          Przedłuż
+                        </Button>
+                      )}
                       {canCancel(r) && (
                         <Button
                           variant="ghost"
@@ -289,6 +306,15 @@ export function MyReservationsPage() {
               })
             )}
           </div>
+        )}
+
+        {extendFor && (
+          <PrzedluzenieNajmu
+            reservationId={extendFor.id}
+            token={token}
+            obecnyKoniec={extendFor.koniec}
+            onClose={() => setExtendFor(null)}
+          />
         )}
     </UtilityPageShell>
   );

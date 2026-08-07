@@ -203,7 +203,7 @@ export async function resolveSettlementLink(
     };
   }
 
-  const latest = await queries.getLatestPaymentForReservation(reservationId, 'settlement');
+  const latest = await queries.getSettlementByLabel(reservationId, opis);
   if (latest?.status === 'paid' && Number(latest.amount) === kwota) {
     return { status: 'paid' };
   }
@@ -224,7 +224,9 @@ export async function resolveSettlementLink(
     };
   }
 
-  await queries.cancelPendingPayments(reservationId, 'settlement');
+  // Unieważniamy wyłącznie poprzednią wersję tej samej należności — inne
+  // dopłaty tej rezerwacji (np. trwające przedłużenie) muszą zostać nietknięte.
+  await queries.cancelPendingPayments(reservationId, 'settlement', opis);
 
   const created = await createPaymentForReservation(reservation, customerIp, {
     kind: 'settlement',
@@ -361,6 +363,29 @@ router.post('/webhook/:provider', async (req: Request, res: Response) => {
         externalId: result.externalId,
       });
       console.log(`💳 Payment ${result.sessionId} -> ${result.status} (${providerName})`);
+
+      // Aneks wiąże Strony dopiero po zaksięgowaniu wpłaty (§5 ust. 3 umowy).
+      if (result.status === 'paid') {
+        const { aktywujPrzedluzenie } = await import('../rental-extensions.js');
+        const aktywowany = await aktywujPrzedluzenie(result.sessionId).catch((err) => {
+          console.error('Nie udało się aktywować przedłużenia:', err);
+          return null;
+        });
+        if (aktywowany) {
+          console.log(`📄 Aneks ${aktywowany.extension.number} wszedł w życie`);
+          const { sendRentalTermChangedEmail } = await import('../email.js');
+          const { reservationProductNames } = await import('../products.js');
+          await sendRentalTermChangedEmail({
+            email: aktywowany.reservation.email,
+            name: aktywowany.reservation.name,
+            productName: reservationProductNames(aktywowany.reservation),
+            endDate: String(aktywowany.reservation.end_date).slice(0, 10),
+            totalPrice: Number(aktywowany.reservation.total_price),
+            priceDelta: Number(aktywowany.extension.surcharge),
+            note: `Aneks ${aktywowany.extension.number} — przedłużenie opłacone`,
+          }).catch((err) => console.error('Mail o przedłużeniu:', err));
+        }
+      }
     }
 
     res.status(200).json({ success: true });

@@ -3,8 +3,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { queries } from '../db.js';
-import { getProductName, reservationProductNames } from '../products.js';
+import { getProductName, reservationProductNames, reservationProductIds } from '../products.js';
 import { sendHandoverProtocolEmail } from '../email.js';
+import { collectRentalAttachments } from '../rental-attachments.js';
 import { resolvePaymentLink } from '../payments/routes.js';
 import { issueCustomerToken } from '../auth.js';
 import { opiszMiejsca } from '../rental-details.js';
@@ -268,6 +269,24 @@ export async function signHandoverProtocol(data: {
     ? `${config.siteUrl}/moje-rezerwacje?token=${encodeURIComponent(token)}`
     : null;
 
+  // Umowa wstrzymana przy obsłudze przy ladzie dojeżdża tutaj, razem
+  // z protokołem i instrukcjami — jedna wiadomość zamiast trzech.
+  const umowa = await queries.getContractByReservationId(data.reservationId);
+  const czekaUmowa = Boolean(umowa && umowa.status === 'signed' && !umowa.email_sent_at && umowa.pdf_path);
+  const zalaczniki: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
+  if (czekaUmowa) {
+    try {
+      zalaczniki.push({
+        filename: `umowa-${String(umowa.contract_number).replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+        content: decryptContractData(await fs.readFile(umowa.pdf_path, 'utf8')),
+        contentType: 'application/pdf',
+      });
+      zalaczniki.push(...await collectRentalAttachments(reservationProductIds(rezerwacja)));
+    } catch (error) {
+      console.error('Nie udało się dołączyć umowy do maila wydania:', error);
+    }
+  }
+
   const emailResult = finalny.renter.email
     ? await sendHandoverProtocolEmail(finalny.renter.email, finalny.renter.name, finalny.protocolNumber, pdf, {
         productName: reservationProductNames(rezerwacja),
@@ -277,8 +296,13 @@ export async function signHandoverProtocol(data: {
         linkPlatnosci: platnosc?.status === 'ready' ? platnosc.url : null,
         linkPrzedluzenia: linkStrefy,
         bezterminowo: Boolean(rezerwacja?.is_indefinite),
-      })
+        numerUmowy: czekaUmowa && zalaczniki.length > 0 ? String(umowa.contract_number) : null,
+      }, zalaczniki)
     : { delivered: false, transport: 'none' as const };
+
+  if (czekaUmowa && zalaczniki.length > 0 && emailResult.delivered) {
+    await queries.markContractEmailed(umowa.id);
+  }
 
   return {
     protocolNumber: finalny.protocolNumber,

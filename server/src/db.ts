@@ -540,6 +540,53 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
       UPDATE reservations SET delivery_out = 1, delivery_back = 1 WHERE delivery = 1;
     `,
   },
+  {
+    version: 19,
+    name: 'staff-assisted-rental',
+    sql: `
+      -- Gdy pracownik obsluguje klienta przy ladzie, umowa i protokol wydania
+      -- powstaja w odstepie minut. Dwa maile pod rzad o tej samej transakcji
+      -- wygladaja jak spam, wiec ida razem - ten znacznik mowi, kiedy czekac.
+      ALTER TABLE reservations ADD COLUMN IF NOT EXISTS staff_assisted INTEGER NOT NULL DEFAULT 0;
+      -- Umowa czekajaca na dolaczenie do maila wydania. Gdyby wydanie nie
+      -- doszlo do skutku, zaleglosc wysyla harmonogram.
+      ALTER TABLE rental_contracts ADD COLUMN IF NOT EXISTS email_deferred_at TIMESTAMP;
+    `,
+  },
+  {
+    version: 20,
+    name: 'rental-extensions',
+    sql: `
+      -- Przedluzenie najmu to aneks: wchodzi w zycie dopiero po zaplacie
+      -- (par. 5 ust. 3 umowy). Do tego czasu sprzet jest zablokowany, zeby
+      -- nikt nie zarezerwowal go na termin, ktory wlasnie jest oplacany.
+      CREATE TABLE IF NOT EXISTS rental_extensions (
+        id SERIAL PRIMARY KEY,
+        reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+        number TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'expired', 'cancelled')),
+        previous_end_date DATE,
+        previous_end_time TEXT,
+        previous_total REAL NOT NULL,
+        new_end_date DATE NOT NULL,
+        new_end_time TEXT NOT NULL,
+        new_days INTEGER NOT NULL,
+        new_base_price REAL NOT NULL,
+        new_total REAL NOT NULL,
+        surcharge REAL NOT NULL,
+        payment_session_id TEXT,
+        -- Blokada sprzetu wygasa razem z terminem na platnosc.
+        expires_at TIMESTAMP NOT NULL,
+        paid_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_rental_extensions_reservation
+        ON rental_extensions (reservation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_rental_extensions_pending
+        ON rental_extensions (status, expires_at);
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -867,6 +914,7 @@ export const queries = {
     deliveryOut?: number;
     deliveryBack?: number;
     postalCode?: string;
+    staffAssisted?: boolean;
     address?: string;
     name: string;
     email: string;
@@ -914,7 +962,12 @@ export const queries = {
          LEFT JOIN reservations r ON r.id = ri.reservation_id
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($2::date, 'infinity'::date)
-           AND COALESCE(r.end_date, 'infinity'::date) > $3::date
+           -- Trwające przedłużenie blokuje sprzęt na czas płatności: klient nie
+           -- może opłacać terminu, który ktoś inny właśnie zajmuje.
+           AND COALESCE((
+                 SELECT MAX(e.new_end_date) FROM rental_extensions e
+                 WHERE e.reservation_id = r.id AND e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
+               ), r.end_date, 'infinity'::date) > $3::date
          GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active, p.condition_status
          HAVING p.id IS NULL
             OR NOT p.is_active
@@ -936,9 +989,9 @@ export const queries = {
           days, base_price, delivery_fee, weekend_fee, total_price,
           discount_code, discount_label, discount_amount,
           price_override_note, price_set_by,
-          ip_address
+          ip_address, staff_assisted
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
         ) RETURNING id`,
         [
           data.categoryId, data.productId, data.startDate, data.endDate, data.isIndefinite, data.startTime, data.endTime,
@@ -949,7 +1002,7 @@ export const queries = {
           data.days, data.basePrice, data.deliveryFee, data.weekendFee, data.totalPrice,
           data.discountCode || null, data.discountLabel || '', data.discountAmount || 0,
           data.priceOverrideNote || '', data.priceSetBy || '',
-          data.ipAddress
+          data.ipAddress, data.staffAssisted ? 1 : 0
         ]
       );
 
@@ -1212,6 +1265,197 @@ export const queries = {
        WHERE reservation_id = $1
        ORDER BY created_at DESC, id DESC`,
       [id]
+    );
+    return result.rows;
+  },
+
+  // === ANEKSY (przedłużenie najmu) ===
+
+  /**
+   * Zakłada aneks i blokuje sprzęt na czas płatności.
+   *
+   * Blokada jest konieczna, bo między utworzeniem aneksu a zapłatą ktoś inny
+   * mógłby zarezerwować ten sam sprzęt na termin, który klient właśnie opłaca.
+   */
+  createRentalExtension: async (data: {
+    reservationId: number;
+    number: string;
+    newEndDate: string;
+    newEndTime: string;
+    newDays: number;
+    newBasePrice: number;
+    newTotal: number;
+    surcharge: number;
+    minutNaPlatnosc: number;
+  }): Promise<{ extension?: any; conflicts?: any[]; blocked?: string }> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = (await client.query(`SELECT * FROM reservations WHERE id = $1 FOR UPDATE`, [data.reservationId])).rows[0];
+      if (!current) throw new Error('Rezerwacja nie istnieje');
+
+      // Jeden żywy aneks naraz — inaczej klient mógłby opłacić dwa różne terminy.
+      const otwarty = await client.query(
+        `SELECT id FROM rental_extensions
+         WHERE reservation_id = $1 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP`,
+        [data.reservationId]
+      );
+      if (otwarty.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return { blocked: 'Masz już rozpoczęte przedłużenie — dokończ płatność albo poczekaj, aż wygaśnie' };
+      }
+
+      const items = await client.query(
+        `SELECT product_id FROM reservation_items WHERE reservation_id = $1 ORDER BY product_id`,
+        [data.reservationId]
+      );
+      const productIds = items.rows.map((item) => String(item.product_id));
+      for (const productId of productIds) {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [productId]);
+      }
+
+      const conflicts = await client.query(
+        `SELECT requested.product_id,
+                MIN(r.start_date) AS start_date,
+                MAX(r.end_date) AS end_date,
+                COUNT(DISTINCT r.id)::integer AS reserved_quantity,
+                ${rentableQuantitySql()} AS rentable_quantity
+         FROM unnest($1::text[]) AS requested(product_id)
+         LEFT JOIN products p ON p.id = requested.product_id
+         LEFT JOIN reservation_items ri ON ri.product_id = requested.product_id
+         LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
+           AND r.status IN ('pending', 'confirmed', 'picked_up')
+           AND r.start_date < $3::date
+           AND COALESCE(r.end_date, 'infinity'::date) > $4::date
+         GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
+         HAVING p.id IS NULL
+            OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
+        [productIds, data.reservationId, data.newEndDate, current.end_date || current.start_date]
+      );
+      if (conflicts.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return { conflicts: conflicts.rows };
+      }
+
+      const wynik = await client.query(
+        `INSERT INTO rental_extensions (
+           reservation_id, number, previous_end_date, previous_end_time, previous_total,
+           new_end_date, new_end_time, new_days, new_base_price, new_total, surcharge, expires_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP + ($12 || ' minutes')::interval)
+         RETURNING *`,
+        [
+          data.reservationId, data.number, current.end_date, current.end_time, current.total_price,
+          data.newEndDate, data.newEndTime, data.newDays, data.newBasePrice, data.newTotal, data.surcharge,
+          String(data.minutNaPlatnosc),
+        ]
+      );
+      await client.query('COMMIT');
+      return { extension: wynik.rows[0] };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  attachExtensionPayment: async (id: number, sessionId: string) => {
+    await pool.query(
+      `UPDATE rental_extensions SET payment_session_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [sessionId, id]
+    );
+  },
+
+  getExtensionBySession: async (sessionId: string) => {
+    const result = await pool.query(`SELECT * FROM rental_extensions WHERE payment_session_id = $1`, [sessionId]);
+    return result.rows[0];
+  },
+
+  getExtensionsForReservation: async (reservationId: number) => {
+    const result = await pool.query(
+      `SELECT * FROM rental_extensions WHERE reservation_id = $1 ORDER BY created_at DESC`,
+      [reservationId]
+    );
+    return result.rows;
+  },
+
+  /**
+   * Zapłacony aneks wchodzi w życie: przesuwa termin i podnosi kwotę najmu.
+   * Do tej chwili nie zmienia niczego poza blokadą sprzętu.
+   */
+  activateRentalExtension: async (sessionId: string) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const aneks = (await client.query(
+        `SELECT * FROM rental_extensions WHERE payment_session_id = $1 FOR UPDATE`,
+        [sessionId]
+      )).rows[0];
+      if (!aneks || aneks.status !== 'pending') {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      await client.query(
+        `UPDATE rental_extensions SET status = 'paid', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [aneks.id]
+      );
+      const rezerwacja = (await client.query(
+        `UPDATE reservations
+         SET end_date = $1, end_time = $2, days = $3, base_price = $4, total_price = $5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6
+         RETURNING *`,
+        [aneks.new_end_date, aneks.new_end_time, aneks.new_days, aneks.new_base_price, aneks.new_total, aneks.reservation_id]
+      )).rows[0];
+
+      await client.query(
+        `INSERT INTO reservation_term_changes
+           (reservation_id, previous_end_date, previous_end_time, new_end_date, new_end_time,
+            previous_total, new_total, note, changed_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          aneks.reservation_id, aneks.previous_end_date, aneks.previous_end_time,
+          aneks.new_end_date, aneks.new_end_time, aneks.previous_total, aneks.new_total,
+          `Aneks ${aneks.number} — przedłużenie opłacone przez klienta`, 'Klient',
+        ]
+      ).catch(() => undefined);
+
+      await client.query('COMMIT');
+      return { extension: { ...aneks, status: 'paid' }, reservation: rezerwacja };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  /**
+   * Nieopłacone aneksy po terminie. Zostają w bazie jako „niewiążące", żeby
+   * z historii dało się odczytać, że przedłużenie było próbowane.
+   */
+  expireStaleExtensions: async () => {
+    const result = await pool.query(
+      `UPDATE rental_extensions
+       SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'pending' AND expires_at <= CURRENT_TIMESTAMP
+       RETURNING id, reservation_id, payment_session_id`
+    );
+    return result.rows;
+  },
+
+  /** Terminy zablokowane przez trwające płatności za przedłużenie. */
+  getActiveExtensionHolds: async (productIds: string[]) => {
+    if (productIds.length === 0) return [];
+    const result = await pool.query(
+      `SELECT DISTINCT ri.product_id, e.new_end_date, r.start_date
+       FROM rental_extensions e
+       JOIN reservations r ON r.id = e.reservation_id
+       JOIN reservation_items ri ON ri.reservation_id = e.reservation_id
+       WHERE e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
+         AND ri.product_id = ANY($1::text[])`,
+      [productIds]
     );
     return result.rows;
   },
@@ -1981,6 +2225,17 @@ export const queries = {
     return result.rows[0];
   },
 
+  /** Ostatnia próba zapłaty tej samej należności — rozpoznawana po opisie. */
+  getSettlementByLabel: async (reservationId: number, label: string) => {
+    const result = await pool.query(
+      `SELECT * FROM payments
+       WHERE reservation_id = $1 AND kind = 'settlement' AND label = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [reservationId, label]
+    );
+    return result.rows[0];
+  },
+
   /** Dopłaty rozliczeniowe rezerwacji — panel pokazuje je obok czynszu najmu. */
   getSettlementPayments: async (reservationId: number) => {
     const result = await pool.query(
@@ -1993,12 +2248,16 @@ export const queries = {
   },
 
   /** Retires older sessions so only one payment link per reservation stays open. */
-  cancelPendingPayments: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental') => {
+  cancelPendingPayments: async (reservationId: number, kind: 'rental' | 'settlement' = 'rental', label?: string) => {
+    // Dopłaty rozliczeniowe bywają różne i niezależne (naprawa, przedłużenie),
+    // więc unieważniamy tylko poprzednią wersję tej samej należności — inaczej
+    // dodanie kosztu naprawy kasowałoby trwającą płatność za przedłużenie.
     const result = await pool.query(
       `UPDATE payments SET status = 'cancelled'
        WHERE reservation_id = $1 AND status = 'pending' AND kind = $2
+         AND ($3::text IS NULL OR label = $3)
        RETURNING session_id`,
-      [reservationId, kind]
+      [reservationId, kind, label ?? null]
     );
     return result.rows;
   },
@@ -2203,9 +2462,35 @@ export const queries = {
 
   markContractEmailed: async (id: number) => {
     await pool.query(
-      `UPDATE rental_contracts SET email_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      `UPDATE rental_contracts
+       SET email_sent_at = CURRENT_TIMESTAMP, email_deferred_at = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
       [id]
     );
+  },
+
+  /** Umowa czeka, żeby pójść razem z protokołem wydania — jednym mailem. */
+  deferContractEmail: async (id: number) => {
+    await pool.query(
+      `UPDATE rental_contracts SET email_deferred_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [id]
+    );
+  },
+
+  /**
+   * Umowy, które miały pojechać razem z wydaniem, ale wydanie nie doszło do
+   * skutku. Bez tego klient nigdy nie dostałby podpisanego dokumentu.
+   */
+  getStaleDeferredContracts: async (godzin = 2) => {
+    const result = await pool.query(
+      `SELECT c.* FROM rental_contracts c
+       WHERE c.status = 'signed'
+         AND c.email_sent_at IS NULL
+         AND c.email_deferred_at IS NOT NULL
+         AND c.email_deferred_at < CURRENT_TIMESTAMP - ($1 || ' hours')::interval`,
+      [String(godzin)]
+    );
+    return result.rows;
   },
 
   updateContractPdfHash: async (id: number, pdfHash: string) => {

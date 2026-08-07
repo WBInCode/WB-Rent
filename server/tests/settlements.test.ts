@@ -17,7 +17,12 @@ vi.mock('../src/db.js', () => ({
     getReservationById: async (id: number) =>
       id === 999 ? null : { id, product_id: 'puzzi-10-1', email: 'k@example.com', total_price: 190, status: 'returned', payment_status: 'unpaid' },
     getLatestPaymentForReservation: async (_id: number, kind: string) => stanPlatnosci[kind],
-    cancelPendingPayments: async (_id: number, kind: string) => { delete stanPlatnosci[kind]; return []; },
+    getSettlementByLabel: async (_id: number, label: string) => stanPlatnosci[`settlement:${label}`],
+    cancelPendingPayments: async (_id: number, kind: string, label?: string) => {
+      if (label) delete stanPlatnosci[`settlement:${label}`];
+      else delete stanPlatnosci[kind];
+      return [];
+    },
     insertPayment: async (dane: any) => { zapisane.push(dane); return { lastInsertRowid: zapisane.length }; },
     hasSignedContract: async () => true,
   },
@@ -86,9 +91,9 @@ describe('dopłata rozliczeniowa', () => {
   it('ponawia ten sam link zamiast tworzyć drugi na tę samą kwotę', async () => {
     const pierwszy = await resolveSettlementLink(1, 150, 'Naprawa', '127.0.0.1');
     if (pierwszy.status !== 'ready') throw new Error('brak linku');
-    stanPlatnosci.settlement = {
+    stanPlatnosci['settlement:Naprawa'] = {
       status: 'pending', redirect_url: pierwszy.url, session_id: pierwszy.sessionId,
-      provider: 'testowy', amount: 150,
+      provider: 'testowy', amount: 150, label: 'Naprawa',
     };
     const drugi = await resolveSettlementLink(1, 150, 'Naprawa', '127.0.0.1');
     expect(drugi.status).toBe('ready');
@@ -100,11 +105,11 @@ describe('dopłata rozliczeniowa', () => {
   it('zmiana kwoty unieważnia poprzedni link — inaczej dałoby się zapłacić starą kwotę', async () => {
     const pierwszy = await resolveSettlementLink(1, 150, 'Naprawa', '127.0.0.1');
     if (pierwszy.status !== 'ready') throw new Error('brak linku');
-    stanPlatnosci.settlement = {
+    stanPlatnosci['settlement:Naprawa'] = {
       status: 'pending', redirect_url: pierwszy.url, session_id: pierwszy.sessionId,
-      provider: 'testowy', amount: 150,
+      provider: 'testowy', amount: 150, label: 'Naprawa',
     };
-    const drugi = await resolveSettlementLink(1, 220, 'Naprawa po wycenie', '127.0.0.1');
+    const drugi = await resolveSettlementLink(1, 220, 'Naprawa', '127.0.0.1');
     expect(drugi.status).toBe('ready');
     if (drugi.status !== 'ready') return;
     expect(drugi.reused).toBe(false);
@@ -113,16 +118,29 @@ describe('dopłata rozliczeniowa', () => {
   });
 
   it('opłacona dopłata nie generuje kolejnego linku na tę samą kwotę', async () => {
-    stanPlatnosci.settlement = { status: 'paid', amount: 150, provider: 'testowy' };
+    stanPlatnosci['settlement:Naprawa'] = { status: 'paid', amount: 150, provider: 'testowy', label: 'Naprawa' };
     const link = await resolveSettlementLink(1, 150, 'Naprawa', '127.0.0.1');
     expect(link.status).toBe('paid');
     expect(zapisane).toHaveLength(0);
   });
 
   it('kolejna, inna dopłata jest możliwa mimo opłaconej poprzedniej', async () => {
-    stanPlatnosci.settlement = { status: 'paid', amount: 150, provider: 'testowy' };
+    stanPlatnosci['settlement:Naprawa'] = { status: 'paid', amount: 150, provider: 'testowy', label: 'Naprawa' };
     const link = await resolveSettlementLink(1, 90, 'Brakująca dysza', '127.0.0.1');
     expect(link.status).toBe('ready');
     if (link.status === 'ready') expect(link.amount).toBe(90);
+  });
+
+  it('nowa dopłata nie kasuje trwającej płatności za przedłużenie', async () => {
+    const aneks = await resolveSettlementLink(1, 90, 'Przedłużenie najmu do 2026-08-14', '127.0.0.1');
+    if (aneks.status !== 'ready') throw new Error('brak linku aneksu');
+    stanPlatnosci['settlement:Przedłużenie najmu do 2026-08-14'] = {
+      status: 'pending', redirect_url: aneks.url, session_id: aneks.sessionId,
+      provider: 'testowy', amount: 90, label: 'Przedłużenie najmu do 2026-08-14',
+    };
+
+    await resolveSettlementLink(1, 185.5, 'Naprawa turbiny', '127.0.0.1');
+
+    expect(stanPlatnosci['settlement:Przedłużenie najmu do 2026-08-14']?.status).toBe('pending');
   });
 });
