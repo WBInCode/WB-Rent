@@ -670,6 +670,19 @@ const rentableQuantitySql = (alias = 'p') =>
   `CASE WHEN ${alias}.condition_status IN ('damaged', 'service') THEN 0
         ELSE GREATEST(${alias}.total_quantity - ${alias}.service_quantity, 0) END`;
 
+/**
+ * Do kiedy sprzęt jest zajęty przez daną rezerwację.
+ *
+ * Trwające przedłużenie blokuje termin na czas płatności — inaczej klient
+ * opłacałby okres, który ktoś inny właśnie rezerwuje. Wszystkie zapytania
+ * o kolizje muszą liczyć to tak samo, stąd jedno miejsce.
+ */
+const zajetyDoSql = (alias = 'r') =>
+  `COALESCE((
+     SELECT MAX(e.new_end_date) FROM rental_extensions e
+     WHERE e.reservation_id = ${alias}.id AND e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
+   ), ${alias}.end_date, 'infinity'::date)`;
+
 export const queries = {
   getProducts: async (includeInactive = false) => {
     const result = await pool.query(
@@ -962,12 +975,7 @@ export const queries = {
          LEFT JOIN reservations r ON r.id = ri.reservation_id
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($2::date, 'infinity'::date)
-           -- Trwające przedłużenie blokuje sprzęt na czas płatności: klient nie
-           -- może opłacać terminu, który ktoś inny właśnie zajmuje.
-           AND COALESCE((
-                 SELECT MAX(e.new_end_date) FROM rental_extensions e
-                 WHERE e.reservation_id = r.id AND e.status = 'pending' AND e.expires_at > CURRENT_TIMESTAMP
-               ), r.end_date, 'infinity'::date) > $3::date
+           AND ${zajetyDoSql()} > $3::date
          GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.is_active, p.condition_status
          HAVING p.id IS NULL
             OR NOT p.is_active
@@ -1157,7 +1165,7 @@ export const queries = {
        LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
          AND r.status IN ('pending', 'confirmed', 'picked_up')
          AND r.start_date < COALESCE($3::date, 'infinity'::date)
-         AND COALESCE(r.end_date, 'infinity'::date) > $4::date
+         AND ${zajetyDoSql()} > $4::date
       GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
        HAVING p.id IS NULL
           OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
@@ -1208,7 +1216,7 @@ export const queries = {
          LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < COALESCE($3::date, 'infinity'::date)
-           AND COALESCE(r.end_date, 'infinity'::date) > $4::date
+           AND ${zajetyDoSql()} > $4::date
          GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
          HAVING p.id IS NULL
             OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
@@ -1326,7 +1334,7 @@ export const queries = {
          LEFT JOIN reservations r ON r.id = ri.reservation_id AND r.id <> $2
            AND r.status IN ('pending', 'confirmed', 'picked_up')
            AND r.start_date < $3::date
-           AND COALESCE(r.end_date, 'infinity'::date) > $4::date
+           AND ${zajetyDoSql()} > $4::date
          GROUP BY requested.product_id, p.id, p.total_quantity, p.service_quantity, p.condition_status
          HAVING p.id IS NULL
             OR COUNT(DISTINCT r.id) >= ${rentableQuantitySql()}`,
@@ -2163,15 +2171,17 @@ export const queries = {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // Tylko sesje za sam najem. Doplaty rozliczeniowe i trwajace przedluzenie
+      // maja wlasne kwoty - przyjecie gotowki za najem nie moze ich unieważnić.
       await client.query(
         `UPDATE payments SET status = 'cancelled'
-         WHERE reservation_id = $1 AND status = 'pending'`,
+         WHERE reservation_id = $1 AND status = 'pending' AND kind = 'rental'`,
         [data.reservationId]
       );
       const sessionId = `manual-${data.reservationId}-${Date.now().toString(36)}`;
       await client.query(
-        `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, status, paid_at)
-         VALUES ($1, $2, $3, $4, $5, 'paid', CURRENT_TIMESTAMP)`,
+        `INSERT INTO payments (reservation_id, provider, session_id, external_id, amount, status, paid_at, kind)
+         VALUES ($1, $2, $3, $4, $5, 'paid', CURRENT_TIMESTAMP, 'rental')`,
         [data.reservationId, data.method, sessionId, data.confirmedBy.slice(0, 120), data.amount]
       );
       await client.query(
