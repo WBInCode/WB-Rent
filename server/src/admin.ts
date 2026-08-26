@@ -1082,7 +1082,10 @@ router.post('/reservations/:id/change-term', adminAuth, async (req: Request, res
       if (!pricing) throw new Error('Nie udało się przeliczyć sprzętu');
       basePrice = pricing.basePrice;
       const fixedFees = Number(reservation.total_price) - Number(reservation.base_price);
-      totalPrice = basePrice + fixedFees;
+      // Pakiet weekendowy liczy się płaską stawką, która bywa niższa niż suma dni już
+      // naliczona wcześniej — a to zawsze przedłużenie (patrz walidacja newEndAt powyżej),
+      // więc kwota nigdy nie powinna spaść poniżej tego, co już naliczono.
+      totalPrice = Math.max(basePrice + fixedFees, Number(reservation.total_price));
     }
 
     const result = await queries.changeReservationTerm({

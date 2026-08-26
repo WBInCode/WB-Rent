@@ -3,12 +3,8 @@ import { Link, Navigate } from 'react-router';
 import {
   ArrowLeft,
   BadgeCheck,
-  Camera,
   Check,
-  CheckCircle2,
   Clock3,
-  Copy,
-  ExternalLink,
   FileSignature,
   Layers3,
   Loader2,
@@ -33,7 +29,6 @@ import {
   validateContractDetails,
   type CreateContractPayload,
 } from '@/services/adminApi';
-import { HandoverPhotos } from '@/components/HandoverPhotos';
 import ThemeToggle from '@/components/ThemeToggle';
 
 const todayLocal = () => {
@@ -141,12 +136,7 @@ export function StaffRentalPage() {
   const [handoverItems, setHandoverItems] = useState<string[]>([]);
   const [handoverEdited, setHandoverEdited] = useState(false);
   const [handoverNonce, setHandoverNonce] = useState(0);
-  const [session, setSession] = useState<{
-    reservationId: number;
-    contractNumber: string;
-    signingUrl: string;
-    expiresAt: string;
-  } | null>(null);
+  const [session, setSession] = useState<{ reservationId: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -432,81 +422,15 @@ export function StaffRentalPage() {
     }
 
     localStorage.setItem('wb-rent-employee-name', form.employeeName);
-    setSession({ reservationId, ...contract.data });
+    setSession({ reservationId });
     setSubmitting(false);
   };
 
+  // Umowa jest już przygotowana (createContractSession powyżej) — protokół wydania
+  // wykryje to sam (contractStatus 'ready') i pokaże ją od razu do podpisu, bez
+  // ponownego wpisywania danych. Jedno okno robocze aż do wydania sprzętu.
   if (session) {
-    return (
-      <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4 py-12">
-        <Card variant="glass" className="max-w-xl w-full p-8">
-          <div className="text-center">
-            <CheckCircle2 className="w-16 h-16 text-green-500 light:text-green-700 mx-auto mb-5" />
-            <h1 className="text-2xl font-bold">Wynajem i umowa gotowe</h1>
-            <p className="text-text-secondary mt-2">
-              Rezerwacja #{session.reservationId} • {session.contractNumber}
-            </p>
-            <p className="text-sm text-text-muted mt-2 mb-6">
-              Przekaż urządzenie klientowi. Po podpisaniu system wygeneruje PDF, wyśle e-mail i uruchomi płatność.
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-bg-secondary border border-border text-left text-xs text-text-secondary break-all mb-6">
-            {session.signingUrl}
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button variant="primary" onClick={() => window.open(session.signingUrl, '_blank', 'noopener,noreferrer')}>
-              <ExternalLink className="w-4 h-4 mr-2" /> Uruchom ekran podpisu
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                await navigator.clipboard.writeText(session.signingUrl);
-              }}
-            >
-              <Copy className="w-4 h-4 mr-2" /> Kopiuj link
-            </Button>
-          </div>
-
-          <div className="mt-8 pt-6 border-t border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <Package className="w-4 h-4 text-gold" /> Następny krok: wydanie sprzętu
-            </h2>
-            <p className="text-xs text-text-muted mt-1 mb-4">
-              Po podpisaniu umowy i opłaceniu najmu otwórz protokół wydania — tam dodasz zdjęcia stanu,
-              uwagi i zbierzesz oba podpisy. Podpisany protokół oznacza sprzęt jako wydany.
-            </p>
-            <Link to={`/admin/wydanie/${session.reservationId}`}>
-              <Button variant="secondary" className="w-full">
-                <FileSignature className="w-4 h-4 mr-2" /> Otwórz protokół wydania
-              </Button>
-            </Link>
-          </div>
-
-          <div className="mt-8 pt-6 border-t border-border">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <Camera className="w-4 h-4 text-gold" /> Dokumentacja stanu sprzętu
-            </h2>
-            <p className="text-xs text-text-muted mt-1 mb-4">
-              Zrób zdjęcia przy wydaniu, a po zwrocie uzupełnij je drugą serią. Zapisują się przy rezerwacji.
-            </p>
-            <HandoverPhotos
-              reservationId={session.reservationId}
-              takenBy={form.employeeName}
-              onNotify={(message, tone) => setError(tone === 'error' ? message : '')}
-            />
-            {error && (
-              <p className="mt-3 text-sm text-red-300 light:text-red-700">{error}</p>
-            )}
-          </div>
-
-          <div className="text-center">
-            <Link to="/admin" className="inline-block mt-7 text-sm text-text-muted hover:text-gold">
-              Wróć do panelu
-            </Link>
-          </div>
-        </Card>
-      </div>
-    );
+    return <Navigate to={`/admin/wydanie/${session.reservationId}`} replace />;
   }
 
   return (

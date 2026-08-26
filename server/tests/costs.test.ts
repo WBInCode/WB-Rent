@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { rozpiszKoszty, rozpisJakoLinie, zloty } from '../src/costs.js';
 import { opiszTermin, opiszMiejsca, ADRES_FIRMY } from '../src/rental-details.js';
+import { calculateRentalItemsPrice } from '../src/products.js';
 
 const bazowa = {
   days: 2,
@@ -137,5 +138,24 @@ describe('opiszMiejsca', () => {
   it('wraca do adresu punktu, gdy dowóz wybrano bez podania adresu', () => {
     const m = opiszMiejsca({ delivery: 1, address: '', city: 'Nie podano' });
     expect(m.odbior.adres).toBe(ADRES_FIRMY);
+  });
+});
+
+describe('zmiana terminu nie może obniżyć już naliczonej kwoty', () => {
+  // Zgłoszenie: rezerwacja na 40 zł po zmianie terminu przez pracownika pokazała 30 zł.
+  // Przyczyna: pakiet weekendowy liczy się płaską stawką, która bywa niższa niż suma dni
+  // już naliczona wcześniej (server/src/admin.ts, endpoint /reservations/:id/change-term).
+  it('pakiet weekendowy (płaska stawka) bywa tańszy niż dotychczasowe dni z osobna', () => {
+    // puzzi-10-1: 45 zł/doba, pakiet weekendowy 150 zł za 3 doby.
+    const naDni = calculateRentalItemsPrice(['puzzi-10-1'], 4, false); // 45 + 45*3 = 180
+    const pakietWeekendowy = calculateRentalItemsPrice(['puzzi-10-1'], 3, true); // 150
+    expect(naDni?.basePrice).toBe(180);
+    expect(pakietWeekendowy?.basePrice).toBe(150); // niżej — bez strażnika kwota by spadła
+
+    const totalPriceBefore = 180;
+    const basePriceBefore = 180;
+    const fixedFees = totalPriceBefore - basePriceBefore;
+    const totalPriceGuarded = Math.max((pakietWeekendowy?.basePrice ?? 0) + fixedFees, totalPriceBefore);
+    expect(totalPriceGuarded).toBe(totalPriceBefore);
   });
 });

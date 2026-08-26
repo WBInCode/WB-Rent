@@ -1486,7 +1486,7 @@ export function AdminPanel() {
                             onClick={() => void openTermModal(reservation)}
                             title="Przedłuż wynajem lub zmień go na bezterminowy"
                           >
-                            <CalendarPlus className="w-4 h-4 mr-1.5" /> {reservation.is_indefinite ? 'Ustal zwrot' : 'Termin'}
+                            <CalendarPlus className="w-4 h-4 mr-1.5" /> {reservation.is_indefinite ? 'Ustal zwrot' : 'Przedłużenie'}
                           </Button>
                         )}
                         <span className="text-xs text-text-muted ml-auto sm:ml-1">#{reservation.id}</span>

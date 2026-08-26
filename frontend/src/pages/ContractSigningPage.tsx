@@ -194,11 +194,20 @@ export function ContractSigningPage() {
                 <Download className="w-4 h-4 mr-2" /> Pobierz umowę
               </Button>
             </a>
-            <Link to="/" className="flex-1">
-              <Button variant="ghost" className="w-full">
-                <ArrowLeft className="w-4 h-4 mr-2" /> Wróć do sklepu
+            {window.opener ? (
+              // Karta otwarta z panelu admina (podpis na tablecie) — panel już
+              // wykrył podpis przez polling, więc zamknięcie karty po prostu
+              // oddaje ekran z powrotem, bez gubienia się między kartami.
+              <Button variant="ghost" className="flex-1" onClick={() => window.close()}>
+                <ArrowLeft className="w-4 h-4 mr-2" /> Zamknij i wróć do panelu
               </Button>
-            </Link>
+            ) : (
+              <Link to="/" className="flex-1">
+                <Button variant="ghost" className="w-full">
+                  <ArrowLeft className="w-4 h-4 mr-2" /> Wróć do sklepu
+                </Button>
+              </Link>
+            )}
           </div>
         </Card>
       </div>
