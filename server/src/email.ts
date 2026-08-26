@@ -582,19 +582,26 @@ export const sendReservationStatusEmail = async (
 };
 
 
-export const sendRentalTermChangedEmail = async (reservation: {
-  email: string;
-  name: string;
-  productName: string;
-  endDate: string;
-  totalPrice: number;
-  priceDelta: number;
-  note: string;
-}) => {
+export const sendRentalTermChangedEmail = async (
+  reservation: {
+    email: string;
+    name: string;
+    productName: string;
+    endDate: string;
+    totalPrice: number;
+    priceDelta: number;
+    note: string;
+  },
+  /** Aneks przedłużenia — dołączany tylko dla samoobsługowego przedłużenia, nie ma go przy ręcznej zmianie terminu przez pracownika. */
+  annexPdf?: { filename: string; content: Buffer }
+) => {
   reservation = escFields(reservation, ['name', 'productName', 'endDate', 'note']);
   const subject = 'Zmiana okresu wynajmu - WB-Rent';
   const priceChange = reservation.priceDelta > 0
     ? `<p style="color: #fbbf24; margin: 8px 0 0;">Dopłata za zmianę: <strong>${reservation.priceDelta.toFixed(2)} PLN</strong></p>`
+    : '';
+  const zalacznik = annexPdf
+    ? `<p style="color: #a1a1aa; font-size: 14px;">W załączniku znajdziesz aneks potwierdzający przedłużenie.</p>`
     : '';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0a0a0a; color: #ffffff; padding: 30px; border-radius: 12px;">
@@ -608,10 +615,16 @@ export const sendRentalTermChangedEmail = async (reservation: {
         ${priceChange}
       </div>
       <p style="color: #a1a1aa; font-size: 14px;">Uzgodnienie: ${reservation.note}</p>
+      ${zalacznik}
       <p style="color: #71717a; font-size: 12px; margin-top: 24px;">Ta wiadomość potwierdza zmianę w formie dokumentowej. Pytania: 570 038 828.</p>
     </div>
   `;
-  return sendEmail(reservation.email, subject, html);
+  return sendEmail(
+    reservation.email,
+    subject,
+    html,
+    annexPdf ? [{ filename: annexPdf.filename, content: annexPdf.content, contentType: 'application/pdf' }] : []
+  );
 };
 
 

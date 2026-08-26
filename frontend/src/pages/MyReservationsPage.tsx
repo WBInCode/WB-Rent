@@ -11,6 +11,7 @@ import {
   Ban,
   Check,
   CalendarPlus,
+  Download,
 } from 'lucide-react';
 import { Button, Card, Badge, Input } from '@/components/ui';
 import { UtilityPageShell } from '@/components/UtilityPageShell';
@@ -22,6 +23,7 @@ import {
   cancelMyReservation,
   createPayment,
   getPaymentConfig,
+  extensionAnnexPdfUrl,
   type MyReservation,
 } from '@/services/api';
 
@@ -286,6 +288,18 @@ export function MyReservationsPage() {
                           <CalendarPlus className="w-4 h-4 mr-1.5" />
                           Przedłuż
                         </Button>
+                      )}
+                      {r.latestExtensionAnnex && (
+                        <a
+                          href={extensionAnnexPdfUrl(r.id, r.latestExtensionAnnex.id, token)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Button variant="ghost" size="sm">
+                            <Download className="w-4 h-4 mr-1.5" />
+                            Pobierz aneks
+                          </Button>
+                        </a>
                       )}
                       {canCancel(r) && (
                         <Button

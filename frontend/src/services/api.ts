@@ -375,7 +375,13 @@ export interface MyReservation {
   canPayOnline?: boolean;
   /** Powod, dla ktorego klient nie moze anulowac sam; null = moze. */
   cancelBlockedReason?: string | null;
+  /** Ostatni oplacony aneks przedluzenia z gotowym PDF do pobrania; null = brak. */
+  latestExtensionAnnex?: { id: number; number: string } | null;
 }
+
+/** Adres do pobrania PDF aneksu — token w query, tak jak inne linki self-service. */
+export const extensionAnnexPdfUrl = (reservationId: number, extensionId: number, token: string) =>
+  `${API_BASE_URL}/my-reservations/${reservationId}/extension/${extensionId}/pdf?token=${encodeURIComponent(token)}`;
 
 export async function requestMyReservationsLink(
   email: string

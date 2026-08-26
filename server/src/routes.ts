@@ -5,7 +5,7 @@ import { contactSchema, reservationSchema, newsletterSubscribeSchema, productNot
 import { queries } from './db.js';
 import { products, calculateFullyBookedRanges, calculateRentalItemsPrice, DELIVERY_LEG_FEE, getProductName, normalizeAddons, priceAddons, WEEKEND_SERVICE_FEE } from './products.js';
 import { ocenAdresDostawy, znormalizujKod } from './delivery-area.js';
-import { extensionRequestSchema, rozpocznijPrzedluzenie, wycenPrzedluzenie, MINUT_NA_PLATNOSC } from './rental-extensions.js';
+import { extensionRequestSchema, rozpocznijPrzedluzenie, wycenPrzedluzenie, odczytajAneksPdf, MINUT_NA_PLATNOSC } from './rental-extensions.js';
 import { verifyUnsubscribeToken, issueCustomerToken, verifyCustomerToken, verifyToken } from './auth.js';
 import {
   couponRejectionReason,
@@ -843,28 +843,29 @@ router.get('/my-reservations', async (req: Request, res: Response) => {
 
     const reservations = await queries.getReservationsByEmail(email);
     const now = Date.now();
-    res.json({
-      success: true,
-      email,
-      data: reservations.map((r: any) => {
-        const items = Array.isArray(r.items) && r.items.length > 0
-          ? r.items.map((item: any) => ({
-              ...item,
-              productName: getProductName(String(item.product_id)),
-            }))
-          : [{ product_id: r.product_id, productName: getProductName(r.product_id) }];
-        return {
-          ...r,
-          items,
-          productName: items.map((item: any) => item.productName).join(', '),
-          // Ten sam etap co w panelu - klient i obsluga nie moga widziec dwoch
-          // roznych wersji tego samego najmu.
-          stage: describeRentalStage(r, now),
-          canPayOnline: canCustomerPayOnline(r),
-          cancelBlockedReason: powodBrakuAnulowania(r),
-        };
-      }),
-    });
+    const data = await Promise.all(reservations.map(async (r: any) => {
+      const items = Array.isArray(r.items) && r.items.length > 0
+        ? r.items.map((item: any) => ({
+            ...item,
+            productName: getProductName(String(item.product_id)),
+          }))
+        : [{ product_id: r.product_id, productName: getProductName(r.product_id) }];
+      // Najnowszy oplacony aneks z gotowym PDF - do przycisku "Pobierz aneks".
+      const aneksy = await queries.getExtensionsForReservation(r.id);
+      const aneksZPdf = aneksy.find((a: any) => a.status === 'paid' && a.pdf_path);
+      return {
+        ...r,
+        items,
+        productName: items.map((item: any) => item.productName).join(', '),
+        // Ten sam etap co w panelu - klient i obsluga nie moga widziec dwoch
+        // roznych wersji tego samego najmu.
+        stage: describeRentalStage(r, now),
+        canPayOnline: canCustomerPayOnline(r),
+        cancelBlockedReason: powodBrakuAnulowania(r),
+        latestExtensionAnnex: aneksZPdf ? { id: aneksZPdf.id, number: aneksZPdf.number } : null,
+      };
+    }));
+    res.json({ success: true, email, data });
   } catch (error) {
     console.error('My reservations error:', error);
     res.status(500).json({ success: false, message: 'Błąd serwera' });
@@ -971,6 +972,28 @@ router.post('/my-reservations/:id/extension', async (req: Request, res: Response
     }
     console.error('Extension start error:', error);
     res.status(500).json({ success: false, message: 'Nie udało się rozpocząć przedłużenia' });
+  }
+});
+
+router.get('/my-reservations/:id/extension/:extensionId/pdf', async (req: Request, res: Response) => {
+  try {
+    const kontekst = await rezerwacjaKlienta(req);
+    if (kontekst.blad) {
+      res.status(kontekst.kod).json({ success: false, message: kontekst.blad });
+      return;
+    }
+    const pdf = await odczytajAneksPdf(kontekst.rezerwacja.id, Number(req.params.extensionId));
+    if (!pdf) {
+      res.status(404).json({ success: false, message: 'Aneks nie istnieje' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(pdf.buffer);
+  } catch (error) {
+    console.error('Extension PDF download error:', error);
+    res.status(500).json({ success: false, message: 'Błąd serwera' });
   }
 });
 

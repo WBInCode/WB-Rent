@@ -421,15 +421,23 @@ router.post('/webhook/:provider', async (req: Request, res: Response) => {
           console.log(`📄 Aneks ${aktywowany.extension.number} wszedł w życie`);
           const { sendRentalTermChangedEmail } = await import('../email.js');
           const { reservationProductNames } = await import('../products.js');
-          await sendRentalTermChangedEmail({
-            email: aktywowany.reservation.email,
-            name: aktywowany.reservation.name,
-            productName: reservationProductNames(aktywowany.reservation),
-            endDate: String(aktywowany.reservation.end_date).slice(0, 10),
-            totalPrice: Number(aktywowany.reservation.total_price),
-            priceDelta: Number(aktywowany.extension.surcharge),
-            note: `Aneks ${aktywowany.extension.number} — przedłużenie opłacone`,
-          }).catch((err) => console.error('Mail o przedłużeniu:', err));
+          await sendRentalTermChangedEmail(
+            {
+              email: aktywowany.reservation.email,
+              name: aktywowany.reservation.name,
+              productName: reservationProductNames(aktywowany.reservation),
+              endDate: String(aktywowany.reservation.end_date).slice(0, 10),
+              totalPrice: Number(aktywowany.reservation.total_price),
+              priceDelta: Number(aktywowany.extension.surcharge),
+              note: `Aneks ${aktywowany.extension.number} — przedłużenie opłacone`,
+            },
+            aktywowany.pdf
+              ? {
+                  filename: `aneks-${aktywowany.extension.number.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+                  content: aktywowany.pdf.buffer,
+                }
+              : undefined
+          ).catch((err) => console.error('Mail o przedłużeniu:', err));
         }
       }
     }

@@ -687,6 +687,17 @@ const migrations: Array<{ version: number; name: string; sql: string }> = [
         ON payments (status, created_at) WHERE status = 'pending';
     `,
   },
+  {
+    version: 25,
+    name: 'rental-extensions-pdf',
+    sql: `
+      -- Aneks wchodzi w zycie automatycznie po platnosci (par. 5 ust. 3), wiec
+      -- PDF generuje sie od razu po aktywacji, bez interaktywnego podpisu.
+      ALTER TABLE rental_extensions
+        ADD COLUMN IF NOT EXISTS pdf_path TEXT,
+        ADD COLUMN IF NOT EXISTS pdf_hash TEXT;
+    `,
+  },
 ];
 
 async function runMigrations(client: import('pg').PoolClient) {
@@ -1487,6 +1498,22 @@ export const queries = {
       [reservationId]
     );
     return result.rows;
+  },
+
+  /** Aneks danej rezerwacji po id — do sprawdzenia, ze pobierany PDF nalezy do wlasciciela rezerwacji. */
+  getExtensionForReservation: async (reservationId: number, extensionId: number) => {
+    const result = await pool.query(
+      `SELECT * FROM rental_extensions WHERE id = $1 AND reservation_id = $2`,
+      [extensionId, reservationId]
+    );
+    return result.rows[0];
+  },
+
+  attachExtensionPdf: async (id: number, pdfPath: string, pdfHash: string) => {
+    await pool.query(
+      `UPDATE rental_extensions SET pdf_path = $1, pdf_hash = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+      [pdfPath, pdfHash, id]
+    );
   },
 
   /**

@@ -8,10 +8,15 @@
  * jedynie sprzęt, żeby nikt nie zajął opłacanego właśnie terminu.
  */
 import { z } from 'zod';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { queries } from './db.js';
-import { calculateRentalItemsPrice, reservationProductIds } from './products.js';
+import { calculateRentalItemsPrice, reservationProductIds, reservationProductNames } from './products.js';
 import { createPaymentForReservation } from './payments/routes.js';
 import { opiszTermin } from './rental-details.js';
+import { config } from './config.js';
+import { generateExtensionAnnexPdf } from './contracts/extension-pdf.js';
+import { encryptContractData, decryptContractData, sha256 } from './contracts/crypto.js';
 
 /** Ile klient ma na opłacenie aneksu. Po tym czasie sprzęt wraca do puli. */
 export const MINUT_NA_PLATNOSC = 60;
@@ -149,7 +154,65 @@ export async function rozpocznijPrzedluzenie(
   };
 }
 
-/** Wywoływane po zaksięgowaniu wpłaty — dopiero teraz aneks wiąże Strony. */
+/**
+ * Wywoływane po zaksięgowaniu wpłaty — dopiero teraz aneks wiąże Strony.
+ * Aneks nie ma interaktywnego podpisu (§5 ust. 3: wchodzi w życie automatycznie
+ * z chwilą wpłaty), więc PDF generuje się od razu, bez ekranu podpisu.
+ */
 export async function aktywujPrzedluzenie(sessionId: string) {
-  return queries.activateRentalExtension(sessionId);
+  const aktywowany = await queries.activateRentalExtension(sessionId);
+  if (!aktywowany) return null;
+
+  try {
+    const kontrakt = await queries.getContractByReservationId(aktywowany.reservation.id);
+    const pdf = await generateExtensionAnnexPdf({
+      number: aktywowany.extension.number,
+      contractNumber: kontrakt?.contract_number ?? null,
+      renterName: aktywowany.reservation.name,
+      productNames: reservationProductNames(aktywowany.reservation),
+      previousEndDate: String(aktywowany.extension.previous_end_date),
+      previousEndTime: String(aktywowany.extension.previous_end_time || '09:00'),
+      previousTotal: Number(aktywowany.extension.previous_total),
+      newEndDate: String(aktywowany.extension.new_end_date),
+      newEndTime: String(aktywowany.extension.new_end_time),
+      newTotal: Number(aktywowany.extension.new_total),
+      surcharge: Number(aktywowany.extension.surcharge),
+      paidAt: new Date(aktywowany.extension.paid_at).toISOString(),
+      paymentSessionId: sessionId,
+    });
+    const pdfHash = sha256(pdf);
+    const storageDir = path.resolve(config.contracts.storageDir);
+    await fs.mkdir(storageDir, { recursive: true });
+    const pdfPath = path.join(storageDir, `aneks-${aktywowany.extension.id}-${pdfHash.slice(0, 16)}.pdf.enc`);
+    await fs.writeFile(pdfPath, encryptContractData(pdf), { mode: 0o600 });
+    await queries.attachExtensionPdf(aktywowany.extension.id, pdfPath, pdfHash);
+    await queries.registerContractDocument({
+      title: `Aneks ${aktywowany.extension.number}`,
+      reservationId: aktywowany.reservation.id,
+      customerEmail: aktywowany.reservation.email || '',
+      documentDate: new Date(aktywowany.extension.paid_at).toISOString().slice(0, 10),
+      fileName: `aneks-${aktywowany.extension.number.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+      filePath: pdfPath,
+      sizeBytes: pdf.length,
+      fileHash: pdfHash,
+      notes: 'Aneks przedłużenia wygenerowany automatycznie po zaksięgowaniu wpłaty.',
+    }).catch((error) => console.error('Register extension document error:', error));
+
+    return { ...aktywowany, pdf: { buffer: pdf, path: pdfPath, hash: pdfHash } };
+  } catch (error) {
+    // PDF to dowód dodatkowy — aneks juz wiaze Strony przez sama platnosc (§5 ust. 3),
+    // wiec blad generowania nie moze cofnac aktywacji, ktora juz przeszla w DB.
+    console.error('Nie udało się wygenerować PDF aneksu:', error);
+    return { ...aktywowany, pdf: null };
+  }
+}
+
+/** Pobranie aneksu przez klienta — kontroler wywołujący musi wcześniej zweryfikować, że aneks należy do tej rezerwacji. */
+export async function odczytajAneksPdf(reservationId: number, extensionId: number) {
+  const aneks = await queries.getExtensionForReservation(reservationId, extensionId);
+  if (!aneks || !aneks.pdf_path) return null;
+  return {
+    buffer: decryptContractData(await fs.readFile(aneks.pdf_path, 'utf8')),
+    filename: `aneks-${String(aneks.number).replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`,
+  };
 }
