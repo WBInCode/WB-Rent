@@ -97,8 +97,17 @@ router.get('/products', async (_req: Request, res: Response) => {
   }
 });
 
+// Anti-abuse: only the global limiter covered this before - too loose to stop a mailbox flood.
+const contactLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Zbyt wiele wiadomości. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // === POST /api/contact ===
-router.post('/contact', async (req: Request, res: Response) => {
+router.post('/contact', contactLimiter, async (req: Request, res: Response) => {
   try {
     const data = contactSchema.parse(req.body);
 
@@ -193,7 +202,17 @@ router.post('/coupons/validate', couponValidateLimiter, async (req: Request, res
   }
 });
 
-router.post('/reservations', async (req: Request, res: Response) => {
+// Anti-abuse: only the global limiter covered this before - too loose to stop a flood of
+// fake reservations that blocks real equipment availability (also used by staff panel creation).
+const createReservationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Zbyt wiele rezerwacji z tego adresu. Spróbuj ponownie za 15 minut.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/reservations', createReservationLimiter, async (req: Request, res: Response) => {
   try {
     const data = reservationSchema.parse(req.body);
     const productIds = data.productIds?.length ? [...data.productIds] : [data.productId];
